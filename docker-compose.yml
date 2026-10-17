@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: lf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lf}
+      POSTGRES_DB: lf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "lf"]
+      interval: 2s
+      retries: 30
+
+  app:
+    build: .
+    environment: &env
+      DATABASE_URL: postgresql://lf:${POSTGRES_PASSWORD:-lf}@db:5432/lf
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in .env}
+      POLICY: ${POLICY:-bayes-v1}
+      SHADOW_POLICIES: ${SHADOW_POLICIES:-}
+      CONTROL_UNIT: ${CONTROL_UNIT:-conversation}
+      HOST_UI_OVERRIDE: ${HOST_UI_OVERRIDE:-{}}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nightly:
+    build: .
+    environment: *env
+    command: ["sh", "-c", "while true; do sleep 86400; python -m app.nightly; done"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

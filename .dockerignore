@@ -1,0 +1,7 @@
+.venv
+.git
+**/__pycache__
+widget/node_modules
+app/static
+tests
+.env

@@ -1,0 +1,93 @@
+:root {
+  color-scheme: light dark;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: var(--font-text-md-size, 16px);
+  line-height: var(--font-text-md-line-height, 1.55);
+  color: var(--color-text-primary, CanvasText);
+  background: transparent;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  padding: 4px 2px 8px;
+  overflow-wrap: anywhere;
+}
+
+#reply > :first-child {
+  margin-top: 0;
+}
+
+a {
+  color: var(--color-text-info, LinkText);
+}
+
+pre {
+  position: relative;
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--color-background-secondary, rgba(127, 127, 127, 0.12));
+}
+
+code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-text-sm-size, 14px);
+}
+
+table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 4px 10px;
+  border: var(--border-width-regular, 1px) solid var(--color-border-secondary, rgba(127, 127, 127, 0.3));
+}
+
+#actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+#buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button {
+  font: inherit;
+  font-size: var(--font-text-sm-size, 14px);
+  padding: 6px 12px;
+  border-radius: var(--border-radius-full, 999px);
+  border: var(--border-width-regular, 1px) solid var(--color-border-primary, rgba(127, 127, 127, 0.4));
+  background: var(--color-background-primary, Canvas);
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-secondary, GrayText);
+}
+
+pre > button.copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+}
