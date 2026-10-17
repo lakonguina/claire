@@ -10,7 +10,10 @@ from sqlalchemy.ext import asyncio as sa_asyncio
 from app import db
 from app import models
 
-if context.config.config_file_name:
+# The CLI configures logging; the app, which migrates at start, keeps its own.
+if context.config.config_file_name and context.config.attributes.get(
+    "configure_logger", True
+):
     logging_config.fileConfig(
         context.config.config_file_name, disable_existing_loggers=False
     )

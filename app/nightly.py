@@ -221,11 +221,8 @@ def refit_families(
             fam["kappa"] = stats.mean_var(
                 [c["kappa_mean"] for c in conversations], weights
             )[0]
-        if (
-            f in families.params
-            or max(sum(speed_w), sum(weights)) >= MIN_WEIGHT
-        ):
-            learned[f] = fam
+        if max(sum(speed_w), sum(bias_w), sum(weights)) >= MIN_WEIGHT:
+            learned[f] = fam  # Only families with evidence are learned.
     if learned:
         # mu0 holds the population level, so the family biases are centred.
         center = sum(fam["b"] for fam in learned.values()) / len(learned)
