@@ -7,6 +7,12 @@
   background: transparent;
 }
 
+/* The host sizes the iframe to the content (size-changed notifications), so the page itself never scrolls. */
+html,
+body {
+  overflow: hidden;
+}
+
 body {
   margin: 0;
 }
