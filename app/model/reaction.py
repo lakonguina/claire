@@ -7,6 +7,7 @@ from app.model import bandits
 from app.model import stats
 
 OUTCOMES = [o for o in vocab.Outcome if o != vocab.Outcome.NO_SIGNAL]
+POOLED = "all"  # The stratum shared by every observation of an annotator.
 NO_INFO = "_none"  # An observation with P = 1 under every true outcome.
 POSITIONS = 3
 # The button annotator observes one joint token per turn:
@@ -39,7 +40,7 @@ class Observation:
     annotator: str
     dist: dict[str, float]
     strata: dict[str, float] = dataclasses.field(
-        default_factory=lambda: {"all": 1.0}
+        default_factory=lambda: {POOLED: 1.0}
     )
 
 
@@ -77,17 +78,21 @@ def _button_row(outcome: str) -> dict[str, float]:
     return row
 
 
-def default_confusions(families: list[str]) -> dict[str, Confusion]:
-    """Returns the initial confusion matrices of every annotator."""
+def default_confusions() -> dict[str, Confusion]:
+    """Returns the initial confusion matrices of every annotator.
+
+    Each annotator has a POOLED stratum; finer strata (one per model family
+    for the assistant) are learned by Dawid-Skene as data arrives.
+    """
     assistant = {
         y: 0.7 if y == vocab.Outcome.MOVED_ON else 0.8 for y in OUTCOMES
     }
     skim = {y: 0.5 if y == vocab.Outcome.TOO_LONG else 0.25 for y in OUTCOMES}
     return {
-        vocab.Source.ASSISTANT: {f: _rows(assistant) for f in families},
-        vocab.Source.BUTTON: {"all": {y: _button_row(y) for y in OUTCOMES}},
+        vocab.Source.ASSISTANT: {POOLED: _rows(assistant)},
+        vocab.Source.BUTTON: {POOLED: {y: _button_row(y) for y in OUTCOMES}},
         vocab.Source.READING: {
-            "all": {y: {"skim": p, "read": 1 - p} for y, p in skim.items()}
+            POOLED: {y: {"skim": p, "read": 1 - p} for y, p in skim.items()}
         },
     }
 
@@ -98,7 +103,8 @@ def likelihood(obs: Observation, confusion: Confusion) -> list[float]:
     for y in OUTCOMES:
         total = 0.0
         for stratum, weight in obs.strata.items():
-            row = confusion[stratum][y]
+            rows = confusion[stratum if stratum in confusion else POOLED]
+            row = rows[y]
             total += weight * sum(
                 p * (1.0 if o == NO_INFO else row.get(o, 0.0))
                 for o, p in obs.dist.items()
@@ -156,7 +162,15 @@ def dawid_skene(
         for item, post in zip(items, posts):
             for obs in item.observations:
                 for stratum, weight in obs.strata.items():
-                    cells = counts[obs.annotator][stratum]
+                    cells = counts[obs.annotator].setdefault(
+                        stratum,
+                        {
+                            y: dict.fromkeys(
+                                ALPHABETS[obs.annotator], smoothing
+                            )
+                            for y in OUTCOMES
+                        },
+                    )
                     for o, p in obs.dist.items():
                         if o != NO_INFO:
                             for y, py in zip(OUTCOMES, post):

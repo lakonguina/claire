@@ -425,7 +425,7 @@ async function renderModel() {
       <div class="panel"><h2>Button annotator</h2>${heatmap(m.confusions.button.all)}</div>
       <div class="panel"><h2>Reading annotator</h2>${heatmap(m.confusions.reading.all)}</div>
       <div class="panel"><h2>Self-report reliability ${learned("self_report_reliability")}</h2>${heatmap(m.reliability)}</div>
-      <div class="panel"><h2>Host → family prior ${learned("host_family_prior")}</h2>${Object.keys(m.host_prior).length ? heatmap(m.host_prior) : '<p class="faint">Built-in defaults per host name.</p>'}</div>
+      <div class="panel"><h2>Host → family prior ${learned("host_family_prior")}</h2>${Object.keys(m.host_prior).length ? heatmap(m.host_prior) : '<p class="faint">Uniform until learned (the nightly job needs 20 conversations per host).</p>'}</div>
     </div>`;
   const showFamily = () => { $("#assistant-heat").innerHTML = heatmap(m.confusions.assistant[$("#family").value]); };
   $("#family").onchange = showFamily;

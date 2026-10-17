@@ -416,12 +416,12 @@ async def learned_model() -> dict:
         "reading": vars(p.reading),
         "family": {
             f: {**v, "speed_wps": math.exp(v["speed_mu"])}
-            for f, v in p.family.items()
+            for f, v in p.families.params.items()
         },
         "noise": p.noise,
         "confusions": p.confusions,
-        "reliability": p.reliability,
-        "host_prior": p.host_prior,
+        "reliability": p.families.reliability,
+        "host_prior": p.families.host_prior,
     }
 
 

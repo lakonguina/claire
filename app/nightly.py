@@ -180,11 +180,24 @@ def refit_families(
     p: params_lib.Params,
     theta_means: dict[tuple[int, str], float],
 ) -> None:
-    """Refits each family's speed, bias and compliance, and the priors."""
-    for f in family.FAMILIES:
+    """Refits the behaviour of every family with enough evidence, and the
+    host priors and self-report reliabilities (SPEC 6.3).
+
+    The set of families is open: any family a conversation gave weight to is
+    refit once its evidence reaches MIN_WEIGHT; the others keep the average
+    of the learned families.
+    """
+    families = p.families
+    seen = sorted(
+        {f for t in turns for f in t["family_probs"]}
+        | {f for c in conversations for f in c["family_probs"]}
+        | set(families.params)
+    )
+    learned = {}
+    for f in seen:
         speeds, speed_w, biases, bias_w = [], [], [], []
         for t in turns:
-            weight = t["family_probs"][f]
+            weight = t["family_probs"].get(f, 0.0)
             w = (t["duration"] or 0) - p.overhead
             if w > 0:
                 speeds.append(t["length_mean"] - math.log(w))
@@ -196,24 +209,29 @@ def refit_families(
                     - theta_means[_cell(t)]
                 )
                 bias_w.append(weight)
-        fam = p.family[f]
+        weights = [c["family_probs"].get(f, 0.0) for c in conversations]
+        fam = dict(families.of(f))
         if sum(speed_w) >= MIN_WEIGHT:
             mu, var = stats.mean_var(speeds, speed_w)
             fam.update(speed_mu=mu, speed_sd=math.sqrt(max(var, MIN_VAR)))
         if sum(bias_w) >= MIN_WEIGHT:
             b, var = stats.mean_var(biases, bias_w)
             fam.update(b=b, w=max(var, MIN_VAR))
-        weights = [c["family_probs"][f] for c in conversations]
         if sum(weights) >= MIN_WEIGHT:
             fam["kappa"] = stats.mean_var(
                 [c["kappa_mean"] for c in conversations], weights
             )[0]
-    # mu0 holds the population level, so the family biases are centred.
-    center = sum(p.family[f]["b"] for f in family.FAMILIES) / len(
-        family.FAMILIES
-    )
-    for f in family.FAMILIES:
-        p.family[f]["b"] -= center
+        if (
+            f in families.params
+            or max(sum(speed_w), sum(weights)) >= MIN_WEIGHT
+        ):
+            learned[f] = fam
+    if learned:
+        # mu0 holds the population level, so the family biases are centred.
+        center = sum(fam["b"] for fam in learned.values()) / len(learned)
+        for fam in learned.values():
+            fam["b"] -= center
+    families.params = learned
 
     by_host, by_report = (
         collections.defaultdict(list),
@@ -221,22 +239,22 @@ def refit_families(
     )
     for c in conversations:
         by_host[c["host"]].append(c["family_probs"])
-        reported = family.reported_family(c["assistant_model"])
-        if reported is not None:
+        reported = family.family_of(c["assistant_model"])
+        if reported != family.UNKNOWN:
             by_report[reported].append(c["family_probs"])
 
     def average(probs: list[dict]) -> dict[str, float]:
         sums = [
-            sum(x[f] for x in probs) + HOST_SMOOTHING for f in family.FAMILIES
+            sum(x.get(f, 0.0) for x in probs) + HOST_SMOOTHING for f in seen
         ]
-        return dict(zip(family.FAMILIES, stats.normalize(sums)))
+        return dict(zip(seen, stats.normalize(sums)))
 
-    p.host_prior = {
+    families.host_prior = {
         h: average(v) for h, v in by_host.items() if len(v) >= MIN_WEIGHT
     }
-    for r, v in by_report.items():
-        if len(v) >= MIN_WEIGHT:
-            p.reliability[r] = average(v)
+    families.reliability = {
+        r: average(v) for r, v in by_report.items() if len(v) >= MIN_WEIGHT
+    }
 
 
 def refit_reading(
@@ -303,7 +321,7 @@ async def save_params(session: Session, p: params_lib.Params) -> None:
         [
             *(
                 models.FamilyParam(model_family=f, **v)
-                for f, v in p.family.items()
+                for f, v in p.families.params.items()
             ),
             *(
                 models.SensorNoise(
@@ -328,12 +346,12 @@ async def save_params(session: Session, p: params_lib.Params) -> None:
                 models.SelfReportReliability(
                     reported_family=r, true_family=f, prob=prob
                 )
-                for r, row in p.reliability.items()
+                for r, row in p.families.reliability.items()
                 for f, prob in row.items()
             ),
             *(
                 models.HostFamilyPrior(host=h, model_family=f, prob=prob)
-                for h, row in p.host_prior.items()
+                for h, row in p.families.host_prior.items()
                 for f, prob in row.items()
             ),
             *(models.Hyperparam(name=n, value=v) for n, v in hyper.items()),

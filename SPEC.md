@@ -292,12 +292,14 @@ Nightly, estimate the writing-time and requested-length noise from widget-mode t
 
 What matters is not *which* model answers but *how it behaves*. Behaviour follows a hierarchy: population → model family → conversation.
 
-**Family as a probability, never a hard label.** For each conversation, keep π(c, f) over f ∈ {`claude-opus`, `claude-sonnet`, `claude-haiku`, `gpt`, `other`}:
+**An open set of families, no vendor list.** A family is the self-reported model name without its version tokens (every token holding a digit): `mistral-large-2411` and `Mistral Large 2` are `mistral-large`, `gemini-2.5-pro` is `gemini-pro`, `claude-opus-5-5` is `claude-opus`; no self-report is `unknown`. A family exists as soon as one assistant reports it. Until its own evidence reaches the nightly threshold, its behaviour (speed, bias, compliance) is the average of the families already learned (before any, a population prior: no bias, about 50 words per second, wide spread); the annotator confusion of an unlearned family is the pooled one.
+
+**Family as a probability, never a hard label.** For each conversation, keep π(c, f) over the known families plus the reported one:
 
 π(c, f) ∝ P(f | host) × P(self-report | f) × Π over turns of N(v̂; μ_v(f), s_v(f)²)
 
-- `P(f | host)`: share of each family per host, learned.
-- `P(self-report | f)`: a **reliability matrix** for self-reports, learned. Example: "when a model says Opus, it is Opus 85 % of the time." A missing self-report contributes 1.
+- `P(f | host)`: share of each family per host, learned; uniform until learned.
+- `P(self-report | f)`: a **reliability matrix** for self-reports, learned. Example: "when a model says Opus, it is Opus 85 % of the time" (0.85 is the initial value for a new family). A missing self-report contributes 1.
 - v̂: the turn's estimated log writing speed from section 6.2.
 
 π(c, ·) is updated after every turn.

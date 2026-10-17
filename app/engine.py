@@ -42,16 +42,14 @@ async def conversation_state(
     if state:
         return state
     conv = await session.get(models.Conversation, conversation_id)
-    probs = family.initial_probs(
-        p.host_family_prior(conv.host),
-        family.reported_family(conv.assistant_model),
-        p.reliability,
+    probs = p.families.initial_probs(
+        conv.host, family.family_of(conv.assistant_model)
     )
-    speed_mean, speed_var = family.speed_prior(probs, p.family)
+    speed_mean, speed_var = p.families.speed_prior(probs)
     return models.ConversationState(
         conversation_id=conversation_id,
         family_probs=probs,
-        kappa_mean=family.mix(probs, p.family, "kappa"),
+        kappa_mean=p.families.mix(probs, "kappa"),
         kappa_var=KAPPA_PRIOR_VAR,
         speed_mean=speed_mean,
         speed_var=speed_var,
@@ -311,8 +309,8 @@ async def finalize_turn(
     )
     log_len, len_var = post.mean[0], post.cov[0][0]
     if writing and writing > 0:
-        conv.family_probs = family.update_with_speed(
-            conv.family_probs, log_len - math.log(writing), p.family
+        conv.family_probs = p.families.update_with_speed(
+            conv.family_probs, log_len - math.log(writing)
         )
     conv.kappa_mean, conv.kappa_var = post.mean[1], post.cov[1][1]
     conv.speed_mean, conv.speed_var = post.mean[2], post.cov[2][2]
@@ -363,7 +361,7 @@ async def finalize_turn(
         style["cell"],
         log_len - math.log(turn.needed_words),
         len_var,
-        family.bias(conv.family_probs, p.family),
+        p.families.bias(conv.family_probs),
         outcome_probs,
         p.hyper,
     )

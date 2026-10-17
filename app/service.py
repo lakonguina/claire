@@ -19,7 +19,6 @@ from app import text
 from app import topics
 from app import vocab
 from app.model import bandits
-from app.model import family
 from app.model import policy
 from app.model import prefs
 from app.model import theta
@@ -261,7 +260,7 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
         cell = theta.cell_of(request_type, await _platform(session, conv))
         cell_theta, _ = await engine.grids(session, caller.user_id, cell, p)
         state = await engine.conversation_state(session, conv.id, p)
-        b_mean, b_var = family.bias(state.family_probs, p.family)
+        b_mean, b_var = p.families.bias(state.family_probs)
         ctx = policy.Context(
             needed,
             cell_theta.grid,

@@ -141,18 +141,3 @@ class Source(enum.StrEnum):
     ASSISTANT = enum.auto()
     BUTTON = enum.auto()
     READING = enum.auto()
-
-
-class ModelFamily(enum.StrEnum):
-    """Assistant model families (SPEC 6.3); the last word is the marker."""
-
-    CLAUDE_OPUS = "claude-opus"
-    CLAUDE_SONNET = "claude-sonnet"
-    CLAUDE_HAIKU = "claude-haiku"
-    GPT = "gpt"
-    OTHER = "other"
-
-    @property
-    def marker(self) -> str:
-        """The word that names this family in a model's self-report."""
-        return self.value.rsplit("-", 1)[-1]

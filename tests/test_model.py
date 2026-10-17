@@ -20,8 +20,8 @@ from app.model import reading
 from app.model import stats
 from app.model import theta
 
-CONF = reaction.default_confusions(family.FAMILIES)
-FAMILY_PROBS = {f: 1 / len(family.FAMILIES) for f in family.FAMILIES}
+CONF = reaction.default_confusions()
+FAMILY_PROBS = {"claude-opus": 0.5, "mistral-large": 0.5}
 
 
 def outcome_probs(verdict: str) -> list[float]:
@@ -151,28 +151,54 @@ def test_dawid_skene_recovers_confusions():
     assert max(errors) < 0.1
 
 
+def test_family_names_are_normalised_without_a_vendor_list():
+    cases = {
+        "mistral-large-2411": "mistral-large",
+        "Mistral Large 2": "mistral-large",
+        "gemini-2.5-pro": "gemini-pro",
+        "claude-opus-5-5": "claude-opus",
+        "llama-3.1-70b-instruct": "llama-instruct",
+        None: family.UNKNOWN,
+        "4o": family.UNKNOWN,
+    }
+    for name, expected in cases.items():
+        assert family.family_of(name) == expected
+
+
+def test_new_families_start_from_the_learned_average():
+    families = family.Families(
+        params={
+            "a": {**family.POPULATION, "speed_mu": math.log(40)},
+            "b": {**family.POPULATION, "speed_mu": math.log(60)},
+        }
+    )
+    unseen = families.of("mistral-large")
+    assert unseen["speed_mu"] == pytest.approx(
+        (math.log(40) + math.log(60)) / 2
+    )
+    probs = families.initial_probs("Le Chat", "mistral-large")
+    assert set(probs) == {"a", "b", "mistral-large", family.UNKNOWN}
+    assert max(probs, key=probs.get) == "mistral-large"
+
+
 def test_family_posterior_sees_through_wrong_self_reports():
     rng = random.Random(11)
-    speeds = map(math.log, (35, 50, 90, 50, 40))
-    params = {
-        f: {"speed_mu": mu, "speed_sd": 0.3}
-        for f, mu in zip(family.FAMILIES, speeds)
-    }
-    reliability = {
-        r: {f: 0.85 if f == r else 0.0375 for f in family.FAMILIES}
-        for r in family.FAMILIES
-    }
+    speeds = {"slow": 35, "medium": 50, "fast": 90}
+    families = family.Families(
+        params={
+            f: {**family.POPULATION, "speed_mu": math.log(v), "speed_sd": 0.3}
+            for f, v in speeds.items()
+        }
+    )
     hits = 0
     for _ in range(100):
-        reported = "claude-sonnet" if rng.random() < 0.3 else "claude-haiku"
-        probs = family.initial_probs(
-            dict.fromkeys(family.FAMILIES, 0.2), reported, reliability
-        )
+        reported = "medium" if rng.random() < 0.3 else "fast"
+        probs = families.initial_probs("host", reported)
         for _ in range(8):
-            probs = family.update_with_speed(
-                probs, rng.gauss(math.log(90), 0.3), params
+            probs = families.update_with_speed(
+                probs, rng.gauss(math.log(90), 0.3)
             )
-        hits += max(probs, key=probs.get) == "claude-haiku"
+        hits += max(probs, key=probs.get) == "fast"
     assert hits >= 95
 
 
