@@ -429,6 +429,12 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
 
 "I understood: …" clarification lines, prompting tips, topic-exploration buttons, collaborative filtering across users, OAuth, a server-side classifier of `user_quote` as an extra annotator, localisation of button labels, stages 2 and 3 of section 5.3, and the replay-evaluation script (needed before the first model switch, not at launch; the MVP logs everything it requires).
 
+**Planned: a timing tool for fallback mode.** Fallback-mode lengths are less precise than widget-mode ones, which works against the purpose of the product. Add it back as soon as a host without MCP Apps matters:
+
+- `show_feedback(turn_id)`, a plain tool **not bound to the UI** (no `_meta.ui`), so it can never render a second widget. The `instruction` asks for it only in fallback mode ("Then call show_feedback."); in widget mode, `show_reply` already records the same time.
+- Its arrival time restores, for fallback turns: the writing-time sensor (section 6.2), hence three independent length sensors and the **three-cornered hat** estimate of the self-report noise (Var(sᵢ − sⱼ) = σᵢ² + σⱼ² for the three pairs); the writing-speed evidence of the family posterior (section 6.3); and a measured, rather than estimated, start of the reading time (section 6.6).
+- Its arrival is stored as a `replies` row with no word count. A second presentation call for the same turn is ignored: the first `replies` row wins.
+
 ## 14. Build order
 
 1. Docker Compose (app + PostgreSQL), SQL migration, health endpoint.
