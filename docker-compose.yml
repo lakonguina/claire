@@ -21,7 +21,7 @@ services:
       POLICY: ${POLICY:-bayes-v1}
       SHADOW_POLICIES: ${SHADOW_POLICIES:-}
       CONTROL_UNIT: ${CONTROL_UNIT:-conversation}
-      CONTROL_SHARE: ${CONTROL_SHARE:-0.1}
+      CONTROL_SHARE: ${CONTROL_SHARE:-0}
       HOST_UI_OVERRIDE: ${HOST_UI_OVERRIDE:-{}}
       CACHE_TTL_MS: ${CACHE_TTL_MS:-3600000}
     ports:

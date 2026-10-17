@@ -109,10 +109,10 @@ In widget mode, `instruction` ends with "Write the reply only in show_reply."; i
 
 Keep the output short and in exactly the same format on every call: the tool result stays in the conversation, and a stable, compact result keeps AI's prompt cache efficient.
 
-**Control group.** Randomisation unit is set by configuration (`CONTROL_UNIT`):
+**Control group: off by default.** Users come for the shorter replies, so none is held back: `CONTROL_SHARE` defaults to 0, and savings are reported as **estimated** (section 11). The mechanism stays for a later opt-in study with consenting users, when a measured figure is needed. When `CONTROL_SHARE` > 0, the randomisation unit is set by `CONTROL_UNIT`:
 
-- `conversation` (default while there are fewer than 100 active users): each new conversation goes to `control` with probability 0.1;
-- `user` (from 100 active users): each new user goes to `control` with probability 0.1. This avoids spillover: a user who learns to be concise in treatment conversations is also more concise in their control conversations, which makes conversation-level comparisons underestimate the effect.
+- `conversation` (default while there are fewer than 100 active users): each new conversation goes to `control` with probability `CONTROL_SHARE`;
+- `user` (from 100 active users): each new user goes to `control` with probability `CONTROL_SHARE`. This avoids spillover: a user who learns to be concise in treatment conversations is also more concise in their control conversations, which makes conversation-level comparisons underestimate the effect.
 
 In `control`, `plan_reply` still records everything and still updates the models, but returns `target_words: null` and `instruction: "Reply normally."` (followed by the widget-mode sentence when it applies), and `show_reply` returns no buttons. This group is what turns estimated savings into measured savings (section 11).
 

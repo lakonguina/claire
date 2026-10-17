@@ -17,7 +17,7 @@ class Settings:
     policy: str = os.environ.get("POLICY", "bayes-v1")
     shadow_policies: list[str] = field(default_factory=lambda: _env_list("SHADOW_POLICIES"))
     control_unit: str = os.environ.get("CONTROL_UNIT", "conversation")
-    control_share: float = float(os.environ.get("CONTROL_SHARE", "0.1"))
+    control_share: float = float(os.environ.get("CONTROL_SHARE", "0"))  # > 0 only for an opt-in study
     q: float = float(os.environ.get("TARGET_QUANTILE", "0.8"))
     # ttlMs on tools/list and resources; set to 0 while developing the widget so hosts refetch it.
     cache_ttl_ms: int = int(os.environ.get("CACHE_TTL_MS", "3600000"))

@@ -88,7 +88,8 @@ async def test_repair_without_quote_is_no_signal(make_client, db):
     assert row["observed"] == "no_signal"
 
 
-async def test_control_group_share_and_behaviour(make_client, db):
+async def test_control_group_share_and_behaviour(make_client, db, monkeypatch):
+    monkeypatch.setattr(service, "settings", dataclasses.replace(settings, control_share=0.1))  # an opt-in study
     client = await make_client()
     plans = [(await client.call("plan_reply", **PLAN))["data"] for _ in range(300)]
     control = [p for p in plans if p["target_words"] is None]
@@ -98,8 +99,7 @@ async def test_control_group_share_and_behaviour(make_client, db):
         assert (await client.call("show_reply", turn_id=p["turn_id"], text="x"))["structuredContent"]["buttons"] == []
 
 
-async def test_click_drops_the_assistant_verdict(make_client, db, monkeypatch):
-    monkeypatch.setattr(service, "settings", dataclasses.replace(settings, control_share=0.0))
+async def test_click_drops_the_assistant_verdict(make_client, db):
     client = await make_client()
     probs = {}
     for clicked in (False, True):  # the assistant says too_short both times; only the second turn has a click
@@ -147,7 +147,7 @@ async def test_nightly_job_runs(make_client, db):
 
 
 async def test_policy_swap_through_configuration(make_client, db, monkeypatch):
-    monkeypatch.setattr(service, "settings", dataclasses.replace(settings, control_share=0.0, policy="fixed-v1"))
+    monkeypatch.setattr(service, "settings", dataclasses.replace(settings, policy="fixed-v1"))
     client = await make_client()
     plan = (await client.call("plan_reply", **PLAN))["data"]
     assert plan["target_words"] == 160  # 0.8 x 200
