@@ -11,7 +11,6 @@ import "./style.css";
 const replyEl = document.getElementById("reply");
 const buttonsEl = document.getElementById("buttons");
 const copyReplyEl = document.getElementById("copy-reply");
-const samplingEl = document.getElementById("sampling");
 const app = new App({ name: "lingua-franca", version: "1.0.0" });
 
 let text = "";
@@ -65,26 +64,6 @@ function onCopy(button, getValue) {
 
 function copyButton(getValue) {
   return onCopy(Object.assign(document.createElement("button"), { className: "copy ghost", textContent: "Copy" }), getValue);
-}
-
-// Test: in-place rewrite through host sampling (MCP Apps draft), shown only when the host supports it.
-async function rewriteShorter(button) {
-  button.disabled = true;
-  try {
-    const result = await app.createSamplingMessage({
-      messages: [{ role: "user", content: { type: "text", text: `Rewrite this reply about half as long, same language, Markdown, no preamble:\n\n${text}` } }],
-      maxTokens: 2000,
-    });
-    const block = Array.isArray(result.content) ? result.content.find((c) => c.type === "text") : result.content;
-    if (block?.text) {
-      text = block.text;
-      render(true);
-    }
-  } catch (error) {
-    samplingEl.textContent = `Sampling failed: ${error.message}`;
-  } finally {
-    button.disabled = false;
-  }
 }
 
 function renderButtons(buttons) {
@@ -148,10 +127,3 @@ onCopy(copyReplyEl, () => text);
 
 await app.connect();
 applyContext(app.getHostContext());
-const sampling = app.getHostCapabilities()?.sampling;
-samplingEl.textContent = `Host sampling: ${sampling ? "supported" : "not supported"}`;
-if (sampling) {
-  const button = Object.assign(document.createElement("button"), { className: "ghost", textContent: "Shorter here" });
-  button.onclick = () => rewriteShorter(button);
-  samplingEl.append(" ", button);
-}
