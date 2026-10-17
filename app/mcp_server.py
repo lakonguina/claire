@@ -45,7 +45,8 @@ def caller(ctx: Context) -> service.Caller:
     params = ctx.session.client_params
     host = params.client_info.name if params and params.client_info else "unknown"
     ui = settings.host_ui_override.get(host, client_supports_apps(ctx))
-    return service.Caller(user_id, host, ui, ctx.protocol_version)
+    session = (ctx.headers or {}).get("mcp-session-id")
+    return service.Caller(user_id, host, ui, ctx.protocol_version, session)
 
 
 def handle_errors(fn):

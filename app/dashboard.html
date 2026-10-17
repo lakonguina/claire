@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lingua Franca Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #12010d; --panel: #1d0214; --panel-2: #2a0920; --line: #3e042b; --line-strong: #5a1544;
+  --ink: #fdfcf6; --muted: #c29aae; --faint: #7d5a7d;
+  --accent: #e520e9; --accent-ink: #f637fe; --accent-soft: rgba(229, 32, 233, .14); --aqua: #77ffd8;
+  --warn: #d39b22; --err: #f85249; --info: #3083f8; --violet: #a373f7;
+  --mono: "Roboto Mono", "FT System Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: Inter, "ABC Diatype", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fdfcf6; --panel: #f4f2e8; --panel-2: #ebe7dc; --line: #dfdad1; --line-strong: #c6c0b6;
+    --ink: #191711; --muted: #716d64; --faint: #a39d92; --accent: #bc0fbc; --accent-ink: #9a0e98;
+    --accent-soft: rgba(188, 15, 188, .1); --aqua: #007a55; color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent-ink); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+
+header {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 24px;
+  padding: 0 20px; height: 52px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+.brand i { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+.brand span { color: var(--muted); font-weight: 400; }
+nav { display: flex; gap: 2px; height: 100%; overflow-x: auto; }
+nav button {
+  border: 0; background: none; padding: 0 12px; height: 100%; cursor: pointer; color: var(--muted);
+  border-bottom: 2px solid transparent; white-space: nowrap;
+}
+nav button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.spacer { flex: 1; }
+.live { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: 999px;
+  padding: 3px 10px; background: none; cursor: pointer; white-space: nowrap; }
+.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.live[aria-pressed="true"] i { background: var(--aqua); animation: pulse 1.6s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(119, 255, 216, .6); } 100% { box-shadow: 0 0 0 7px rgba(119, 255, 216, 0); } }
+
+main { padding: 20px; max-width: 1600px; margin: 0 auto; }
+h2 { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+.grid { display: grid; gap: 12px; }
+.kpis { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); margin-bottom: 16px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.kpi b { display: block; font: 500 22px/1.2 var(--mono); letter-spacing: -.02em; }
+.kpi small { color: var(--muted); font-size: 12px; }
+.panels { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-bottom: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+  padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.scroll { overflow-x: auto; }
+tr.mono td, .heat td { white-space: nowrap; }
+.kv td:first-child { color: var(--muted); width: 45%; }
+.rows tr { cursor: pointer; }
+.rows tr:hover td { background: var(--accent-soft); }
+.rows tr.selected td { background: var(--accent-soft); }
+.rows td:first-child { border-left: 3px solid var(--bar, transparent); }
+.topic { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.filters input, .filters select, .token input {
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 10px; min-width: 0;
+}
+.filters input:focus, .filters select:focus, .token input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.btn { border: 1px solid var(--line-strong); background: var(--panel-2); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.chip { display: inline-block; padding: 1px 7px; border-radius: 999px; font: 500 11.5px/1.6 var(--mono);
+  background: color-mix(in srgb, var(--c, var(--faint)) 18%, transparent); color: var(--c, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--c, var(--faint)) 40%, transparent); white-space: nowrap; }
+.chip.clicked { background: var(--c, var(--accent)); color: #12010d; }
+
+.drawer { position: fixed; top: 52px; right: 0; bottom: 0; width: min(620px, 100%); background: var(--panel);
+  border-left: 1px solid var(--line-strong); overflow-y: auto; transform: translateX(100%); transition: transform .18s ease;
+  z-index: 4; padding: 18px; box-shadow: -20px 0 40px rgba(0, 0, 0, .35); }
+.drawer.open { transform: none; }
+.drawer section { margin-bottom: 20px; }
+.drawer header { position: static; height: auto; padding: 0 0 14px; border: 0; background: none; align-items: flex-start; gap: 12px; }
+.close { margin-left: auto; }
+
+.wf { display: grid; grid-template-columns: 90px 1fr 70px; gap: 6px 10px; align-items: center; font: 12px var(--mono); }
+.wf .track { position: relative; height: 14px; background: var(--panel-2); border-radius: 3px; }
+.wf .bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; min-width: 3px; }
+.prob { display: grid; grid-template-columns: 110px 1fr 46px; gap: 4px 10px; align-items: center; font: 12px var(--mono); }
+.prob .track { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.prob .fill { height: 100%; border-radius: 4px; }
+pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto;
+  font: 12px/1.5 var(--mono); margin: 0; }
+.heat td { text-align: center; font: 11.5px var(--mono); padding: 4px; }
+.gold { display: flex; flex-wrap: wrap; gap: 6px; }
+.gold button { cursor: pointer; }
+.ratio { position: relative; height: 16px; background: var(--panel-2); border-radius: 3px; min-width: 160px; }
+.ratio .band { position: absolute; top: 3px; bottom: 3px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 3px; }
+.ratio .dot { position: absolute; top: 2px; width: 2px; bottom: 2px; background: var(--accent-ink); }
+
+.token { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); z-index: 10; padding: 16px; }
+.token form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; width: min(380px, 100%);
+  display: grid; gap: 12px; }
+.empty { padding: 30px; text-align: center; color: var(--muted); }
+.error { color: var(--err); }
+@media (max-width: 720px) {
+  header { gap: 12px; padding: 0 12px; }
+  .brand span, .live small, #updated { display: none; }
+  main { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>lingua franca <span>/ admin</span></div>
+  <nav id="tabs">
+    <button data-view="live" aria-current="page">Live</button>
+    <button data-view="users">Users</button>
+    <button data-view="model">Model</button>
+    <button data-view="metrics">Metrics</button>
+  </nav>
+  <div class="spacer"></div>
+  <span id="updated" class="mono faint"></span>
+  <button id="live" class="live mono" aria-pressed="true"><i></i><small>Live</small></button>
+</header>
+<main id="view"></main>
+<aside id="drawer" class="drawer" aria-hidden="true"></aside>
+<div id="token" class="token" hidden>
+  <form>
+    <div class="brand"><i></i>lingua franca <span>/ admin</span></div>
+    <label class="muted" for="token-input">Admin token (<span class="mono">ADMIN_TOKEN</span>)</label>
+    <input id="token-input" type="password" autocomplete="current-password" required>
+    <button class="btn primary">Open dashboard</button>
+    <p id="token-error" class="error" hidden>Invalid token.</p>
+  </form>
+</div>
+<script>
+const OUTCOME_COLORS = {
+  moved_on: "var(--aqua)", too_long: "var(--accent-ink)", too_short: "var(--info)", missing_info: "var(--warn)",
+  misunderstood: "var(--err)", wrong_format: "var(--violet)", no_signal: "var(--faint)",
+};
+const OUTCOMES = Object.keys(OUTCOME_COLORS).filter((o) => o !== "no_signal");
+const state = { view: "live", filters: {}, selected: null, live: true, timer: null };
+const $ = (sel) => document.querySelector(sel);
+
+let token = "";
+try { token = sessionStorage.getItem("lf-admin-token") || ""; } catch {}
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const num = (v, d = 0) => (v === null || v === undefined ? "—" : Number(v).toFixed(d));
+const pct = (v) => (v === null || v === undefined || Number.isNaN(v) ? "—" : `${(100 * v).toFixed(0)}%`);
+const ratio = (a, b) => (b ? a / b : null);
+const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "—");
+const datetime = (iso) => (iso ? new Date(iso).toLocaleString([], { hour12: false }) : "—");
+const secs = (v) => (v === null || v === undefined ? "—" : v < 60 ? `${Number(v).toFixed(1)}s` : `${(v / 60).toFixed(1)}m`);
+const chip = (label, color, extra = "") => `<span class="chip ${extra}" style="--c:${color}">${esc(label)}</span>`;
+const outcomeChip = (o, extra) => (o ? chip(o, OUTCOME_COLORS[o] || "var(--faint)", extra) : '<span class="faint">—</span>');
+const kv = (rows) => `<table class="kv">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="mono">${v}</td></tr>`).join("")}</table>`;
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { ...options, headers: { ...(options.headers || {}), authorization: `Bearer ${token}` } });
+  if (response.status === 401) {
+    askToken(Boolean(token));
+    throw new Error("unauthorized");
+  }
+  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+  return response.json();
+}
+
+function askToken(failed) {
+  $("#token").hidden = false;
+  $("#token-error").hidden = !failed;
+  $("#token-input").focus();
+}
+
+$("#token form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  token = $("#token-input").value.trim();
+  try { sessionStorage.setItem("lf-admin-token", token); } catch {}
+  $("#token").hidden = true;
+  render();
+});
+
+function probBars(probs, colors = OUTCOME_COLORS) {
+  if (!probs) return '<p class="faint">Not finalized yet: closes when the next plan_reply arrives.</p>';
+  return `<div class="prob">${Object.entries(probs).filter(([k]) => k !== "seconds").map(([k, v]) =>
+    `<span>${esc(k)}</span><div class="track"><div class="fill" style="width:${100 * v}%;background:${colors[k] || "var(--accent)"}"></div></div><span>${pct(v)}</span>`).join("")}</div>`;
+}
+
+/* ---------- Live ---------- */
+
+async function renderLive() {
+  const [overview, turns] = await Promise.all([api("/admin/api/overview"), api(`/admin/api/turns?${new URLSearchParams(state.filters)}`)]);
+  const c = overview.counts;
+  const s = overview.sessions;
+  const kpis = [
+    [c.turns, "turns", `${c.turns_24h} in 24 h`],
+    [c.conversations, "conversations", `${pct(ratio(c.control_conversations, c.conversations))} control`],
+    [c.users, "users", ""],
+    [pct(ratio(c.widget_turns, c.turns)), "widget mode", `${c.widget_turns} turns`],
+    [pct(ratio(c.widget_turns_with_reply, c.widget_turns)), "show_reply coverage", "of widget turns"],
+    [pct(ratio(c.turns_with_click, c.turns_with_buttons)), "click rate", `${c.turns_with_click} / ${c.turns_with_buttons} turns`],
+    [c.finalized_turns, "finalized turns", `${c.gold_labels} gold labels`],
+    [c.last_nightly ? time(c.last_nightly) : "never", "last nightly", c.last_nightly ? new Date(c.last_nightly).toLocaleDateString() : ""],
+  ];
+  $("#view").innerHTML = `
+    <div class="grid kpis">${kpis.map(([v, label, sub]) => `<div class="kpi"><small>${esc(label)}</small><b>${esc(v)}</b><small class="faint">${esc(sub)}</small></div>`).join("")}</div>
+    <div class="grid panels">
+      <div class="panel"><h2>Hosts</h2><div class="scroll"><table>
+        <tr><th>host</th><th>protocol</th><th>apps</th><th>conv.</th><th>last</th></tr>
+        ${overview.hosts.map((h) => `<tr class="mono"><td>${esc(h.host)}</td><td>${esc(h.protocol_version || "—")}</td><td>${h.ui_supported ? chip("yes", "var(--aqua)") : chip("no", "var(--err)")}</td><td>${h.conversations}</td><td>${time(h.last_seen)}</td></tr>`).join("")}
+      </table></div></div>
+      <div class="panel"><h2>Transport sessions vs conversations</h2>${kv([
+        ["MCP sessions seen", num(s.sessions)],
+        ["max conversations per session", num(s.max_conversations_per_session)],
+        ["max sessions per conversation", num(s.max_sessions_per_conversation)],
+      ])}<p class="faint" style="margin:8px 0 0">One conversation per session would make the session a reliable conversation key.</p></div>
+      <div class="panel"><h2>Tool calls · 24 h</h2>${kv(overview.tool_calls.map((t) => [t.tool, t.calls_24h]))}</div>
+      <div class="panel"><h2>Settings</h2>${kv(Object.entries(overview.settings).map(([k, v]) => [k, esc(Array.isArray(v) ? v.join(", ") || "—" : v)]))}</div>
+    </div>
+    <h2>Turns</h2>
+    <form class="filters" id="filters">
+      <input name="q" placeholder="topic contains…" value="${esc(state.filters.q)}">
+      <input name="user" placeholder="user id" size="8" value="${esc(state.filters.user)}">
+      <input name="conversation" placeholder="conversation id" size="12" value="${esc(state.filters.conversation)}">
+      <input name="host" placeholder="host" size="14" value="${esc(state.filters.host)}">
+      <select name="mode"><option value="">any mode</option>${["widget", "fallback"].map((m) => `<option ${state.filters.mode === m ? "selected" : ""}>${m}</option>`).join("")}</select>
+      <select name="group"><option value="">any group</option>${["treatment", "control"].map((g) => `<option ${state.filters.group === g ? "selected" : ""}>${g}</option>`).join("")}</select>
+      <button class="btn">Filter</button><button class="btn" type="reset">Clear</button>
+    </form>
+    <div class="panel scroll" style="padding:0">${turns.length ? `<table class="rows">
+      <tr><th>time</th><th>turn</th><th>user · conv</th><th>host</th><th>mode</th><th>type</th><th>topic</th>
+          <th title="needed → target → requested → exact">words</th><th>verdict</th><th>inferred</th><th>buttons</th><th>write</th></tr>
+      ${turns.map(turnRow).join("")}</table>` : '<div class="empty">No turns match.</div>'}</div>`;
+  const form = $("#filters");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.filters = Object.fromEntries([...new FormData(form)].filter(([, v]) => v));
+    render();
+  });
+  form.addEventListener("reset", () => { state.filters = {}; setTimeout(render); });
+  for (const row of document.querySelectorAll(".rows tr[data-id]")) row.addEventListener("click", () => openTurn(Number(row.dataset.id)));
+}
+
+function turnRow(t) {
+  const buttons = (t.buttons || []).map((b) => chip(b, "var(--accent)", b === t.clicked ? "clicked" : "")).join(" ");
+  const words = [t.needed_words, t.target_words, t.requested_words, t.reply_words_exact].map((w) => w ?? "—").join(" → ");
+  return `<tr data-id="${t.id}" class="${state.selected === t.id ? "selected" : ""}" style="--bar:${OUTCOME_COLORS[t.inferred] || "transparent"}">
+    <td class="mono muted">${time(t.created_at)}</td>
+    <td class="mono">t_${t.id}<span class="faint"> #${t.turn_index}</span></td>
+    <td class="mono">u${t.user_id} · c_${t.conversation_id}</td>
+    <td class="mono">${esc(t.host)}</td>
+    <td>${chip(t.reply_mode, t.reply_mode === "widget" ? "var(--aqua)" : "var(--warn)")} ${t.grp === "control" ? chip("control", "var(--faint)") : ""}</td>
+    <td class="mono">${esc(t.request_type)}</td>
+    <td class="topic" title="${esc(t.topic)}">${esc(t.topic)} <span class="faint mono">${esc(t.language)}</span></td>
+    <td class="mono">${words}</td>
+    <td>${outcomeChip(t.verdict)}${t.user_quote ? `<div class="faint">“${esc(t.user_quote)}”</div>` : ""}</td>
+    <td>${outcomeChip(t.inferred)} <span class="mono faint">${t.inferred_p ? pct(t.inferred_p) : ""}</span></td>
+    <td>${buttons || '<span class="faint">—</span>'}</td>
+    <td class="mono">${secs(t.writing_seconds)}</td></tr>`;
+}
+
+/* ---------- Turn drawer ---------- */
+
+async function openTurn(id) {
+  state.selected = id;
+  for (const row of document.querySelectorAll(".rows tr[data-id]")) row.classList.toggle("selected", Number(row.dataset.id) === id);
+  const d = await api(`/admin/api/turns/${id}`);
+  const t = d.turn;
+  const start = new Date(t.created_at).getTime();
+  const at = (iso) => (iso ? (new Date(iso).getTime() - start) / 1000 : null);
+  const reply = d.replies[0];
+  const click = d.clicks[0];
+  const end = at(d.next_turn?.created_at) ?? Math.max(at(reply?.created_at) ?? 0, at(click?.created_at) ?? 0, 1);
+  const span = Math.max(end, 0.001);
+  const bar = (label, from, to, color) => from === null || to === null ? "" :
+    `<span>${label}</span><div class="track"><div class="bar" style="left:${100 * from / span}%;width:${Math.max(100 * (to - from) / span, 0.4)}%;background:${color}"></div></div><span>${secs(to - from)}</span>`;
+  const inf = d.inference;
+  const cs = d.conversation_state;
+  const verdict = d.outcomes.find((o) => o.source === "assistant");
+  const gold = d.gold_labels.at(-1);
+  const drawer = $("#drawer");
+  drawer.innerHTML = `
+    <header>
+      <div><div class="mono muted">t_${t.id} · turn #${t.turn_index} · c_${t.conversation_id} · u${t.user_id}</div>
+      <div style="font-size:16px;font-weight:600;margin-top:4px">${esc(t.topic)}</div></div>
+      <button class="btn close" id="close">Close</button>
+    </header>
+    <section><h2>Timeline</h2><div class="wf">
+      ${bar("plan_reply", 0, 0.001 * span, "var(--accent)")}
+      ${bar("writing", 0, at(reply?.created_at), "var(--violet)")}
+      ${click ? bar("click", at(click.created_at), at(click.created_at) + 0.004 * span, "var(--aqua)") : ""}
+      ${bar("reading", at(reply?.created_at) ?? 0, at(d.next_turn?.created_at), "var(--info)")}
+    </div>${d.next_turn ? "" : '<p class="faint">Open turn: no next plan_reply yet.</p>'}</section>
+    <section><h2>Decision</h2>${kv([
+      ["needed → target → requested → exact", `${t.needed_words} → ${t.target_words ?? "—"} → ${t.requested_words ?? "—"} → ${reply?.reply_words_exact ?? "—"}`],
+      ["policy", esc(t.model_version)],
+      ["θ̃ sample (ratio)", t.theta_sample === null ? "—" : num(Math.exp(t.theta_sample), 3)],
+      ["posterior mean ratio ± sd (log)", t.post_mean === null ? "—" : `${num(Math.exp(t.post_mean), 3)} ± ${num(t.post_sd, 3)}`],
+      ["b̃ sample", num(t.b_sample, 3)],
+      ["propensity", num(t.propensity, 3)],
+      ["style modifiers", esc((t.style || []).join(", ") || "—")],
+      ...d.shadow_decisions.map((s) => [`shadow ${s.model_version}`, `${s.target_words} (p=${num(s.propensity, 2)})`]),
+    ])}</section>
+    <section><h2>Reaction</h2>${kv([
+      ["assistant verdict", `${outcomeChip(verdict?.observed)} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${click ? ' <span class="faint">(ignored: clicked)</span>' : ""}`],
+      ["buttons", d.buttons_shown.map((b) => chip(`${b.position}:${b.button}`, "var(--accent)", click?.button === b.button ? "clicked" : "")).join(" ") || "—"],
+      ["gold label", gold ? outcomeChip(gold.outcome) : "—"],
+    ])}<div style="margin-top:10px">${probBars(inf?.reaction_probs)}</div></section>
+    <section><h2>Gold label</h2><div class="gold">${OUTCOMES.map((o) => `<button class="chip" style="--c:${OUTCOME_COLORS[o]}" data-gold="${o}">${o}</button>`).join("")}</div></section>
+    <section><h2>Length &amp; reading</h2>${kv([
+      ["fused length", inf ? `${num(Math.exp(inf.length_mean))} words (log var ${num(inf.length_var, 4)})` : "—"],
+      ["reading time", inf ? secs(inf.reading_probs.seconds) : "—"],
+    ])}<div style="margin-top:10px">${inf ? probBars(inf.reading_probs, { read: "var(--aqua)", skim: "var(--warn)", away: "var(--faint)" }) : ""}</div></section>
+    <section><h2>Conversation</h2>${kv([
+      ["host · protocol", `${esc(d.conversation.host)} · ${esc(d.conversation.protocol_version || "—")}`],
+      ["group · apps", `${esc(d.conversation.grp)} · ${d.conversation.ui_supported ? "yes" : "no"}`],
+      ["assistant model (self-report)", esc(d.conversation.assistant_model || "—")],
+      ["transport session", esc(t.transport_session || "—")],
+      ["compliance (written / requested)", cs ? `${num(Math.exp(cs.kappa_mean), 3)} ± ${num(Math.sqrt(cs.kappa_var), 3)}` : "—"],
+      ["writing speed", cs ? `${num(Math.exp(cs.speed_mean), 1)} words/s` : "—"],
+    ])}<div style="margin-top:10px">${cs ? probBars(cs.family_probs, {}) : ""}</div>
+      <p><a href="#" id="filter-conv">Show this conversation</a> · <a href="#" id="filter-user">Show this user</a></p></section>
+    <section><h2>Raw payload</h2><pre>${esc(JSON.stringify(t.raw_payload, null, 2))}</pre></section>`;
+  drawer.classList.add("open");
+  drawer.setAttribute("aria-hidden", "false");
+  $("#close").onclick = closeTurn;
+  $("#filter-conv").onclick = (e) => { e.preventDefault(); state.filters = { conversation: t.conversation_id }; closeTurn(); setView("live"); };
+  $("#filter-user").onclick = (e) => { e.preventDefault(); state.filters = { user: t.user_id }; closeTurn(); setView("live"); };
+  for (const b of drawer.querySelectorAll("[data-gold]")) b.onclick = async () => {
+    await api("/gold_label", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ turn_id: `t_${t.id}`, outcome: b.dataset.gold }) });
+    openTurn(id);
+  };
+}
+
+function closeTurn() {
+  state.selected = null;
+  $("#drawer").classList.remove("open");
+  $("#drawer").setAttribute("aria-hidden", "true");
+  for (const row of document.querySelectorAll(".rows tr.selected")) row.classList.remove("selected");
+}
+
+/* ---------- Users ---------- */
+
+async function renderUsers() {
+  const users = await api("/admin/api/users");
+  $("#view").innerHTML = `<h2>Users</h2><div class="panel scroll" style="padding:0"><table class="rows">
+    <tr><th>user</th><th>created</th><th>conversations</th><th>turns</th><th>last seen</th><th>α ratio</th><th>reading</th></tr>
+    ${users.map((u) => `<tr data-user="${u.id}" class="mono"><td>u${u.id}</td><td>${datetime(u.created_at)}</td><td>${u.conversations}</td><td>${u.turns}</td>
+      <td>${datetime(u.last_seen)}</td><td>${num(u.alpha_ratio, 3)}</td><td>${u.reading_wps ? `${num(u.reading_wps, 1)} w/s` : "—"}</td></tr>`).join("")}
+  </table></div><div id="user-detail" style="margin-top:16px"></div>`;
+  for (const row of document.querySelectorAll("[data-user]")) row.addEventListener("click", () => renderUser(Number(row.dataset.user)));
+}
+
+async function renderUser(id) {
+  const d = await api(`/admin/api/users/${id}`);
+  const lo = Math.log(0.1), hi = Math.log(2);
+  const x = (r) => (100 * (Math.log(r) - lo)) / (hi - lo);
+  $("#user-detail").innerHTML = `<div class="grid panels">
+    <div class="panel"><h2>u${id} · θ by request type (needed-length ratio)</h2><table>
+      <tr><th>type</th><th>ratio</th><th>0.1 ←→ 2.0</th></tr>
+      ${d.theta.map((t) => `<tr><td class="mono">${esc(t.request_type)}</td><td class="mono">${num(t.ratio, 3)} <span class="faint">±${num(t.sd, 2)}</span></td>
+        <td><div class="ratio"><div class="band" style="left:${x(t.ratio * Math.exp(-t.sd))}%;width:${x(t.ratio * Math.exp(t.sd)) - x(t.ratio * Math.exp(-t.sd))}%"></div><div class="dot" style="left:${x(t.ratio)}%"></div></div></td></tr>`).join("") || '<tr><td colspan="3" class="faint">No finalized turn yet.</td></tr>'}
+    </table></div>
+    <div class="panel"><h2>Reading</h2>${kv([["speed", `${num(d.reading.wps, 1)} words/s ± ${num(d.reading.rho_sd, 2)} (log)`]])}
+      <div style="margin-top:10px">${probBars(d.reading.mixture, { read: "var(--aqua)", skim: "var(--warn)", away: "var(--faint)" })}</div>
+      <h2 style="margin-top:16px">Reaction prior</h2>${probBars(d.reading.reaction_prior)}</div>
+    <div class="panel scroll"><h2>Buttons &amp; style (Beta counts)</h2><table>
+      <tr><th>type</th><th>key</th><th>mean</th><th>signals</th></tr>
+      ${d.beta_counts.map((c) => `<tr class="mono"><td>${esc(c.request_type)}</td><td>${esc(c.key)}</td><td>${num(c.mean, 2)}</td><td>${num(c.signals)}</td></tr>`).join("") || '<tr><td colspan="4" class="faint">None yet.</td></tr>'}
+    </table></div></div>`;
+}
+
+/* ---------- Model ---------- */
+
+function heatmap(rows) {
+  const observed = [...new Set(Object.values(rows).flatMap((r) => Object.keys(r)))];
+  return `<div class="scroll"><table class="heat"><tr><th>true ↓ / observed →</th>${observed.map((o) => `<th>${esc(o)}</th>`).join("")}</tr>
+    ${Object.entries(rows).map(([y, r]) => `<tr><th>${esc(y)}</th>${observed.map((o) => {
+      const p = r[o] ?? 0;
+      return `<td style="background:color-mix(in srgb, var(--accent) ${Math.round(100 * p)}%, transparent)">${p >= 0.005 ? num(p, 2) : ""}</td>`;
+    }).join("")}</tr>`).join("")}</table></div>`;
+}
+
+async function renderModel() {
+  const m = await api("/admin/api/model");
+  const families = Object.keys(m.confusions.assistant || {});
+  const learned = (t) => (m.learned[t] ? chip("learned", "var(--aqua)") : chip("defaults", "var(--faint)"));
+  $("#view").innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <button class="btn primary" id="nightly">Run nightly now</button><span id="nightly-status" class="muted mono"></span></div>
+    <div class="grid panels">
+      <div class="panel"><h2>Hyperparameters ${learned("hyperparams")}</h2>${kv([
+        ["μ₀ (population ratio)", num(m.hyper.mu0_ratio, 3)], ["σ_α", num(m.hyper.sigma_alpha, 3)], ["σ_γ", num(m.hyper.sigma_gamma, 3)],
+        ["σ_η", num(m.hyper.sigma_eta, 3)], ["τ", num(m.hyper.tau, 3)], ["overhead", secs(m.hyper.overhead_s)],
+        ...Object.entries(m.hyper.gamma).map(([t, g]) => [`γ ${t} (ratio)`, num(g, 3)]),
+      ])}</div>
+      <div class="panel"><h2>Sensor noise σ ${learned("sensor_noise")}</h2>${kv(Object.entries(m.noise).map(([k, v]) => [k, num(v, 3)]))}
+        <h2 style="margin-top:16px">Reading mixture</h2>${kv(Object.entries(m.reading).map(([k, v]) => [k, num(v, 3)]))}</div>
+      <div class="panel scroll"><h2>Model families ${learned("family_params")}</h2><table>
+        <tr><th>family</th><th>speed</th><th>b</th><th>w</th><th>κ</th></tr>
+        ${Object.entries(m.family).map(([f, v]) => `<tr class="mono"><td>${esc(f)}</td><td>${num(v.speed_wps, 0)} w/s</td><td>${num(v.b, 3)}</td><td>${num(v.w, 3)}</td><td>${num(v.kappa, 3)}</td></tr>`).join("")}
+      </table></div>
+    </div>
+    <div class="panel" style="margin-bottom:16px"><h2>Assistant verdict confusion ${learned("annotator_confusion")}
+      <select id="family" style="margin-left:8px">${families.map((f) => `<option>${esc(f)}</option>`).join("")}</select></h2><div id="assistant-heat"></div></div>
+    <div class="grid panels">
+      <div class="panel"><h2>Button annotator</h2>${heatmap(m.confusions.button.all)}</div>
+      <div class="panel"><h2>Reading annotator</h2>${heatmap(m.confusions.reading.all)}</div>
+      <div class="panel"><h2>Self-report reliability ${learned("self_report_reliability")}</h2>${heatmap(m.reliability)}</div>
+      <div class="panel"><h2>Host → family prior ${learned("host_family_prior")}</h2>${Object.keys(m.host_prior).length ? heatmap(m.host_prior) : '<p class="faint">Built-in defaults per host name.</p>'}</div>
+    </div>`;
+  const showFamily = () => { $("#assistant-heat").innerHTML = heatmap(m.confusions.assistant[$("#family").value]); };
+  $("#family").onchange = showFamily;
+  showFamily();
+  $("#nightly").onclick = async () => {
+    $("#nightly-status").textContent = "running…";
+    try {
+      const r = await api("/admin/api/nightly", { method: "POST" });
+      $("#nightly-status").textContent = `done · replayed ${r.replayed_turns} turns`;
+      setTimeout(renderModel, 800);
+    } catch (e) { $("#nightly-status").textContent = `failed: ${e.message}`; }
+  };
+}
+
+/* ---------- Metrics ---------- */
+
+async function renderMetrics() {
+  const m = await api("/metrics");
+  const ci = (v) => (v ? ` <span class="faint">[${num(v[0], 2)}, ${num(v[1], 2)}]</span>` : "");
+  const summary = (s) => kv([
+    ["turns", s.turns],
+    ["words per step forward", num(s.words_per_step_forward, 1) + ci(s.words_per_step_forward_ci95)],
+    ["repair rate", pct(s.repair_rate) + ci(s.repair_rate_ci95)],
+    ["missing-info rate", pct(s.missing_info_rate) + ci(s.missing_info_rate_ci95)],
+  ]);
+  $("#view").innerHTML = `
+    <div class="grid panels">
+      ${Object.entries(m.by_group).map(([g, s]) => `<div class="panel"><h2>${esc(g)} ${chip(s.label, "var(--warn)")}</h2>${summary(s)}</div>`).join("")}
+      <div class="panel"><h2>Saving ${chip("measured", "var(--aqua)")}</h2>${m.measured ? kv([
+        ["words per step saved", pct(m.measured.words_per_step_saving)],
+        ["95% CI", m.measured.ci95 ? `${pct(m.measured.ci95[0])} … ${pct(m.measured.ci95[1])}` : "—"],
+      ]) : '<p class="faint">Needs at least 2 treatment and 2 control clusters.</p>'}</div>
+      <div class="panel"><h2>Tool coverage</h2>${kv(Object.entries(m.tool_coverage).map(([k, v]) => [k, typeof v === "number" && v <= 1 && k !== "turns" ? pct(v) : num(v)]))}</div>
+    </div>
+    <div class="grid panels">
+      <div class="panel scroll"><h2>Clicks</h2><table><tr><th>button</th><th>pos</th><th>shown</th><th>clicked</th><th>rate</th></tr>
+        ${m.clicks.map((c) => `<tr class="mono"><td>${esc(c.button)}</td><td>${c.position}</td><td>${c.shown}</td><td>${c.clicked}</td><td>${pct(c.click_rate)}</td></tr>`).join("")}</table></div>
+      <div class="panel scroll"><h2>Compliance</h2><table><tr><th>family</th><th>host</th><th>written / requested</th></tr>
+        ${m.compliance.map((c) => `<tr class="mono"><td>${esc(c.family)}</td><td>${esc(c.host)}</td><td>${num(c.median_length_over_requested, 2)}</td></tr>`).join("")}</table></div>
+    </div>
+    <div class="panel"><h2>Raw /metrics</h2><pre>${esc(JSON.stringify(m, null, 2))}</pre></div>`;
+}
+
+/* ---------- Shell ---------- */
+
+const VIEWS = { live: renderLive, users: renderUsers, model: renderModel, metrics: renderMetrics };
+
+async function render() {
+  if (!token) return askToken(false);
+  try {
+    await VIEWS[state.view]();
+    $("#updated").textContent = `updated ${new Date().toLocaleTimeString([], { hour12: false })}`;
+  } catch (e) {
+    if (e.message !== "unauthorized") $("#view").innerHTML = `<div class="empty error">${esc(e.message)}</div>`;
+  }
+}
+
+function setView(view) {
+  state.view = view;
+  for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false");
+  render();
+}
+
+for (const b of document.querySelectorAll("#tabs button")) b.addEventListener("click", () => setView(b.dataset.view));
+$("#live").addEventListener("click", () => {
+  state.live = !state.live;
+  $("#live").setAttribute("aria-pressed", String(state.live));
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTurn(); });
+setInterval(() => {
+  const typing = document.activeElement?.closest?.("#filters");
+  if (state.live && state.view === "live" && !typing && !document.hidden) render();
+}, 5000);
+render();
+</script>
+</body>
+</html>

@@ -24,7 +24,7 @@ async def finalized_turns(conn: AsyncConnection) -> list[dict]:
     return await fetch(conn, """
         SELECT t.*, c.host, c.assistant_model AS conv_model, i.length_mean, i.reading_probs, s.family_probs,
                s.kappa_mean, s.speed_mean,
-               (SELECT extract(epoch FROM r.created_at - t.created_at) FROM replies r WHERE r.turn_id = t.id
+               (SELECT extract(epoch FROM r.created_at - t.created_at)::float8 FROM replies r WHERE r.turn_id = t.id
                 ORDER BY r.created_at LIMIT 1) AS duration,
                (SELECT r.reply_words_exact FROM replies r WHERE r.turn_id = t.id ORDER BY r.created_at LIMIT 1) AS exact,
                (SELECT observed FROM outcomes o WHERE o.turn_id = t.id AND o.source = 'assistant' LIMIT 1) AS verdict,

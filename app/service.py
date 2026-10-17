@@ -30,6 +30,7 @@ class Caller:
     host: str
     ui: bool
     protocol_version: str | None = None
+    transport_session: str | None = None
 
 
 def token_hash(token: str) -> str:
@@ -125,15 +126,15 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
             INSERT INTO turns (user_id, conversation_id, turn_index, reply_mode, model_version, schema_version,
                 raw_payload, request_type, topic, needed_words, language, user_message_words, pasted_content,
                 user_specified, assistant_model, target_words, requested_words, propensity, theta_sample, b_sample,
-                post_mean, post_sd, style)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                post_mean, post_sd, style, transport_session)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id""",
             caller.user_id, conv["id"], (prev["turn_index"] + 1) if prev else 1,
             "widget" if caller.ui else "fallback", params_policy.version, SCHEMA_VERSION, Jsonb(args), request_type,
             args["topic"], needed, detect_language(args["topic"]), args.get("user_message_words"),
             args.get("pasted_content"), args.get("user_specified"), args.get("assistant_model") or conv["assistant_model"],
             target, requested, propensity if treated else None, decision.theta_sample, decision.b_sample,
-            decision.post_mean, decision.post_sd, Jsonb(styles))
+            decision.post_mean, decision.post_sd, Jsonb(styles), caller.transport_session)
         for version in settings.shadow_policies:
             shadow, shadow_p = POLICIES[version](rng).decide(ctx)
             await execute(conn, "INSERT INTO shadow_decisions VALUES (%s, %s, %s, %s, %s)", turn["id"], version,

@@ -163,9 +163,29 @@ async def test_admin_endpoints(http, make_client):
     assert (await http.get("/metrics")).status_code == 401
     assert (await http.post("/gold_label", json={"turn_id": plan["turn_id"], "outcome": "moved_on"},
                             headers=auth)).status_code == 200
-    assert "moved_on" in (await http.get("/debug", headers=auth)).text
     body = (await http.get("/metrics", headers=auth)).json()
     assert body["tool_coverage"]["turns"] == 2
+
+
+async def test_dashboard(http, make_client):
+    client = await make_client()
+    plan = (await client.call("plan_reply", **PLAN, assistant_model="claude-sonnet-5-5"))["data"]
+    await client.call("show_reply", turn_id=plan["turn_id"], text="a short reply")
+    await client.call("plan_reply", **PLAN, conversation_id=plan["conversation_id"], last_reply_outcome="moved_on")
+    auth = {"authorization": "Bearer admin-secret"}
+    assert "Lingua Franca Admin" in (await http.get("/admin")).text  # the page itself holds no data
+    assert (await http.get("/admin/api/overview")).status_code == 401
+    overview = (await http.get("/admin/api/overview", headers=auth)).json()
+    assert overview["counts"]["turns"] == 2 and overview["hosts"][0]["host"] == "claude-ai"
+    turns = (await http.get("/admin/api/turns", params={"conversation": plan["conversation_id"][2:]}, headers=auth)).json()
+    assert [t["turn_index"] for t in turns] == [2, 1] and turns[1]["reply_words_exact"] == 3
+    assert turns[1]["inferred"] in {"moved_on", "too_long", "too_short", "missing_info", "misunderstood", "wrong_format"}
+    detail = (await http.get(f"/admin/api/turns/{plan['turn_id'][2:]}", headers=auth)).json()
+    assert detail["next_turn"] and detail["inference"]["reaction_probs"]
+    users = (await http.get("/admin/api/users", headers=auth)).json()
+    assert (await http.get(f"/admin/api/users/{users[0]['id']}", headers=auth)).json()["theta"]
+    assert "assistant" in (await http.get("/admin/api/model", headers=auth)).json()["confusions"]
+    assert (await http.post("/admin/api/nightly", headers=auth)).json() == {"replayed_turns": 1}
 
 
 async def test_only_plan_reply_and_show_reply_reach_the_model(make_client):

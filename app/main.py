@@ -1,19 +1,17 @@
-"""FastAPI app: MCP mounted at /mcp/<token>, plus health, gold labels, debug page and metrics."""
+"""FastAPI app: MCP mounted at /mcp/<token>, plus health, gold labels, metrics and the admin dashboard."""
 
 import contextlib
-import html
 import logging
 import re
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, HTTPException
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
 
-from app import metrics, service
+from app import dashboard, metrics, service
 from app.config import settings
-from app.db import execute, fetch, migrate, pool
+from app.db import execute, migrate, pool
 from app.mcp_server import TOKEN_HEADER, mcp
 from app.model.reaction import OUTCOMES
 
@@ -83,14 +81,10 @@ mcp_app = mcp.streamable_http_app(
     ),
 )
 api = FastAPI(title="Lingua Franca", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+api.include_router(dashboard.page)
+api.include_router(dashboard.api)
 api.mount("/mcp", McpAuth(mcp_app))
 app = AccessLog(api)
-
-
-def admin(request: Request) -> None:
-    supplied = request.headers.get("authorization", "").removeprefix("Bearer ") or request.query_params.get("key")
-    if not settings.admin_token or supplied != settings.admin_token:
-        raise HTTPException(status_code=401)
 
 
 class GoldLabel(BaseModel):
@@ -105,7 +99,7 @@ async def health():
     return {"ok": True}
 
 
-@api.post("/gold_label", dependencies=[Depends(admin)])
+@api.post("/gold_label", dependencies=[Depends(dashboard.admin)])
 async def gold_label(label: GoldLabel):
     if label.outcome not in OUTCOMES or not label.turn_id.removeprefix("t_").isdigit():
         raise HTTPException(status_code=422, detail="Invalid turn_id or outcome")
@@ -115,37 +109,7 @@ async def gold_label(label: GoldLabel):
     return {"ok": True}
 
 
-@api.get("/metrics", dependencies=[Depends(admin)])
+@api.get("/metrics", dependencies=[Depends(dashboard.admin)])
 async def get_metrics():
     async with pool.connection() as conn:
         return await metrics.compute(conn)
-
-
-@api.get("/debug", dependencies=[Depends(admin)], response_class=HTMLResponse)
-async def debug(request: Request):
-    async with pool.connection() as conn:
-        rows = await fetch(conn, """
-            SELECT t.id, t.topic, o.user_quote, o.observed, i.reaction_probs,
-                   (SELECT outcome FROM gold_labels g WHERE g.turn_id = t.id ORDER BY created_at DESC LIMIT 1) AS gold
-            FROM turns t JOIN turn_inference i ON i.turn_id = t.id
-            LEFT JOIN outcomes o ON o.turn_id = t.id AND o.source = 'assistant'
-            ORDER BY t.id DESC LIMIT 100""")
-    options = "".join(f"<option>{o}</option>" for o in OUTCOMES)
-    body = "".join(
-        f"<tr><td>t_{r['id']}</td><td>{html.escape(r['topic'])}</td><td>{html.escape(r['user_quote'] or '')}</td>"
-        f"<td>{r['observed'] or ''}</td><td>{max(r['reaction_probs'], key=r['reaction_probs'].get)}</td>"
-        f"<td>{r['gold'] or ''}</td><td><select id='g{r['id']}'>{options}</select>"
-        f"<button onclick=\"label({r['id']})\">Save</button></td></tr>"
-        for r in rows)
-    key = html.escape(request.query_params.get("key", ""))
-    return f"""<!doctype html><meta charset="utf-8"><title>Lingua Franca turns</title>
-<style>body{{font-family:system-ui;margin:16px}}td,th{{padding:4px 8px;border-bottom:1px solid #ddd}}</style>
-<table><tr><th>Turn</th><th>Topic</th><th>Quote</th><th>Assistant</th><th>Inferred</th><th>Gold</th><th></th></tr>{body}</table>
-<script>
-async function label(id) {{
-  const outcome = document.getElementById("g" + id).value;
-  const r = await fetch("/gold_label", {{method: "POST", headers: {{"content-type": "application/json",
-    authorization: "Bearer {key}"}}, body: JSON.stringify({{turn_id: "t_" + id, outcome}})}});
-  if (r.ok) location.reload();
-}}
-</script>"""
