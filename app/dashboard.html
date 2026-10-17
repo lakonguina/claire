@@ -331,7 +331,7 @@ async function openTurn(id) {
     <section><h2>Conversation</h2>${kv([
       ["host · protocol", `${esc(d.conversation.host)} · ${esc(d.conversation.protocol_version || "—")}`],
       ["group · apps", `${esc(d.conversation.grp)} · ${d.conversation.ui_supported ? "yes" : "no"}`],
-      ["platform · locale", esc(d.context.map((x) => `${x.platform || "?"} · ${x.locale || "?"}`).join(", ") || "—")],
+      ["platform · locale", esc(d.contexts.map((x) => `${x.platform || "?"} · ${x.locale || "?"}`).join(", ") || "—")],
       ["compliance (written / requested)", cs ? `${num(Math.exp(cs.kappa_mean), 3)} ± ${num(Math.sqrt(cs.kappa_var), 3)}` : "—"],
       ["writing speed", cs ? `${num(Math.exp(cs.speed_mean), 1)} words/s` : "—"],
     ])}<div style="margin-top:10px">${cs ? probBars(cs.family_probs, {}) : ""}</div>

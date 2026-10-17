@@ -35,48 +35,31 @@ MIN_VAR = 0.01
 HOST_SMOOTHING = 0.5
 
 
-async def _first_by_turn(
-    session: Session, model, *where, latest: bool = False
-) -> dict[int, object]:
-    """Returns each turn's first (or latest) event of a model."""
-    order = model.created_at.desc() if latest else model.created_at
-    out = {}
-    for event in await session.scalars(
-        sa.select(model).where(*where).order_by(order)
-    ):
-        out.setdefault(event.turn_id, event)
-    return out
-
-
 async def finalized_turns(session: Session) -> list[dict]:
     """Returns every closed turn with its first events and inferred state."""
     rows = (
         await session.execute(
-            sa.select(
-                models.Turn, models.TurnInference, models.ConversationState
-            )
-            .join(
-                models.TurnInference,
-                models.TurnInference.turn_id == models.Turn.id,
-            )
-            .join(
-                models.ConversationState,
-                models.ConversationState.conversation_id
-                == models.Turn.conversation_id,
+            engine.with_events(
+                sa.select(
+                    models.Turn, models.TurnInference, models.ConversationState
+                )
+                .join(
+                    models.TurnInference,
+                    models.TurnInference.turn_id == models.Turn.id,
+                )
+                .join(
+                    models.ConversationState,
+                    models.ConversationState.conversation_id
+                    == models.Turn.conversation_id,
+                )
             )
         )
     ).all()
-    replies = await _first_by_turn(session, models.Reply)
-    verdicts = await _first_by_turn(
-        session, models.Outcome, models.Outcome.source == vocab.Source.ASSISTANT
-    )
-    clicks = await _first_by_turn(session, models.Click)
-    golds = await _first_by_turn(session, models.GoldLabel, latest=True)
-    shown = set(await session.scalars(sa.select(models.ButtonShown.turn_id)))
     out = []
     for turn, inference, state in rows:
-        reply, verdict = replies.get(turn.id), verdicts.get(turn.id)
-        click, gold = clicks.get(turn.id), golds.get(turn.id)
+        reply = engine.first(turn.replies)
+        verdict = engine.first(turn.outcomes, source=vocab.Source.ASSISTANT)
+        click = engine.first(turn.clicks)
         out.append(
             {
                 "user_id": turn.user_id,
@@ -98,8 +81,10 @@ async def finalized_turns(session: Session) -> list[dict]:
                 "verdict": verdict.observed if verdict else None,
                 "self_report": verdict.last_reply_words if verdict else None,
                 "click": (click.button, click.position) if click else None,
-                "any_shown": turn.id in shown,
-                "gold": gold.outcome if gold else None,
+                "any_shown": bool(turn.buttons_shown),
+                "gold": turn.gold_labels[-1].outcome
+                if turn.gold_labels
+                else None,
             }
         )
     return out

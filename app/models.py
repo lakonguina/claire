@@ -8,9 +8,12 @@ are plain text: history keeps retired values, and the enums validate new
 writes. Stable vocabularies (arms, reply modes, sources) are CHECK-constrained.
 """
 
+# pylint cannot infer that orm.Mapped is generic under SQLAlchemy 2.
+# pylint: disable=unsubscriptable-object
+
 import datetime
 import enum
-from typing import Any
+from typing import Annotated, Any
 
 import pgvector.sqlalchemy
 import sqlalchemy as sa
@@ -41,33 +44,61 @@ def _checked(enum_class: type[enum.StrEnum]) -> sa.Enum:
     )
 
 
+Serial = Annotated[
+    int, orm.mapped_column(sa.BigInteger, sa.Identity(), primary_key=True)
+]
+Key = Annotated[int, orm.mapped_column(sa.BigInteger, primary_key=True)]
+TextKey = Annotated[str, orm.mapped_column(primary_key=True)]
+Created = Annotated[
+    datetime.datetime, orm.mapped_column(server_default=sa.text("now()"))
+]
+UserId = Annotated[
+    int, orm.mapped_column(sa.BigInteger, sa.ForeignKey("users.id"))
+]
+TurnId = Annotated[
+    int, orm.mapped_column(sa.BigInteger, sa.ForeignKey("turns.id"), index=True)
+]
+Grid = list[float]
+Json = dict[str, Any]
+Embedding = Annotated[
+    Any, orm.mapped_column(pgvector.sqlalchemy.Vector(EMBEDDING_DIMENSIONS))
+]
+EmptyJson = Annotated[
+    Json, orm.mapped_column(server_default=sa.text("'{}'::jsonb"))
+]
+
+
 class Base(orm.DeclarativeBase):
     """Declarative base, with Postgres-style constraint names."""
 
     metadata = sa.MetaData(naming_convention=NAMING)
     type_annotation_map = {
         str: sa.Text,
-        dict[str, Any]: postgresql.JSONB,
-        list[float]: postgresql.ARRAY(sa.Float),
+        Json: postgresql.JSONB,
+        Grid: postgresql.ARRAY(sa.Float),
         datetime.datetime: sa.DateTime(timezone=True),
     }
 
 
-Id = orm.Mapped[int]
-Now = sa.text("now()")
+class _TurnRow(Base):
+    """A row about one turn."""
+
+    __abstract__ = True
+    id: orm.Mapped[Serial]
+    turn_id: orm.Mapped[TurnId]
 
 
-def _id() -> orm.MappedColumn:
-    return orm.mapped_column(sa.BigInteger, sa.Identity(), primary_key=True)
+class _TurnEvent(_TurnRow):
+    """A timed event about one turn."""
+
+    __abstract__ = True
+    created_at: orm.Mapped[Created]
 
 
-def _created() -> orm.MappedColumn:
-    return orm.mapped_column(server_default=Now)
-
-
-def _turn() -> orm.MappedColumn:
-    return orm.mapped_column(
-        sa.BigInteger, sa.ForeignKey("turns.id"), index=True
+def _events(model: str) -> orm.Relationship:
+    """A turn's events, read-only and loaded explicitly, in time order."""
+    return orm.relationship(
+        model, order_by=f"{model}.id", viewonly=True, lazy="raise"
     )
 
 
@@ -78,26 +109,24 @@ class User(Base):
     """A person, known only by the hash of their connector token."""
 
     __tablename__ = "users"
-    id: Id = _id()
+    id: orm.Mapped[Serial]
     token_hash: orm.Mapped[str] = orm.mapped_column(unique=True)
-    created_at: orm.Mapped[datetime.datetime] = _created()
+    created_at: orm.Mapped[Created]
 
 
 class Conversation(Base):
     """One chat, with its comparison arm, host and mode."""
 
     __tablename__ = "conversations"
-    id: Id = _id()
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, sa.ForeignKey("users.id")
-    )
+    id: orm.Mapped[Serial]
+    user_id: orm.Mapped[UserId]
     grp: orm.Mapped[vocab.Arm] = orm.mapped_column(_checked(vocab.Arm))
     host: orm.Mapped[str]
     ui_supported: orm.Mapped[bool]
     # No longer asked (SPEC 6.3); kept for the rows that have it.
     assistant_model: orm.Mapped[str | None]
     protocol_version: orm.Mapped[str | None]
-    created_at: orm.Mapped[datetime.datetime] = _created()
+    created_at: orm.Mapped[Created]
 
 
 class Turn(Base):
@@ -105,32 +134,29 @@ class Turn(Base):
 
     __tablename__ = "turns"
     __table_args__ = (sa.Index(None, "conversation_id", "turn_index"),)
-    id: Id = _id()
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, sa.ForeignKey("users.id")
-    )
+    id: orm.Mapped[Serial]
+    user_id: orm.Mapped[UserId]
     conversation_id: orm.Mapped[int] = orm.mapped_column(
         sa.BigInteger, sa.ForeignKey("conversations.id")
     )
     turn_index: orm.Mapped[int]
-    created_at: orm.Mapped[datetime.datetime] = _created()
+    created_at: orm.Mapped[Created]
     reply_mode: orm.Mapped[vocab.ReplyMode] = orm.mapped_column(
         _checked(vocab.ReplyMode)
     )
     model_version: orm.Mapped[str]
     schema_version: orm.Mapped[int]
-    raw_payload: orm.Mapped[dict[str, Any]]
+    raw_payload: orm.Mapped[Json]
     request_type: orm.Mapped[str]
     topic: orm.Mapped[str]
     needed_words: orm.Mapped[int]
     language: orm.Mapped[str]
     user_message_words: orm.Mapped[int | None]
-    # No longer sent (SPEC 4.1); kept for the rows that have them.
+    # No longer sent (SPEC 4.1 and 6.3); kept for the rows that have them.
     pasted_content: orm.Mapped[str | None]
     user_specified: orm.Mapped[list[str] | None] = orm.mapped_column(
         postgresql.ARRAY(sa.Text)
     )
-    # No longer asked (SPEC 6.3); kept for the rows that have it.
     assistant_model: orm.Mapped[str | None]
     target_words: orm.Mapped[int | None]
     requested_words: orm.Mapped[int | None]
@@ -139,28 +165,32 @@ class Turn(Base):
     b_sample: orm.Mapped[float | None]
     post_mean: orm.Mapped[float | None]
     post_sd: orm.Mapped[float | None]
-    style: orm.Mapped[dict[str, Any]] = orm.mapped_column(
-        server_default=sa.text("'{}'::jsonb")
-    )
+    style: orm.Mapped[EmptyJson]
     transport_session: orm.Mapped[str | None]
 
+    replies: orm.Mapped[list["Reply"]] = _events("Reply")
+    outcomes: orm.Mapped[list["Outcome"]] = _events("Outcome")
+    buttons_shown: orm.Mapped[list["ButtonShown"]] = _events("ButtonShown")
+    clicks: orm.Mapped[list["Click"]] = _events("Click")
+    gold_labels: orm.Mapped[list["GoldLabel"]] = _events("GoldLabel")
+    contexts: orm.Mapped[list["TurnContext"]] = _events("TurnContext")
+    embeddings: orm.Mapped[list["TopicEmbedding"]] = _events("TopicEmbedding")
+    shadow_decisions: orm.Mapped[list["ShadowDecision"]] = _events(
+        "ShadowDecision"
+    )
 
-class Reply(Base):
+
+class Reply(_TurnEvent):
     """One show_reply call: the exact word count, never the text."""
 
     __tablename__ = "replies"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     reply_words_exact: orm.Mapped[int | None]
-    created_at: orm.Mapped[datetime.datetime] = _created()
 
 
-class Outcome(Base):
+class Outcome(_TurnEvent):
     """One observation of how the user reacted to a turn."""
 
     __tablename__ = "outcomes"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     source: orm.Mapped[vocab.Source] = orm.mapped_column(_checked(vocab.Source))
     observed: orm.Mapped[str]
     user_quote: orm.Mapped[str | None]
@@ -169,120 +199,80 @@ class Outcome(Base):
     format_issue: orm.Mapped[str | None]
     model_version: orm.Mapped[str]
     schema_version: orm.Mapped[int]
-    created_at: orm.Mapped[datetime.datetime] = _created()
 
 
-class ButtonShown(Base):
+class ButtonShown(_TurnRow):
     """A button placed under a reply."""
 
     __tablename__ = "buttons_shown"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     button: orm.Mapped[str]
     position: orm.Mapped[int]
     shuffled: orm.Mapped[bool]
     thompson_draw: orm.Mapped[float | None]
 
 
-class Click(Base):
+class Click(_TurnEvent):
     """A click on a shown button."""
 
     __tablename__ = "clicks"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     button: orm.Mapped[str]
     position: orm.Mapped[int]
-    created_at: orm.Mapped[datetime.datetime] = _created()
 
 
-class GoldLabel(Base):
+class GoldLabel(_TurnEvent):
     """The owner's true outcome of a turn."""
 
     __tablename__ = "gold_labels"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     outcome: orm.Mapped[str]
-    created_at: orm.Mapped[datetime.datetime] = _created()
 
 
-class ShadowDecision(Base):
+class ShadowDecision(_TurnRow):
     """What a candidate policy would have decided."""
 
     __tablename__ = "shadow_decisions"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     model_version: orm.Mapped[str]
     target_words: orm.Mapped[int | None]
     propensity: orm.Mapped[float | None]
-    details: orm.Mapped[dict[str, Any]] = orm.mapped_column(
-        server_default=sa.text("'{}'::jsonb")
-    )
+    details: orm.Mapped[EmptyJson]
 
 
 class ToolCall(Base):
     """One tool call, for coverage monitoring."""
 
     __tablename__ = "tool_calls"
-    id: Id = _id()
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, sa.ForeignKey("users.id")
-    )
+    id: orm.Mapped[Serial]
+    user_id: orm.Mapped[UserId]
     tool: orm.Mapped[str]
-    created_at: orm.Mapped[datetime.datetime] = _created()
+    created_at: orm.Mapped[Created]
 
 
-class TurnContext(Base):
+class TurnContext(_TurnEvent):
     """The host context the widget reported."""
 
     __tablename__ = "turn_context"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     platform: orm.Mapped[str | None]
     locale: orm.Mapped[str | None]
-    created_at: orm.Mapped[datetime.datetime] = _created()
 
 
 class ProfileEdit(Base):
     """A correction made on the profile page."""
 
     __tablename__ = "profile_edits"
-    id: Id = _id()
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, sa.ForeignKey("users.id")
-    )
+    id: orm.Mapped[Serial]
+    user_id: orm.Mapped[UserId]
     scope: orm.Mapped[str]
     dimension: orm.Mapped[str]
     value: orm.Mapped[str]
-    created_at: orm.Mapped[datetime.datetime] = _created()
+    created_at: orm.Mapped[Created]
 
 
-class TopicEmbedding(Base):
+class TopicEmbedding(_TurnRow):
     """The embedding of a turn's topic."""
 
     __tablename__ = "topic_embeddings"
-    id: Id = _id()
-    turn_id: orm.Mapped[int] = _turn()
     model: orm.Mapped[str]
-    embedding: orm.Mapped[Any] = orm.mapped_column(
-        pgvector.sqlalchemy.Vector(EMBEDDING_DIMENSIONS)
-    )
+    embedding: orm.Mapped[Embedding]
 
-
-EVENTS = (
-    User,
-    Conversation,
-    Turn,
-    Reply,
-    Outcome,
-    ButtonShown,
-    Click,
-    GoldLabel,
-    ShadowDecision,
-    ToolCall,
-    TurnContext,
-    ProfileEdit,
-    TopicEmbedding,
-)
 
 # Derived state.
 
@@ -291,23 +281,19 @@ class TurnInference(Base):
     """The fused length, reaction and reading of a closed turn."""
 
     __tablename__ = "turn_inference"
-    turn_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, primary_key=True
-    )
+    turn_id: orm.Mapped[Key]
     length_mean: orm.Mapped[float]
     length_var: orm.Mapped[float]
-    reaction_probs: orm.Mapped[dict[str, Any]]
-    reading_probs: orm.Mapped[dict[str, Any]]
+    reaction_probs: orm.Mapped[Json]
+    reading_probs: orm.Mapped[Json]
 
 
 class ConversationState(Base):
-    """The assistant's family, compliance and speed."""
+    """The assistant's behaviour class, compliance and speed."""
 
     __tablename__ = "conversation_state"
-    conversation_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, primary_key=True
-    )
-    family_probs: orm.Mapped[dict[str, Any]]
+    conversation_id: orm.Mapped[Key]
+    family_probs: orm.Mapped[Json]
     kappa_mean: orm.Mapped[float]
     kappa_var: orm.Mapped[float]
     speed_mean: orm.Mapped[float]
@@ -315,34 +301,27 @@ class ConversationState(Base):
 
 
 class ThetaPosterior(Base):
-    """The grid posterior of a length cell."""
+    """The grid posterior of a length cell ("<type>" or "<type>@mobile")."""
 
     __tablename__ = "theta_posteriors"
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, primary_key=True
-    )
-    # The length cell: a request type, or "<type>@mobile" (SPEC 6.5).
-    request_type: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    grid: orm.Mapped[list[float]]
+    user_id: orm.Mapped[Key]
+    request_type: orm.Mapped[TextKey]
+    grid: orm.Mapped[Grid]
 
 
 class AlphaPosterior(Base):
     """The grid posterior of a user's overall length ratio."""
 
     __tablename__ = "alpha_posteriors"
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, primary_key=True
-    )
-    grid: orm.Mapped[list[float]]
+    user_id: orm.Mapped[Key]
+    grid: orm.Mapped[Grid]
 
 
 class UserReading(Base):
     """A user's reading speed, behaviour and reaction prior."""
 
     __tablename__ = "user_reading"
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, primary_key=True
-    )
+    user_id: orm.Mapped[Key]
     rho_mean: orm.Mapped[float]
     rho_var: orm.Mapped[float]
     mixture: orm.Mapped[list[float]] = orm.mapped_column(postgresql.JSONB)
@@ -352,16 +331,13 @@ class UserReading(Base):
 
 
 class PrefCount(Base):
-    """Dirichlet counts of a preference, button or clarification."""
+    """Dirichlet counts; user 0 is the population, scope "*" the user."""
 
     __tablename__ = "pref_counts"
-    # User 0 is the population; scope "*" is the user level (SPEC 7).
-    user_id: orm.Mapped[int] = orm.mapped_column(
-        sa.BigInteger, primary_key=True
-    )
-    scope: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    dimension: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    value: orm.Mapped[str] = orm.mapped_column(primary_key=True)
+    user_id: orm.Mapped[Key]
+    scope: orm.Mapped[TextKey]
+    dimension: orm.Mapped[TextKey]
+    value: orm.Mapped[TextKey]
     count: orm.Mapped[float]
 
 
@@ -369,13 +345,68 @@ class TopicCluster(Base):
     """A learned topic domain."""
 
     __tablename__ = "topic_clusters"
-    id: orm.Mapped[int] = orm.mapped_column(sa.BigInteger, primary_key=True)
-    centroid: orm.Mapped[Any] = orm.mapped_column(
-        pgvector.sqlalchemy.Vector(EMBEDDING_DIMENSIONS)
-    )
+    id: orm.Mapped[Key]
+    centroid: orm.Mapped[Embedding]
     medoid_topic: orm.Mapped[str]
     size: orm.Mapped[int]
-    updated_at: orm.Mapped[datetime.datetime] = _created()
+    updated_at: orm.Mapped[Created]
+
+
+# Learned global parameters (refit nightly).
+
+
+class FamilyParam(Base):
+    """Learned behaviour of a behaviour class."""
+
+    __tablename__ = "family_params"
+    model_family: orm.Mapped[TextKey]
+    b: orm.Mapped[float]
+    w: orm.Mapped[float]
+    kappa: orm.Mapped[float]
+    speed_mu: orm.Mapped[float]
+    speed_sd: orm.Mapped[float]
+    updated_at: orm.Mapped[Created]
+
+
+class SensorNoise(Base):
+    """Learned noise of a length sensor."""
+
+    __tablename__ = "sensor_noise"
+    sensor: orm.Mapped[TextKey]
+    model_family: orm.Mapped[TextKey]
+    sigma: orm.Mapped[float]
+    updated_at: orm.Mapped[Created]
+
+
+class AnnotatorConfusion(Base):
+    """Learned P(observed | true outcome) of an annotator."""
+
+    __tablename__ = "annotator_confusion"
+    annotator: orm.Mapped[TextKey]
+    stratum: orm.Mapped[TextKey]
+    true_outcome: orm.Mapped[TextKey]
+    observed: orm.Mapped[TextKey]
+    prob: orm.Mapped[float]
+    updated_at: orm.Mapped[Created]
+
+
+class HostFamilyPrior(Base):
+    """Learned P(behaviour class | host)."""
+
+    __tablename__ = "host_family_prior"
+    host: orm.Mapped[TextKey]
+    model_family: orm.Mapped[TextKey]
+    prob: orm.Mapped[float]
+    updated_at: orm.Mapped[Created]
+
+
+class Hyperparam(Base):
+    """A learned scalar hyperparameter."""
+
+    __tablename__ = "hyperparams"
+    name: orm.Mapped[TextKey]
+    value: orm.Mapped[float]
+    updated_at: orm.Mapped[Created]
 
 
 DERIVED = (
@@ -386,64 +417,6 @@ DERIVED = (
     UserReading,
     PrefCount,
 )
-
-# Learned global parameters (refit nightly).
-
-
-class FamilyParam(Base):
-    """Learned behaviour of a model family."""
-
-    __tablename__ = "family_params"
-    model_family: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    b: orm.Mapped[float]
-    w: orm.Mapped[float]
-    kappa: orm.Mapped[float]
-    speed_mu: orm.Mapped[float]
-    speed_sd: orm.Mapped[float]
-    updated_at: orm.Mapped[datetime.datetime] = _created()
-
-
-class SensorNoise(Base):
-    """Learned noise of a length sensor."""
-
-    __tablename__ = "sensor_noise"
-    sensor: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    model_family: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    sigma: orm.Mapped[float]
-    updated_at: orm.Mapped[datetime.datetime] = _created()
-
-
-class AnnotatorConfusion(Base):
-    """Learned P(observed | true outcome) of an annotator."""
-
-    __tablename__ = "annotator_confusion"
-    annotator: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    stratum: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    true_outcome: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    observed: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    prob: orm.Mapped[float]
-    updated_at: orm.Mapped[datetime.datetime] = _created()
-
-
-class HostFamilyPrior(Base):
-    """Learned P(family | host)."""
-
-    __tablename__ = "host_family_prior"
-    host: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    model_family: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    prob: orm.Mapped[float]
-    updated_at: orm.Mapped[datetime.datetime] = _created()
-
-
-class Hyperparam(Base):
-    """A learned scalar hyperparameter."""
-
-    __tablename__ = "hyperparams"
-    name: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    value: orm.Mapped[float]
-    updated_at: orm.Mapped[datetime.datetime] = _created()
-
-
 LEARNED = (
     FamilyParam,
     SensorNoise,

@@ -12,6 +12,7 @@ import datetime
 import math
 
 import sqlalchemy as sa
+from sqlalchemy import orm
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext import asyncio as sa_asyncio
 
@@ -205,6 +206,38 @@ def observations(
     return obs
 
 
+TURN_EVENTS = (
+    models.Turn.replies,
+    models.Turn.outcomes,
+    models.Turn.clicks,
+    models.Turn.buttons_shown,
+    models.Turn.gold_labels,
+    models.Turn.contexts,
+    models.Turn.embeddings,
+    models.Turn.shadow_decisions,
+)
+
+
+def with_events(statement: sa.Select) -> sa.Select:
+    """Loads every event relationship of the turns a statement selects."""
+    return statement.options(
+        *(orm.selectinload(r) for r in TURN_EVENTS)
+    ).execution_options(populate_existing=True)
+
+
+def first(events: list, at: datetime.datetime | None = None, **match):
+    """Returns the first event, recorded up to `at`, matching every field."""
+    return next(
+        (
+            e
+            for e in events
+            if (at is None or e.created_at <= at)
+            and all(getattr(e, k) == v for k, v in match.items())
+        ),
+        None,
+    )
+
+
 @dataclasses.dataclass
 class _TurnEvents:
     """One turn and its events recorded up to the moment it was closed."""
@@ -213,49 +246,23 @@ class _TurnEvents:
     reply: models.Reply | None
     verdict: models.Outcome | None
     click: models.Click | None
-    shown: list[models.ButtonShown]
     domain: str
-
-
-async def _first(
-    session: Session, model, turn_id: int, at: datetime.datetime, *where
-):
-    return await session.scalar(
-        sa.select(model)
-        .where(model.turn_id == turn_id, model.created_at <= at, *where)
-        .order_by(model.created_at)
-        .limit(1)
-    )
 
 
 async def _turn_events(
     session: Session, turn_id: int, at: datetime.datetime
 ) -> _TurnEvents:
-    embedding = await session.scalar(
-        sa.select(models.TopicEmbedding.embedding).where(
-            models.TopicEmbedding.turn_id == turn_id
-        )
-    )
-    shown = await session.scalars(
-        sa.select(models.ButtonShown).where(
-            models.ButtonShown.turn_id == turn_id
-        )
+    turn = await session.scalar(
+        with_events(sa.select(models.Turn).where(models.Turn.id == turn_id))
     )
     return _TurnEvents(
-        turn=await session.get(models.Turn, turn_id),
-        reply=await _first(session, models.Reply, turn_id, at),
-        verdict=await _first(
-            session,
-            models.Outcome,
-            turn_id,
-            at,
-            models.Outcome.source == vocab.Source.ASSISTANT,
-        ),
-        click=await _first(session, models.Click, turn_id, at),
-        shown=list(shown),
+        turn=turn,
+        reply=first(turn.replies, at),
+        verdict=first(turn.outcomes, at, source=vocab.Source.ASSISTANT),
+        click=first(turn.clicks, at),
         domain=(
-            await topics.domain_of(session, embedding)
-            if embedding is not None
+            await topics.domain_of(session, turn.embeddings[0].embedding)
+            if turn.embeddings
             else topics.ANY_DOMAIN
         ),
     )
@@ -343,7 +350,7 @@ async def finalize_turn(
             verdict.observed if verdict else None,
             conv.family_probs,
             click,
-            bool(ev.shown),
+            bool(ev.turn.buttons_shown),
             resp,
         ),
         p.confusions,
@@ -403,7 +410,7 @@ async def _learn_preferences(
     for (dimension, value), count in signals.items():
         scope = prefs.scope_of(dimension, turn.request_type, ev.domain)
         by_scope[scope][(dimension, value)] = count
-    for shown in ev.shown:
+    for shown in ev.turn.buttons_shown:
         clicked = bool(click) and click.button == shown.button
         dimension = prefs.arm(vocab.ArmKind.BUTTON, shown.button)
         value = vocab.PrefValue.YES if clicked else vocab.PrefValue.NO

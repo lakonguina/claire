@@ -157,17 +157,6 @@ async def overview() -> dict:
         }
 
 
-async def _first(session: Session, model, turn_ids: list[int], *where) -> dict:
-    out = {}
-    for event in await session.scalars(
-        sa.select(model)
-        .where(model.turn_id.in_(turn_ids), *where)
-        .order_by(model.created_at)
-    ):
-        out.setdefault(event.turn_id, event)
-    return out
-
-
 @api.get("/turns")
 async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
     where = [
@@ -178,44 +167,26 @@ async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
     async with db.session() as session:
         rows = (
             await session.execute(
-                sa.select(models.Turn, models.Conversation)
-                .join(
-                    models.Conversation,
-                    models.Conversation.id == models.Turn.conversation_id,
+                engine.with_events(
+                    sa.select(
+                        models.Turn, models.Conversation, models.TurnInference
+                    )
+                    .join(models.Conversation)
+                    .outerjoin(
+                        models.TurnInference,
+                        models.TurnInference.turn_id == models.Turn.id,
+                    )
+                    .where(*where)
+                    .order_by(models.Turn.id.desc())
+                    .limit(min(limit, MAX_TURNS))
                 )
-                .where(*where)
-                .order_by(models.Turn.id.desc())
-                .limit(min(limit, MAX_TURNS))
             )
         ).all()
-        ids = [turn.id for turn, _ in rows]
-        replies = await _first(session, models.Reply, ids)
-        verdicts = await _first(
-            session,
-            models.Outcome,
-            ids,
-            models.Outcome.source == vocab.Source.ASSISTANT,
-        )
-        clicks = await _first(session, models.Click, ids)
-        inferences = {
-            i.turn_id: i
-            for i in await session.scalars(
-                sa.select(models.TurnInference).where(
-                    models.TurnInference.turn_id.in_(ids)
-                )
-            )
-        }
-        buttons = {}
-        for b in await session.scalars(
-            sa.select(models.ButtonShown)
-            .where(models.ButtonShown.turn_id.in_(ids))
-            .order_by(models.ButtonShown.position)
-        ):
-            buttons.setdefault(b.turn_id, []).append(b.button)
     out = []
-    for turn, conv in rows:
-        reply, verdict = replies.get(turn.id), verdicts.get(turn.id)
-        click, inference = clicks.get(turn.id), inferences.get(turn.id)
+    for turn, conv, inference in rows:
+        reply = engine.first(turn.replies)
+        verdict = engine.first(turn.outcomes, source=vocab.Source.ASSISTANT)
+        click = engine.first(turn.clicks)
         probs = inference.reaction_probs if inference else {}
         out.append(
             {
@@ -232,7 +203,7 @@ async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
                 "user_quote": verdict.user_quote if verdict else None,
                 "format_issue": verdict.format_issue if verdict else None,
                 "clicked": click.button if click else None,
-                "buttons": buttons.get(turn.id),
+                "buttons": [b.button for b in turn.buttons_shown] or None,
                 "inferred": max(probs, key=probs.get, default=None),
                 "inferred_p": max(probs.values(), default=None),
             }
@@ -243,18 +214,13 @@ async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
 @api.get("/turns/{turn_id}")
 async def turn_detail(turn_id: int) -> dict:
     async with db.session() as session:
-        turn = await session.get(models.Turn, turn_id)
+        turn = await session.scalar(
+            engine.with_events(
+                sa.select(models.Turn).where(models.Turn.id == turn_id)
+            )
+        )
         if not turn:
             raise fastapi.HTTPException(status_code=404)
-
-        async def events(model, order=None) -> list[dict]:
-            rows = await session.scalars(
-                sa.select(model)
-                .where(model.turn_id == turn_id)
-                .order_by(order if order is not None else model.id)
-            )
-            return [_row(r) for r in rows]
-
         state = await session.get(
             models.ConversationState, turn.conversation_id
         )
@@ -265,28 +231,26 @@ async def turn_detail(turn_id: int) -> dict:
                 models.Turn.turn_index == turn.turn_index + 1,
             )
         )
-        return {
-            "turn": _row(turn),
-            "conversation": _row(
-                await session.get(models.Conversation, turn.conversation_id)
-            ),
-            "conversation_state": _row(state) if state else None,
-            "next_turn": (
-                {"id": next_turn.id, "created_at": next_turn.created_at}
-                if next_turn
-                else None
-            ),
-            "replies": await events(models.Reply),
-            "outcomes": await events(models.Outcome),
-            "buttons_shown": await events(
-                models.ButtonShown, models.ButtonShown.position
-            ),
-            "clicks": await events(models.Click),
-            "context": await events(models.TurnContext),
-            "gold_labels": await events(models.GoldLabel),
-            "shadow_decisions": await events(models.ShadowDecision),
-            "inference": _row(inference) if inference else None,
-        }
+        conversation = await session.get(
+            models.Conversation, turn.conversation_id
+        )
+    events = {
+        r.key: [_row(e) for e in getattr(turn, r.key)]
+        for r in engine.TURN_EVENTS
+        if r is not models.Turn.embeddings  # 384 floats, not for reading.
+    }
+    return {
+        "turn": _row(turn),
+        "conversation": _row(conversation),
+        "conversation_state": _row(state) if state else None,
+        "next_turn": (
+            {"id": next_turn.id, "created_at": next_turn.created_at}
+            if next_turn
+            else None
+        ),
+        **events,
+        "inference": _row(inference) if inference else None,
+    }
 
 
 @api.get("/users")
