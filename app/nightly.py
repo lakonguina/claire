@@ -80,6 +80,7 @@ async def finalized_turns(session: Session) -> list[dict]:
         out.append(
             {
                 "user_id": turn.user_id,
+                "conversation_id": turn.conversation_id,
                 "cell": engine.style_of(turn)["cell"],
                 "needed_words": turn.needed_words,
                 "requested_words": turn.requested_words,

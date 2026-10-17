@@ -2,6 +2,8 @@
 
 import dataclasses
 import logging
+import math
+import random
 
 from alembic import autogenerate
 from alembic import migration
@@ -539,3 +541,41 @@ async def test_schema_matches_the_models(database):
 
     async with db.engine.connect() as connection:
         assert await connection.run_sync(diff) == []
+
+
+def test_nightly_learns_behaviour_classes_and_host_priors():
+    """Two kinds of assistants, told apart by speed alone, per host."""
+    rng = random.Random(4)
+    p = params_lib.Params()
+    turns, conversations = [], []
+    for conversation_id in range(80):
+        fast = conversation_id % 2 == 0
+        speed = math.log(90 if fast else 35)
+        conversations.append(
+            {
+                "id": conversation_id,
+                "host": "fast-host" if fast else "slow-host",
+                "kappa_mean": 0.0,
+                "family_probs": {},
+            }
+        )
+        for _ in range(3):
+            words = rng.randint(80, 200)
+            writing = words / math.exp(speed + rng.gauss(0, 0.05))
+            turns.append(
+                {
+                    "user_id": 1,
+                    "conversation_id": conversation_id,
+                    "cell": "explanation",
+                    "needed_words": 150,
+                    "length_mean": math.log(words),
+                    "duration": writing + p.overhead,
+                }
+            )
+    nightly.refit_families(turns, conversations, p, {})
+    assert len(p.families.params) == 2
+    fast_class = max(
+        p.families.params, key=lambda f: p.families.params[f]["speed_mu"]
+    )
+    prior = p.families.host_prior["fast-host"]
+    assert max(prior, key=prior.get) == fast_class
