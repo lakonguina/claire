@@ -56,7 +56,8 @@ table {
 th,
 td {
   padding: 4px 10px;
-  border: var(--border-width-regular, 1px) solid var(--color-border-secondary, rgba(127, 127, 127, 0.3));
+  border: var(--border-width-regular, 1px) solid
+    var(--color-border-secondary, rgba(127, 127, 127, 0.3));
 }
 
 #actions {
@@ -78,7 +79,8 @@ button {
   font-size: var(--font-text-sm-size, 14px);
   padding: 6px 12px;
   border-radius: var(--border-radius-full, 999px);
-  border: var(--border-width-regular, 1px) solid var(--color-border-primary, rgba(127, 127, 127, 0.4));
+  border: var(--border-width-regular, 1px) solid
+    var(--color-border-primary, rgba(127, 127, 127, 0.4));
   background: var(--color-background-primary, Canvas);
   color: inherit;
   cursor: pointer;
@@ -111,4 +113,18 @@ button.copied {
   50% {
     transform: scale(1.12);
   }
+}
+
+footer {
+  margin-top: 8px;
+}
+
+#profile {
+  font-size: var(--font-text-xs-size, 12px);
+  color: var(--color-text-tertiary, GrayText);
+  text-decoration: none;
+}
+
+#profile:hover {
+  text-decoration: underline;
 }

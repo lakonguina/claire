@@ -1,56 +1,87 @@
-"""Beta-Bernoulli bandits for buttons (section 8) and style modifiers (section 7)."""
+"""Buttons (SPEC sections 4.4 and 8): what a click means, Thompson choice."""
 
+import dataclasses
 import random
-from dataclasses import dataclass
 
-BUTTONS = {
-    "shorter": ("Shorter", "Shorter."),
-    "more_detail": ("More detail", "More detail."),
-    "example": ("Example", "Give an example."),
-    "simpler": ("Simpler", "Simpler, please."),
-    "one_line": ("One-line summary", "Summarize in one line."),
-    "rephrase_request": (
-        "Rephrase my request",
-        "Rewrite my last request as a clearer prompt, and tell me in one line what was missing.",
-    ),
-}
-STYLES = {"simple": "Use simple words.", "example": "Include one short example."}
-STYLE_BUTTON = {"simple": "simpler", "example": "example"}
+from app import vocab
+from app.model import prefs
+
 SHUFFLE_PROB = 0.2
 SHOWN = 3
 
 
-@dataclass
+@dataclasses.dataclass(frozen=True)
+class Effect:
+    """What a click on a button tells the models.
+
+    Attributes:
+        outcome: The value it reports to the button annotator.
+        preference: The (dimension, value) it reinforces, if any.
+    """
+
+    outcome: str
+    preference: tuple[vocab.Dimension, vocab.PrefValue] | None = None
+
+
+STYLE_CLICK = "style_click"  # A click that reports no outcome, only a style.
+EFFECTS = {
+    vocab.Button.SHORTER: Effect(vocab.Outcome.TOO_LONG),
+    vocab.Button.MORE_DETAIL: Effect(vocab.Outcome.TOO_SHORT),
+    vocab.Button.ONE_LINE: Effect(vocab.Outcome.TOO_LONG),
+    vocab.Button.EXAMPLE: Effect(
+        STYLE_CLICK, (vocab.Dimension.EXAMPLES, vocab.PrefValue.YES)
+    ),
+    vocab.Button.SIMPLER: Effect(
+        vocab.Outcome.WRONG_FORMAT,
+        (vocab.Dimension.LEVEL, vocab.PrefValue.SIMPLE),
+    ),
+    vocab.Button.AS_LIST: Effect(
+        vocab.Outcome.WRONG_FORMAT,
+        (vocab.Dimension.FORMAT, vocab.PrefValue.BULLETS),
+    ),
+    vocab.Button.AS_PROSE: Effect(
+        vocab.Outcome.WRONG_FORMAT,
+        (vocab.Dimension.FORMAT, vocab.PrefValue.PROSE),
+    ),
+    vocab.Button.NOT_THIS: Effect(vocab.Outcome.MISUNDERSTOOD),
+}
+
+
+@dataclasses.dataclass(frozen=True)
 class Shown:
+    """A button placed under a reply."""
+
     button: str
     position: int
     shuffled: bool
     thompson_draw: float | None
 
 
-def beta_mean(counts: tuple[float, float]) -> float:
-    return counts[0] / (counts[0] + counts[1])
+def choose(counts: prefs.Counts, rng: random.Random) -> list[Shown]:
+    """Returns [safe, explore, explore], or a random order sometimes.
 
+    Args:
+        counts: Preference counts holding the buttons' click dimensions.
+        rng: The random source.
 
-def choose_buttons(counts: dict[str, tuple[float, float]], exclude: set[str], rng: random.Random) -> list[Shown]:
-    """[safe, explore, explore], or a random order with probability SHUFFLE_PROB."""
-    candidates = [b for b in BUTTONS if b not in exclude]
-    get = lambda b: counts.get(b, (1.0, 1.0))
-    safe = max(candidates, key=lambda b: beta_mean(get(b)))
-    draws = {b: rng.betavariate(*get(b)) for b in candidates if b != safe}
-    explore = sorted(draws, key=draws.get, reverse=True)[: SHOWN - 1]
-    chosen = [safe, *explore]
+    Returns:
+        The buttons to show, with their positions and Thompson draws.
+    """
+    alphas = {
+        b: prefs.posterior(counts, prefs.arm(vocab.ArmKind.BUTTON, b))
+        for b in vocab.Button
+    }
+    p_click = {
+        b: a[vocab.PrefValue.YES] / sum(a.values()) for b, a in alphas.items()
+    }
+    safe = max(p_click, key=p_click.get)
+    draws = {
+        b: prefs.draw(a, rng)[vocab.PrefValue.YES]
+        for b, a in alphas.items()
+        if b != safe
+    }
+    chosen = [safe, *sorted(draws, key=draws.get, reverse=True)[: SHOWN - 1]]
     shuffled = rng.random() < SHUFFLE_PROB
     if shuffled:
         rng.shuffle(chosen)
     return [Shown(b, i, shuffled, draws.get(b)) for i, b in enumerate(chosen)]
-
-
-def active_styles(counts: dict[str, tuple[float, float]]) -> list[str]:
-    """Modifiers whose posterior mean is above 0.5 with at least 2 signals."""
-    out = []
-    for style in STYLES:
-        a, b = counts.get("style:" + style, (1.0, 1.0))
-        if a + b - 2 >= 2 and beta_mean((a, b)) > 0.5:
-            out.append(style)
-    return out

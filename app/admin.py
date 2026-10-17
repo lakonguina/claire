@@ -1,25 +1,36 @@
-"""Create a user and print their connector URL: python -m app.admin new-user"""
+"""Creates a user and prints their connector URL.
+
+Usage: python -m app.admin new-user
+"""
 
 import asyncio
 import secrets
 import sys
 
-from app.config import settings
-from app.db import execute, migrate, pool
-from app.service import token_hash
+from app import config
+from app import db
+from app import service
+
+COMMAND = "new-user"
+TOKEN_BYTES = 24
 
 
 async def new_user() -> str:
-    token = secrets.token_urlsafe(24)
-    await pool.open()
-    await migrate()
-    async with pool.connection() as conn:
-        await execute(conn, "INSERT INTO users (token_hash) VALUES (%s)", token_hash(token))
-    await pool.close()
-    return f"{settings.public_url.rstrip('/')}/mcp/{token}"
+    """Creates a user; returns the connector URL holding their token."""
+    token = secrets.token_urlsafe(TOKEN_BYTES)
+    await db.migrate()
+    await db.pool.open()
+    async with db.pool.connection() as conn:
+        await db.execute(
+            conn,
+            "INSERT INTO users (token_hash) VALUES (%s)",
+            service.token_hash(token),
+        )
+    await db.pool.close()
+    return f"{config.settings.public_url.rstrip("/")}/mcp/{token}"
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] != ["new-user"]:
+    if sys.argv[1:] != [COMMAND]:
         sys.exit(__doc__)
     print(asyncio.run(new_user()))

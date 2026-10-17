@@ -1,124 +1,177 @@
-"""User reaction (section 6.4): noisy annotators, online fusion and Dawid-Skene."""
+"""User reaction (SPEC section 6.4): noisy annotators and Dawid-Skene."""
 
-from dataclasses import dataclass, field
+import dataclasses
 
-from app.model.stats import normalize
+from app import vocab
+from app.model import bandits
+from app.model import stats
 
-OUTCOMES = ["moved_on", "too_long", "too_short", "missing_info", "misunderstood", "wrong_format"]
-NO_INFO = "_none"  # observation carrying no information (P = 1 for every true outcome)
-
-BUTTON_OUTCOME = {
-    "shorter": "too_long",
-    "more_detail": "too_short",
-    "example": "style_click",
-    "simpler": "wrong_format",
-    "one_line": "too_long",
-    "rephrase_request": "misunderstood",
-}
+OUTCOMES = [o for o in vocab.Outcome if o != vocab.Outcome.NO_SIGNAL]
+NO_INFO = "_none"  # An observation with P = 1 under every true outcome.
 POSITIONS = 3
-# The button annotator observes one joint token per turn: "<position>:<outcome>" for a click, or "no_click".
+# The button annotator observes one joint token per turn:
+# "<position>:<outcome>" for a click, or "no_click".
 BUTTON_OBS = ["no_click"] + [
-    f"{p}:{o}" for p in range(POSITIONS) for o in sorted(set(BUTTON_OUTCOME.values()))
+    f"{p}:{o}"
+    for p in range(POSITIONS)
+    for o in sorted({e.outcome for e in bandits.EFFECTS.values()})
 ]
-ALPHABETS = {"assistant": OUTCOMES, "button": BUTTON_OBS, "reading": ["read", "skim"]}
+ALPHABETS = {
+    vocab.Source.ASSISTANT: OUTCOMES,
+    vocab.Source.BUTTON: BUTTON_OBS,
+    vocab.Source.READING: ["read", "skim"],
+}
 
-Confusion = dict[str, dict[str, dict[str, float]]]  # stratum -> true outcome -> observed -> prob
+# Stratum -> true outcome -> observed value -> probability.
+Confusion = dict[str, dict[str, dict[str, float]]]
 
 
-@dataclass
+@dataclasses.dataclass
 class Observation:
+    """One annotator's (possibly soft) observation of a turn.
+
+    Attributes:
+        annotator: The annotator name, a key of ALPHABETS.
+        dist: Observed value -> probability.
+        strata: Stratum -> weight (soft model-family assignment).
+    """
+
     annotator: str
-    dist: dict[str, float]  # observed value -> probability (soft observations)
-    strata: dict[str, float] = field(default_factory=lambda: {"all": 1.0})  # stratum -> weight
+    dist: dict[str, float]
+    strata: dict[str, float] = dataclasses.field(
+        default_factory=lambda: {"all": 1.0}
+    )
 
 
-@dataclass
+@dataclasses.dataclass
 class Item:
+    """The observations of one turn, with its gold label if any."""
+
     observations: list[Observation]
     gold: str | None = None
 
 
-def _rows(diagonal: dict[str, float], alphabet: list[str]) -> dict[str, dict[str, float]]:
-    rows = {}
-    for y in OUTCOMES:
-        d = diagonal.get(y, 0.0)
-        rest = [o for o in alphabet if o != y]
-        rows[y] = {o: d if o == y else (1 - d) / len(rest) for o in alphabet}
-    return rows
+def _rows(diagonal: dict[str, float]) -> dict[str, dict[str, float]]:
+    rest = len(OUTCOMES) - 1
+    return {
+        y: {
+            o: diagonal[y] if o == y else (1 - diagonal[y]) / rest
+            for o in OUTCOMES
+        }
+        for y in OUTCOMES
+    }
+
+
+def _button_row(outcome: str) -> dict[str, float]:
+    no_click = 0.9 if outcome == vocab.Outcome.MOVED_ON else 0.6
+    clicks = BUTTON_OBS[1:]
+    matching = [o for o in clicks if o.endswith(":" + outcome)]
+    row = {"no_click": no_click}
+    for o in clicks:
+        if not matching:
+            row[o] = (1 - no_click) / len(clicks)
+        elif o in matching:
+            row[o] = (1 - no_click) * 0.95 / len(matching)
+        else:
+            row[o] = (1 - no_click) * 0.05 / (len(clicks) - len(matching))
+    return row
 
 
 def default_confusions(families: list[str]) -> dict[str, Confusion]:
-    assistant = _rows({y: 0.7 if y == "moved_on" else 0.8 for y in OUTCOMES}, OUTCOMES)
-    button = {}
-    for y in OUTCOMES:
-        no_click = 0.9 if y == "moved_on" else 0.6
-        matching = [o for o in BUTTON_OBS[1:] if o.endswith(":" + y)]
-        others = [o for o in BUTTON_OBS[1:] if o not in matching]
-        row = {"no_click": no_click}
-        for o in BUTTON_OBS[1:]:
-            if matching:
-                row[o] = (1 - no_click) * (0.95 / len(matching) if o in matching else 0.05 / len(others))
-            else:
-                row[o] = (1 - no_click) / len(BUTTON_OBS[1:])
-        button[y] = row
-    reading = {y: {"skim": 0.5 if y == "too_long" else 0.25} for y in OUTCOMES}
-    for row in reading.values():
-        row["read"] = 1 - row["skim"]
+    """Returns the initial confusion matrices of every annotator."""
+    assistant = {
+        y: 0.7 if y == vocab.Outcome.MOVED_ON else 0.8 for y in OUTCOMES
+    }
+    skim = {y: 0.5 if y == vocab.Outcome.TOO_LONG else 0.25 for y in OUTCOMES}
     return {
-        "assistant": {f: {y: dict(row) for y, row in assistant.items()} for f in families},
-        "button": {"all": button},
-        "reading": {"all": reading},
+        vocab.Source.ASSISTANT: {f: _rows(assistant) for f in families},
+        vocab.Source.BUTTON: {"all": {y: _button_row(y) for y in OUTCOMES}},
+        vocab.Source.READING: {
+            "all": {y: {"skim": p, "read": 1 - p} for y, p in skim.items()}
+        },
     }
 
 
 def likelihood(obs: Observation, confusion: Confusion) -> list[float]:
+    """Returns P(observation | true outcome) for every outcome."""
     out = []
     for y in OUTCOMES:
         total = 0.0
-        for stratum, w in obs.strata.items():
+        for stratum, weight in obs.strata.items():
             row = confusion[stratum][y]
-            total += w * sum(p * (1.0 if o == NO_INFO else row.get(o, 0.0)) for o, p in obs.dist.items())
+            total += weight * sum(
+                p * (1.0 if o == NO_INFO else row.get(o, 0.0))
+                for o, p in obs.dist.items()
+            )
         out.append(total)
     return out
 
 
-def posterior(prior: list[float], observations: list[Observation], confusions: dict[str, Confusion]) -> list[float]:
+def posterior(
+    prior: list[float],
+    observations: list[Observation],
+    confusions: dict[str, Confusion],
+) -> list[float]:
+    """Returns P(true outcome | observations)."""
     post = list(prior)
     for obs in observations:
-        post = [p * lik for p, lik in zip(post, likelihood(obs, confusions[obs.annotator]))]
-    return normalize(post)
+        lik = likelihood(obs, confusions[obs.annotator])
+        post = [p * l for p, l in zip(post, lik)]
+    return stats.normalize(post)
 
 
 def dawid_skene(
-    items: list[Item], confusions: dict[str, Confusion], iterations: int = 50, smoothing: float = 0.01
+    items: list[Item],
+    confusions: dict[str, Confusion],
+    iterations: int = 50,
+    smoothing: float = 0.01,
 ) -> tuple[dict[str, Confusion], list[float], list[list[float]]]:
-    """EM over true outcomes and every annotator's confusion matrix; gold labels are clamped."""
+    """Runs EM over the true outcomes and every confusion matrix.
+
+    Args:
+        items: The turns to learn from; gold labels are clamped.
+        confusions: The starting confusion matrices.
+        iterations: The number of EM iterations.
+        smoothing: The pseudo-count added to every confusion cell.
+
+    Returns:
+        The learned confusions, the outcome prior and each item's posterior.
+    """
     prior = [1.0 / len(OUTCOMES)] * len(OUTCOMES)
     posts: list[list[float]] = []
     for _ in range(iterations):
         posts = [
-            [1.0 if y == item.gold else 0.0 for y in OUTCOMES] if item.gold else posterior(prior, item.observations, confusions)
+            [float(y == item.gold) for y in OUTCOMES]
+            if item.gold
+            else posterior(prior, item.observations, confusions)
             for item in items
         ]
         counts = {
-            a: {s: {y: {o: smoothing for o in ALPHABETS[a]} for y in OUTCOMES} for s in strata}
+            a: {
+                s: {y: dict.fromkeys(ALPHABETS[a], smoothing) for y in OUTCOMES}
+                for s in strata
+            }
             for a, strata in confusions.items()
         }
         for item, post in zip(items, posts):
             for obs in item.observations:
-                for stratum, w in obs.strata.items():
+                for stratum, weight in obs.strata.items():
+                    cells = counts[obs.annotator][stratum]
                     for o, p in obs.dist.items():
-                        if o == NO_INFO:
-                            continue
-                        for y, py in zip(OUTCOMES, post):
-                            counts[obs.annotator][stratum][y][o] += py * w * p
+                        if o != NO_INFO:
+                            for y, py in zip(OUTCOMES, post):
+                                cells[y][o] += py * weight * p
         confusions = {
             a: {
-                s: {y: dict(zip(row, normalize(list(row.values())))) for y, row in rows.items()}
+                s: {
+                    y: dict(zip(row, stats.normalize(list(row.values()))))
+                    for y, row in rows.items()
+                }
                 for s, rows in strata.items()
             }
             for a, strata in counts.items()
         }
-        prior = normalize([sum(post[i] for post in posts) + 1.0 for i in range(len(OUTCOMES))])
+        prior = stats.normalize(
+            [sum(post[i] for post in posts) + 1.0 for i in range(len(OUTCOMES))]
+        )
     return confusions, prior, posts
-

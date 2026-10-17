@@ -1,12 +1,12 @@
-# Lingua Franca — MCP server for shorter, better-targeted AI replies accross any chatbot (ChatGPT/AI/Gemini..) (MVP)
+# Lingua Franca — the communication layer between each person and any AI (MVP)
 
 ## 1. Purpose
 
-Make AI Chat (web, desktop and mobile apps) give each user **what they need to move forward, in as few words as possible**, and learn each user's preferences from their reactions.
+Lingua Franca is **the communication layer between each person and any AI**: every assistant (Claude, ChatGPT, …, on web, desktop and mobile) talks to the user the way that user wants, in length, format, level and tone, from the first message and on every platform. It learns each user's preferences from their reactions and carries one profile across all of them.
 
-Guiding principle: Grice's maxim of quantity — say everything that is needed, and nothing more.
+Length is one dimension among others. Guiding principle: Grice's maxim of quantity — say everything that is needed, and nothing more — extended to manner: say it in the form this person takes in best.
 
-**North-star metric: words spent per step forward.** We minimise reply words *under the constraint* that the user moves forward (no corrections, no missing information).
+**North-star metric: words spent per step forward**, alongside the **total repair rate**. We minimise reply words, including the words the tool itself costs (section 11), *under the constraint* that the user moves forward (no corrections, no missing information, no reformatting requests).
 
 - Neither "fewest tokens" alone (an empty reply is shortest) nor "user satisfaction" alone (flattery, padding) is the goal.
 - Button clicks are a **learning signal only**. Never optimise for click-through or engagement.
@@ -18,8 +18,8 @@ The server never stores the conversation. It receives the structured fields AI s
 An instruction in the user's AI account (section 10) makes AI:
 
 1. Call `plan_reply` **before** every reply. AI sends (a) its verdict on how the user reacted to its previous reply, with a short quote as proof, and (b) facts about the new request.
-2. The server records the outcome for the previous turn, updates the user's model instantly, picks a target length and style, and returns a short instruction. The instruction also sets the **reply mode** for this turn.
-3. **Widget mode (main mode):** AI writes its reply **only** as the `text` argument of `show_reply`, and nothing in the chat. The MCP App renders the reply (as it streams, when the host streams tool input), with 3 buttons underneath; the buttons arrive in the tool result's `structuredContent`, which the host gives to the app but not to the model. The server counts the words exactly, then discards the text.
+2. The server records the outcome for the previous turn, updates the user's model instantly, picks a target length and a form (format, level, examples, tone, headings, or a clarifying question first), and returns a short instruction. The instruction also sets the **reply mode** for this turn.
+3. **Widget mode (main mode):** AI writes its reply **only** as the `text` argument of `show_reply`, and nothing in the chat. The MCP App renders the reply (as it streams, when the host streams tool input), with 3 buttons underneath in the user's language and a discreet link to the user's profile page (section 4.6); both arrive in the tool result's `structuredContent`, which the host gives to the app but not to the model. The server counts the words exactly, then discards the text.
 4. **Fallback mode** (host without MCP Apps support): AI replies normally in the chat and calls no tool after it. Such a host cannot render buttons, so there are none.
 5. If the user clicks a button, the UI records the click and sends the matching follow-up message into the chat. Users who type instead are covered by step 1 on the next message.
 
@@ -30,13 +30,14 @@ Widget mode costs no extra tokens (the reply is written once, as a tool argument
 Mandatory stack:
 
 - **Docker** (Docker Compose): one service for the app, one for PostgreSQL.
-- **PostgreSQL** for all storage.
+- **PostgreSQL** for all storage, with the **pgvector** extension for topic embeddings (`pgvector/pgvector:pg17` image).
 - **FastAPI** for the HTTP API (internal endpoints, health, metrics, debug page).
 - The official **MCP Python SDK** (`mcp` 2.x, `MCPServer`) for the MCP tools, served over Streamable HTTP and mounted inside the FastAPI app. Its built-in MCP Apps extension (`mcp.server.apps`) provides the UI resources. (fastapi_mcp was dropped: its last release, 0.4.0, does not run on `mcp` 2.x.)
 
 Rules:
 
-- Python: do not add libraries beyond these, a PostgreSQL driver (`psycopg` 3 and its pool), the ASGI server (uvicorn) and pytest. The models in sections 5 and 6 are implemented in **pure Python** with the standard library (`math`, `random`, `statistics.NormalDist` for the normal CDF and quantile; small Gaussian updates written by hand). No numpy, scipy or ML framework.
+- **Engineering bar: always the best solution.** "MVP" never justifies a weaker technique, a shortcut or a hand-made approximation. Every feature is built the way it would be built for production at scale; scope is cut by dropping features, never by lowering the quality of the ones kept. In particular: no hand-written keyword or stopword lists where a learned model exists; no identifiers repeated as string literals (they are enums, one source of truth); no user-facing or model-facing text in code (it lives in locale catalogs).
+- Python libraries: a PostgreSQL driver (`psycopg` 3, its pool, and `pgvector` for vectors), the ASGI server (uvicorn), `fastembed` (ONNX, CPU) for topic embeddings, `numpy`, `scikit-learn` and `scipy` for clustering, and the development tools pytest, pylint and pyink. Add a library whenever it is the best tool for the job.
 - Widget: built with Vite and `vite-plugin-singlefile` into one self-contained HTML file (all code inlined, no external requests at runtime), using `@modelcontextprotocol/ext-apps` (the official MCP Apps SDK) for the host protocol, `marked` for Markdown and `DOMPurify` for sanitising. The Node build runs in a separate Docker build stage; the running app is Python only.
 - The model-facing tools (`plan_reply`, `show_reply`) are `MCPServer` tools; `show_reply` is bound to the `ui://` reply resource with `Apps.tool(resource_uri=...)`. `record_click` is an app-only tool (`visibility=["app"]`). `gold_label`, health and metrics are plain FastAPI routes, never MCP tools.
 - The owner self-hosts the server. It **must be reachable over public HTTPS**, because Anthropic's servers call it. TLS termination happens outside the app, via a reverse proxy.
@@ -49,7 +50,9 @@ Rules:
 - **Token hygiene.** The user token sits in the URL path, so the ASGI server's access log is disabled and replaced by one that logs `/mcp/<redacted>`. The reverse proxy must redact the path the same way.
 - **Logging.** The MCP logging feature is deprecated (2026-07-28); the server logs to stderr only.
 - **Caching and prompt cache.** Tools are listed in a fixed order with stable descriptions. `tools/list`, `resources/list` and `resources/read` results carry a long `ttlMs` (one hour) with `cacheScope: "private"`. Tool results are compact JSON strings (no indentation), never pretty-printed objects.
-- Keep the code focused: target about 1,500 lines of Python excluding tests, plus about 150 lines for the widget.
+- **Code style.** Python follows the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html) to the letter: checked by pylint with Google's `pylintrc` and formatted by pyink at 80 columns. Prefer data-driven, generic code over special cases: a new preference dimension, button or language is a data change, not new logic.
+- **Vocabulary and text.** Every closed set (request types, outcomes, format issues, preference dimensions and values, buttons, arms, platforms, reply modes) is a `StrEnum` in one module; the tool schemas, validation and SQL checks derive from it. Every text a person or the model reads (button labels and messages, widget labels, profile page, instruction fragments) lives in JSON locale catalogs (`locales/<language>.json`, keyed by those enums); English is the fallback and the source of the model-facing instructions. Adding a language is adding a file.
+- Keep the code focused: as few lines as the features allow.
 
 ## 4. Tools
 
@@ -62,23 +65,27 @@ Input:
 | `conversation_id` | string, optional | Omit on the first message of a conversation; reuse the value returned by the server afterwards |
 | `request_type` | enum: `fact`, `explanation`, `advice`, `decision`, `code`, `writing`, `plan` | Kind of request |
 | `topic` | string, max 15 words, in the user's language | What the request is about |
+| `language` | ISO 639-1 code | The language of the user's message |
 | `needed_words` | int | AI's estimate of the words a complete, no-filler answer needs |
 | `last_reply_outcome` | enum (below) | How the user reacted to AI's previous reply in this conversation |
 | `user_quote` | string, max 5 words | The user's exact words proving the outcome |
 | `last_reply_words` | int, fallback mode only | Approximate length of AI's previous reply (not needed in widget mode, where the server counts exactly) |
-| `user_message_words` | int | Length of the user's message |
-| `pasted_content` | enum: `code`, `data`, `text`, `file`; omit when nothing was pasted | What the user pasted or attached |
-| `user_specified` | list of enum: `audience`, `goal`, `format`, `length`, `context`; omit when empty | What the user's message states explicitly (facts, not opinions) |
+| `format_issue` | enum (below), only when `last_reply_outcome` is `wrong_format` | What exactly was wrong with the form |
+| `ambiguous` | bool, only when true | The request has several plausible readings |
+| `user_message_words` | int | Length of the user's message (rhythm, a stage-2 feature) |
 | `assistant_model` | string, first call of a conversation only | The model answering (e.g. `claude-opus-5-5`, `gpt-6-astra`), if the assistant knows it |
 
-The last four fields are not used by the MVP model. They are logged from day one because later models (section 5.3) and later heads (clarification, tips) will need them, and a field that is not logged today will never exist in the history.
+`format_issue` values: `too_technical`, `too_simple`, `want_list`, `want_prose`, `want_example`, `wrong_tone`. Each one feeds the matching preference dimension directly (section 7).
+
+Every field costs output tokens on every turn, so fields that no model uses are not asked for (`pasted_content` and `user_specified` were removed). The cost of what remains is measured (section 11).
 
 **Token economy rule:** every field AI sends costs output tokens, the most expensive and slowest kind. Anything the server can compute itself is never asked from AI:
 
 - the server computes `turn_index`, timestamps, durations, reading time and the control group;
 - the server stores `assistant_model` per conversation after the first call;
 - the server fills defaults for omitted optional fields;
-- the server detects the language from `topic`, which AI must write in the user's language. Use a small pure-Python stopword heuristic for `fr`, `en`, `es`, `de`, `it` and `pt`, and fall back to `unknown`. Store the result as `language`.
+- the **language** is the one field the server cannot compute as well as the assistant: the assistant reads the whole message, the server only a 15-word topic. So the assistant sends it (an ISO code, about 2 tokens), **per turn**, because users switch languages. It selects the locale catalog for the buttons and the widget; a language without a catalog falls back to English;
+- the server derives the **topic domain** itself (section 7.1): it embeds `topic` with a local multilingual model and assigns it to the nearest learned topic cluster.
 
 `last_reply_outcome` values:
 
@@ -99,7 +106,7 @@ Output (keep it under ~60 tokens):
   "conversation_id": "c_8f2k1x",
   "turn_id": "t_31",
   "target_words": 90,
-  "instruction": "Reply in about 75 words. No preamble, no recap. Use simple words. Write the reply only in show_reply."
+  "instruction": "Reply in about 75 words. No preamble, no recap. Use a bulleted list. Write the reply only in show_reply."
 }
 ```
 
@@ -109,12 +116,19 @@ In widget mode, `instruction` ends with "Write the reply only in show_reply."; i
 
 Keep the output short and in exactly the same format on every call: the tool result stays in the conversation, and a stable, compact result keeps AI's prompt cache efficient.
 
-**Control group: off by default.** Users come for the shorter replies, so none is held back: `CONTROL_SHARE` defaults to 0, and savings are reported as **estimated** (section 11). The mechanism stays for a later opt-in study with consenting users, when a measured figure is needed. When `CONTROL_SHARE` > 0, the randomisation unit is set by `CONTROL_UNIT`:
+**Comparison arms: off by default.** Users come for the product, so none is held back: the arm shares default to 0, and savings are reported as **estimated** (section 11). The arms stay for a later opt-in study with consenting users, when a measured figure is needed:
 
-- `conversation` (default while there are fewer than 100 active users): each new conversation goes to `control` with probability `CONTROL_SHARE`;
-- `user` (from 100 active users): each new user goes to `control` with probability `CONTROL_SHARE`. This avoids spillover: a user who learns to be concise in treatment conversations is also more concise in their control conversations, which makes conversation-level comparisons underestimate the effect.
+- `control` (`CONTROL_SHARE`): "Reply normally.";
+- `concise` (`CONCISE_SHARE`): a fixed "Be concise.", the real competitor (what a user would write in their own instructions). The product must beat it, measurably.
 
-In `control`, `plan_reply` still records everything and still updates the models, but returns `target_words: null` and `instruction: "Reply normally."` (followed by the widget-mode sentence when it applies), and `show_reply` returns no buttons. This group is what turns estimated savings into measured savings (section 11).
+The randomisation unit is set by `CONTROL_UNIT`:
+
+- `conversation` (default while there are fewer than 100 active users): each new conversation goes to an arm with probability equal to its share;
+- `user` (from 100 active users): each new user goes to an arm with probability equal to its share. This avoids spillover: a user who learns to be concise in treatment conversations is also more concise in their control conversations, which makes conversation-level comparisons underestimate the effect.
+
+In both arms, `plan_reply` still records everything and still updates the models, but returns `target_words: null` and the arm's fixed instruction (followed by the widget-mode sentence when it applies), and `show_reply` returns no buttons. These arms are what turn estimated savings into measured savings (section 11).
+
+**Clarification.** When `ambiguous` is true, the server decides between asking and answering with a two-arm Thompson bandit per (user, request type): Beta counts of the reward (the turn's P(`moved_on`)) for each arm. If it picks asking, the instruction becomes "Ask one short question to clarify, nothing else." It learns who likes being asked and who hates it.
 
 ### 4.2 `show_reply` (MCP tool, widget mode: carries the reply itself)
 
@@ -124,7 +138,7 @@ Server side:
 
 - count the words of `text` exactly (split on whitespace, ignoring Markdown syntax characters), store the count as `reply_words_exact` on the turn, then **discard the text immediately** (see section 3);
 - record the arrival time: the gap between `plan_reply` and `show_reply` is the writing duration;
-- return a minimal result: `content` is `"ok"` (the only part the model sees), and `structuredContent` carries the buttons for the app (`{"buttons": [{"id", "label", "message", "position"}]}`, empty in `control`). `structuredContent` is not added to the model's context, so the buttons cost no model tokens and need no extra round trip.
+- return a minimal result: `content` is `"ok"` (the only part the model sees), and `structuredContent` carries what the app needs: `{"turn_id", "buttons": [{"id", "label", "message", "position"}], "labels", "profile_url"}`. Button labels and messages, and the widget's own labels, are in the turn's language. Buttons are empty in the comparison arms. `structuredContent` is not added to the model's context, so the buttons cost no model tokens and need no extra round trip.
 
 The MCP App (implemented following the current MCP Apps extension specification, `2026-01-26`) must:
 
@@ -134,27 +148,34 @@ The MCP App (implemented following the current MCP Apps extension specification,
 - on `ui/notifications/tool-cancelled`, keep whatever was rendered, show no buttons, and record nothing (a turn without a `show_reply` call simply has no exact length);
 - on click, record the click (call `record_click` through the host's tool-call capability) and wait for it, then send the button's follow-up message into the conversation with `ui/message`;
 - use the host-provided style variables and theme, with no external assets;
-- stay readable on a phone-width screen.
+- stay readable on a phone-width screen;
+- show a discreet link to the user's profile page (`profile_url`, opened with `ui/open-link`);
+- report the host context once per reply: `platform` (`web`, `desktop`, `mobile`) and `locale` from the host context, through the app-only tool `report_context`.
 
 In `control` conversations, the widget shows the reply without buttons.
 
 ### 4.3 Internal endpoints (not exposed to the model)
 
 - `record_click` with `turn_id`, `button`, `position`. Called by the UI only, through the host's tool-call capability. Exposed as an app-only MCP tool (`_meta.ui.visibility: ["app"]`: hosts must not list it to the model and must reject app calls to tools without `"app"`), with a description saying the model must never call it.
+- `report_context` with `turn_id`, `platform`, `locale`. App-only tool, like `record_click`. Stored as a `turn_context` event; the conversation's latest platform shapes the next turns (section 6.5), and the locale is a language fallback.
 - `POST /gold_label` with `turn_id` and the true `outcome`. Used by the owner to label real turns by hand (a debug page listing recent turns with their `topic`, `user_quote` and inferred outcome). Target a few hundred labels; they anchor the annotator model (section 6.4).
 
 ### 4.4 Button catalogue
 
-| Button id | Label | Follow-up message sent | Outcome it reports |
-| --- | --- | --- | --- |
-| `shorter` | Shorter | "Shorter." | `too_long` |
-| `more_detail` | More detail | "More detail." | `too_short` |
-| `example` | Example | "Give an example." | style: `example` +1 |
-| `simpler` | Simpler | "Simpler, please." | `wrong_format`; style: `simple` +1 |
-| `one_line` | One-line summary | "Summarize in one line." | `too_long` |
-| `rephrase_request` | Rephrase my request | "Rewrite my last request as a clearer prompt, and tell me in one line what was missing." | `misunderstood`; at most once per conversation |
+Labels are short sentences anyone understands, taken from the locale catalog of the turn's language (English and French for now; other languages fall back to English). The follow-up message is sent in the same language.
 
-A click is one annotator among others (section 6.4), with its own learned reliability.
+| Button id | Label (en / fr) | Follow-up message (en / fr) | Outcome it reports | Preference signal |
+| --- | --- | --- | --- | --- |
+| `shorter` | Make it shorter / Fais plus court | "Shorter, please." / « Plus court, s'il te plaît. » | `too_long` | — |
+| `more_detail` | Tell me more / Développe davantage | "Tell me more." / « Développe davantage. » | `too_short` | — |
+| `one_line` | Sum it up in one line / Résume en une ligne | "Sum it up in one line." / « Résume en une ligne. » | `too_long` | — |
+| `example` | Show me an example / Donne-moi un exemple | "Show me an example." / « Donne-moi un exemple. » | style click | `examples` = `yes` |
+| `simpler` | Explain it more simply / Explique plus simplement | "Explain it more simply." / « Explique plus simplement. » | `wrong_format` | `level` = `simple` |
+| `as_list` | Make it a list / Mets-le en liste | "Make it a list." / « Mets-le en liste. » | `wrong_format` | `format` = `bullets` |
+| `as_prose` | Write it as plain text / Écris-le en texte suivi | "Write it as plain text, no lists." / « Écris-le en texte suivi, sans liste. » | `wrong_format` | `format` = `prose` |
+| `not_this` | Not what I wanted / Ce n'est pas ce que je voulais | "That's not what I wanted. Ask me one short question to understand what I need." / « Ce n'est pas ce que je voulais. Pose-moi une seule question courte pour comprendre ce dont j'ai besoin. » | `misunderstood` | — |
+
+A click is one annotator among others (section 6.4), with its own learned reliability, and a preference signal when the table says so.
 
 ### 4.5 Several conversations, models and hosts
 
@@ -166,6 +187,10 @@ The same user may run many conversations in parallel, switch models (Opus, Sonne
 - **Model identity is never trusted as a label.** Models often do not know their exact version, or name an older one. The model family is a latent variable inferred from behaviour (section 6.3). The self-report `assistant_model` is one noisy clue among others.
 - **Hosts with MCP Apps:** Claude (web and desktop) and ChatGPT both support MCP Apps (official extension support matrix), so widget mode is the normal case on both.
 - **Hosts without MCP Apps:** fallback mode (section 4.1): normal chat replies, estimated lengths (section 6.2), and no buttons if the host cannot render them, in which case the other annotators carry the reaction model.
+
+### 4.6 Profile page: "What I learned about you"
+
+`GET /me/<key>`, where `key` is the user's `token_hash` (it grants access to this page only, never to the MCP tools). It lists, in plain words and in the user's latest language, what the server believes: "You prefer bulleted lists", "Short replies for factual questions", "Technical level for code". Each line has a control to correct it. A correction is stored as a `profile_edits` event and is a very strong signal: it adds a large count to the chosen preference value (section 7) or a sharp observation to the length grid (section 6.5). The widget links to it discreetly.
 
 ## 5. Learning approach
 
@@ -196,12 +221,12 @@ Each step up keeps the censored likelihood, Thompson sampling, instant per-user 
 | Stage | When | Model | What it adds |
 | --- | --- | --- | --- |
 | 1 — MVP | Launch, until ~200 active users or ~20,000 outcomes | Hierarchical Bayesian censored model (this spec) | Works from the first reaction |
-| 2 — Growth | Up to ~5,000 active users | Hierarchical Bayesian censored **regression**: log ratio = features × β + user effect + user × type effect. Features: request type, log of needed words, turn index, topic cluster. β is refit nightly; user effects are updated instantly (Laplace approximation) | Shares knowledge across users through features; uses the topic |
+| 2 — Growth | Up to ~5,000 active users | Hierarchical Bayesian censored **regression**: log ratio = features × β + user effect + user × type effect. Features: request type, log of needed words, turn index, topic cluster, rhythm (`user_message_words` and the delay since the previous reply: short, rapid messages suggest a user in a hurry) and platform. β is refit nightly; user effects are updated instantly (Laplace approximation) | Shares knowledge across users through features; uses the topic |
 | 3 — Scale | Beyond that | **Neural-linear Thompson sampling**: a two-tower network (user embedding, context embedding from the topic text and features), trained nightly with the censored loss, with a Bayesian linear head updated instantly per user | Learns which users are alike (collaborative filtering) and the meaning of topics, replacing hard request types with a continuous representation |
 
 Stages 2 and 3 will require adding numerical libraries (and an ML framework for stage 3). That decision is taken when the stage starts, not in the MVP.
 
-Buttons follow the same path: Beta-Bernoulli per (user, type, button) in stage 1, then the same features and representations as the length model in stages 2 and 3.
+Buttons and form preferences follow the same path: Beta and Dirichlet counts per (user, scope) in stage 1, then the same features and representations as the length model in stages 2 and 3.
 
 ### 5.4 Switching models must stay cheap
 
@@ -218,6 +243,7 @@ The `plan_reply` contract never changes; only the decision logic behind it does.
 - For every turn: all `plan_reply` inputs (including `topic`, kept for future embeddings), the turn index, `model_version`, the sampled θ, and the posterior mean and standard deviation.
 - **Propensity of the chosen length:** draw 200 samples from the posterior, apply the decision rule of section 6.7, and store the share of samples that give the same rounded `target_words`.
 - For every shown button: its position, the shuffled flag, and the Thompson draw.
+- For every turn: the form value drawn for each preference dimension and the clarification decision (`style` jsonb).
 
 ## 6. Unified probabilistic model
 
@@ -242,6 +268,7 @@ Notation: Φ is the standard normal CDF (`math.erf`). All lengths are on the log
 | b(c) | conversation | Assistant's bias when estimating `needed_words` |
 | κ(c), v(c) | conversation | Compliance (log written / requested) and writing speed (log words per second) |
 | ρ(u), mixture weights | user | Reading speed and reading behaviour (section 6.6) |
+| φ(u,s,d) | user × scope × dimension | Distribution of the preferred value of a form dimension (section 7) |
 
 For a given message, the minimal sufficient log ratio is S = θ(u,t) + b(c) + ε, with ε ~ N(0, τ²). τ starts at 0.35 and is refit nightly.
 
@@ -315,6 +342,8 @@ Online implementation:
 - Grid posterior over θ(u,t): θ ∈ [log 0.1, log 2.0], 81 points.
 - Grid posterior over α(u) on the same range, updated with each observation using the inflated variance σ² + σ_η² + Var γ(t).
 - A new (u,t) cell starts from the prior N(E[α(u)] + γ(t), σ_η² + Var α(u)).
+- **Platform.** On a phone, the same request may need fewer words. When the conversation's latest reported platform is `mobile`, the length cell is (u, t@mobile): its own grid, with the same γ(t), learned per user.
+- **Profile edits.** A length correction on the profile page (short / medium / detailed) multiplies the cell grid by N(θ; log 0.4 / log 0.7 / log 1.0, 0.15²), a sharp observation.
 
 Nightly: re-estimate μ₀ (initially log 0.6, since assistants tend to over-write), σ_α (0.5), σ_γ (0.3), σ_η (0.3), γ(t) and τ by EM, then rebuild all grids by replay.
 
@@ -338,15 +367,41 @@ Online: compute the posterior responsibility of each component for the turn. P(s
 
 Log θ̃, b̃, the posterior mean and standard deviation, `target_words`, requested words and the propensity (section 5.5) for each turn.
 
-## 7. Style
+5. **Form**, by Thompson sampling too: for each preference dimension, draw from the cell's Dirichlet posterior and take the value with the highest draw (section 7). New users therefore sometimes get another form, which discovers their preference without waiting for a complaint.
+6. **Clarification** when `ambiguous` (section 4.1).
+
+## 7. Form preferences
 
 Default instruction for every reply: "No preamble, no recap."
 
-Per (user, request type), keep Beta(1,1) counts for two modifiers: `simple` ("Use simple words.") and `example` ("Include one short example."). Update them from button clicks: `simpler` and `example` add a success; when either button is shown but not clicked, add a failure. Include a modifier in the instruction when its posterior mean is above 0.5 and it has at least 2 signals.
+| Dimension | Values (`auto` = no instruction) | Instruction fragments | Scope |
+| --- | --- | --- | --- |
+| `format` | `auto`, `bullets`, `prose`, `table` | "Use a bulleted list." / "Write in prose, no lists." / "Use a table where it fits." | request type |
+| `level` | `auto`, `simple`, `technical` | "Use simple words, no jargon." / "Be technical; skip the basics." | **topic domain** (section 7.1: an expert in code may be a beginner in law) |
+| `examples` | `auto`, `yes` | "Include one short example." | request type |
+| `tone` | `auto`, `direct`, `warm` | "Be direct." / "Be warm and friendly." | request type |
+| `headings` | `auto`, `yes`, `no` | "Use short headings." / "No headings." | request type |
+
+- **Model.** Each dimension is categorical with a Dirichlet posterior (a yes/no dimension is the two-value case, a Beta). Hierarchy as for θ: population → user → user × scope, each level pulled toward the one above with strength 4: α(u,s) = counts(u,s) + 4 · mean(u), mean(u) from counts(u) + 4 · mean(population). The population prior gives `auto` 4 and every other value 0.25: about 11 % of a new user's replies try another form, and one explicit signal makes the requested value win about 90 % of the draws.
+- **Decision** (section 6.7): Thompson draw per dimension; the fragment of the drawn value joins the instruction (none for `auto`). Confidence is built in: a value only wins often once its counts dominate.
+- **Signals** (count added):
+  - explicit, 3: a button with a preference signal (section 4.4), or `format_issue` (`too_technical` → `level`=`simple`; `too_simple` → `technical`; `want_list` → `format`=`bullets`; `want_prose` → `prose`; `want_example` → `examples`=`yes`; `wrong_tone` → every `tone` value except the one used). Like the verdict, `format_issue` is ignored when the turn has a click (section 6.4);
+  - implicit, 0.3: each value used on the turn gets 0.3 × P(`moved_on`); each other value of the dimension shares 0.3 × P(`wrong_format`);
+  - profile edit, 10.
+- **Storage**: `pref_counts(user_id, scope, dimension, value, count)`. User 0 holds the population and scope `*` the user level; buttons (section 8) and the clarification arms (section 4.1) use the same table, as two-value dimensions.
+- The instruction fragments in the table above are the English catalog entries (section 3); they are not written in code.
+
+### 7.1 Topic domains, learned
+
+Domains are not a fixed list: they are learned from the topics themselves.
+
+- **Embedding.** At `plan_reply`, the server embeds `topic` with `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` through `fastembed` (local, CPU, 384 dimensions, 50+ languages, so a French and an English topic about the same thing land together). The model is downloaded at image build time; topics never leave the server. The vector is stored as an event (`topic_embeddings`).
+- **Clustering, nightly.** Spherical k-means (scikit-learn `KMeans` on L2-normalised vectors) over every topic embedding, with k chosen by the best cosine silhouette score in [2, min(30, √n)]. Below 20 topics there is a single domain. Cluster ids stay **stable** across nights: new centroids are matched to the previous ones by cosine similarity with the Hungarian algorithm (`scipy.optimize.linear_sum_assignment`), and only unmatched clusters get new ids. Each cluster is named by its **medoid topic** (the topic closest to its centroid), which the profile page shows ("Topics like « fix a python bug »").
+- **Assignment.** A topic's domain is its nearest centroid by cosine distance (pgvector `<=>`), computed online at `plan_reply` and recomputed at replay, so derived state always follows the latest clusters.
 
 ## 8. Buttons policy
 
-- Keep Beta(1,1) counts of click-when-shown per (user, request type, button).
+- Keep Beta(1,1) counts of click-when-shown per (user, request type, button), in `pref_counts` as the dimension `button:<id>` with values `yes` (clicked) and `no`, with the same hierarchy as section 7.
 - **Safe button:** the highest posterior mean.
 - **Exploration buttons:** draw one sample per remaining button (`random.betavariate`) and take the 2 highest.
 - Order: [safe, explore, explore]. With probability 0.2, shuffle randomly instead. Log every shown button with its position and the shuffled flag.
@@ -360,8 +415,8 @@ Manage the schema with a plain SQL migration file applied at container start.
 **Events** (append-only: no `UPDATE` or `DELETE`):
 
 - `users(id, token_hash, created_at)`
-- `conversations(id, user_id, grp ['treatment'|'control'], host, ui_supported bool, assistant_model, protocol_version, created_at)`
-- `turns(id, user_id, conversation_id, turn_index, created_at, reply_mode ['widget'|'fallback'], model_version, schema_version, raw_payload jsonb, request_type, topic, needed_words, language, user_message_words, pasted_content, user_specified text[], assistant_model, target_words, requested_words, propensity, theta_sample, b_sample, post_mean, post_sd, style jsonb)`
+- `conversations(id, user_id, grp ['treatment'|'control'|'concise'], host, ui_supported bool, assistant_model, protocol_version, created_at)`
+- `turns(id, user_id, conversation_id, turn_index, created_at, reply_mode ['widget'|'fallback'], model_version, schema_version, raw_payload jsonb, request_type, topic, needed_words, language, user_message_words, assistant_model, target_words, requested_words, propensity, theta_sample, b_sample, post_mean, post_sd, style jsonb, transport_session)`. `style` holds the drawn form values, the clarification decision, the length cell and the topic domain used.
 - `replies(turn_id, reply_words_exact, created_at)`: one row per `show_reply` call. Kept apart from `turns` so that `turns` is never updated; `created_at` ends the writing time.
 - `outcomes(turn_id, source ['assistant'|'button'|'reading'], observed, user_quote, last_reply_words, reading_seconds, model_version, schema_version, created_at)`
 - `buttons_shown(turn_id, button, position, shuffled, thompson_draw)`
@@ -369,15 +424,19 @@ Manage the schema with a plain SQL migration file applied at container start.
 - `gold_labels(turn_id, outcome, created_at)`
 - `shadow_decisions(turn_id, model_version, target_words, propensity, details jsonb)`
 - `tool_calls(user_id, tool, created_at)`, used to monitor compliance
+- `turn_context(turn_id, platform, locale, created_at)`, reported by the widget
+- `profile_edits(user_id, scope, dimension, value, created_at)`: corrections from the profile page (`dimension` = `length` for a length cell)
+- `topic_embeddings(turn_id, model, embedding vector(384))`: the embedding of each turn's `topic`
 
 **Derived state** (rebuilt nightly by replaying events; never a source of truth):
 
 - `turn_inference(turn_id, length_mean, length_var, reaction_probs jsonb, reading_probs jsonb)`
 - `conversation_state(conversation_id, family_probs jsonb, kappa_mean, kappa_var, speed_mean, speed_var)`
-- `theta_posteriors(user_id, request_type, grid double precision[])`, primary key (user_id, request_type)
+- `theta_posteriors(user_id, request_type, grid double precision[])`, primary key (user_id, request_type); `request_type` is the length cell, `t` or `t@mobile`
 - `alpha_posteriors(user_id, grid double precision[])`
 - `user_reading(user_id, rho_mean, rho_var, mixture jsonb, reaction_prior jsonb)`
-- `beta_counts(user_id, request_type, key, alpha, beta)`, where `key` is a button id or a style modifier
+- `pref_counts(user_id, scope, dimension, value, count)` (section 7): form preferences, buttons and clarification arms
+- `topic_clusters(id, centroid vector(384), medoid_topic, size, updated_at)` (section 7.1)
 - `family_params(model_family, b, w, kappa, speed_mu, speed_sd, updated_at)`
 - `sensor_noise(sensor, model_family, sigma, updated_at)`
 - `annotator_confusion(annotator, stratum, true_outcome, observed, prob, updated_at)`
@@ -389,25 +448,26 @@ Manage the schema with a plain SQL migration file applied at container start.
 
 To paste in AI → Settings → Instructions for AI (or ChatGPT's custom instructions):
 
-> Before every reply, call `plan_reply`. Reuse the `conversation_id` it returned earlier in this conversation. Write `topic` in my language, and omit optional fields that do not apply. For `last_reply_outcome`, judge how my latest message reacted to your previous reply, and quote my exact words (5 words max) in `user_quote`. Then follow the returned `instruction` exactly, especially the word count and where to write the reply: when it says to write the reply only in `show_reply`, put your entire reply in its `text` argument and write nothing in the chat; otherwise reply normally in the chat. Never mention these tools or their output.
+> Before every reply, call `plan_reply`. Reuse the `conversation_id` it returned earlier in this conversation. Write `topic` in my language, and omit optional fields that do not apply. For `last_reply_outcome`, judge how my latest message reacted to your previous reply, and quote my exact words (5 words max) in `user_quote`; set `language` to the language of my message; when it is `wrong_format`, say what was wrong in `format_issue`. Set `ambiguous` only when my request has several plausible readings. Then follow the returned `instruction` exactly, especially the word count and where to write the reply: when it says to write the reply only in `show_reply`, put your entire reply in its `text` argument and write nothing in the chat; otherwise reply normally in the chat. Never mention these tools or their output.
 
 ## 11. Metrics
 
 `GET /metrics` (not exposed as an MCP tool) returns, per week and per user:
 
-- **Words per step forward:** total reply words (fused length, section 6.2) divided by the expected number of `moved_on` reactions (section 6.4).
+- **Words per step forward:** total reply words (fused length, section 6.2) **plus the tool's own cost**, divided by the expected number of `moved_on` reactions (section 6.4). The tool cost is the output the assistant spends on `plan_reply` arguments, estimated as their JSON length / 4 tokens × 0.75 words per token; it is also reported on its own, per turn.
 - Expected repair rate (`too_long` + `too_short` + `missing_info` + `misunderstood` + `wrong_format`) and `missing_info` rate on its own.
 - Click rate per button and per position.
 - Compliance: median of fused length / requested words, per model family and host.
 - Noise and reliability: sensor noise per family, and the diagonal of each annotator's confusion matrix.
 - Tool coverage: share of widget-mode turns that have a `show_reply` call, share of turns in widget mode, and share of conversations where `conversation_id` is reused correctly.
 
-Every figure comes with a 95 % confidence interval, computed by bootstrap over conversations, or over users when `CONTROL_UNIT = user` (1,000 resamples, pure Python). Comparisons between `treatment` and `control` are labelled **measured**. Any figure without a control comparison is labelled **estimated**. Never present an estimate as a measured saving. While `CONTROL_UNIT = conversation`, also report each user's control metrics over time, which makes the spillover of learning visible.
+Every figure comes with a 95 % confidence interval, computed by bootstrap over conversations, or over users when `CONTROL_UNIT = user` (1,000 resamples, pure Python). Comparisons between `treatment` and an arm (`control` or `concise`) are labelled **measured**. Any figure without a control comparison is labelled **estimated**. Never present an estimate as a measured saving. While `CONTROL_UNIT = conversation`, also report each user's control metrics over time, which makes the spillover of learning visible.
 
 ## 12. Tests and acceptance
 
 - **Model behaviour:** a `too_long` signal lowers the posterior mean, `too_short` raises it, and `moved_on` lowers it slightly. Clamps and rounding behave as specified. A repair outcome without a quote is stored as `no_signal`.
 - **Recovery on synthetic data:**
+  - topic clustering recovers well-separated groups of multilingual topics, and keeps cluster ids stable when it is rerun on more data;
   - the two-sensor estimate recovers a known self-report noise variance within 20 % on 2,000 simulated turns;
   - Dawid–Skene recovers known confusion matrices within 0.05 on 2,000 simulated turns;
   - the family posterior identifies a simulated model whose self-report is wrong 30 % of the time;
@@ -417,17 +477,20 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
   - widget mode is selected only when the host declares MCP Apps support, and fallback mode otherwise, for both a `2025-11-25` client (capabilities in `initialize`) and a `2026-07-28` client (capabilities in each request's `_meta`);
   - a `turn_id` or `conversation_id` belonging to another user is rejected, and the token never appears in logs;
   - when a turn has a click, the assistant verdict for that turn does not enter the reaction posterior;
-  - about 10 % of new conversations (or users) land in `control`, and those get no length instruction and no buttons;
+  - with an arm share of 0.1, about 10 % of new conversations (or users) land in that arm, and get its fixed instruction and no buttons;
+  - preferences: a `format_issue`, a button with a preference signal and a profile edit each move the matching dimension; Thompson draws follow the posterior; buttons come in the turn's language; `ambiguous` can turn the instruction into one question; a `mobile` report moves the next turns to the `@mobile` length cell;
+  - the profile page lists the preferences in plain words and applies a correction;
+  - the metrics include the tool cost;
   - rebuilding all derived state from scratch by replaying the events gives the same state as the online path, up to the nightly refit;
   - swapping the active policy through configuration changes decisions without any other code change.
-- **Integration:** `docker compose up` starts the app and PostgreSQL. All tools are exercised with the MCP Inspector over Streamable HTTP, including a full turn sequence: plan, feedback, click, next plan.
+- **Integration:** `docker compose up` starts the app and PostgreSQL. All tools are exercised with the MCP Inspector over Streamable HTTP, including a full turn sequence: plan, reply, click, next plan.
 - **Manual check:** add the connector on claude.ai, then confirm on web and on the AI mobile app:
   - in widget mode, the reply renders correctly (streaming, Markdown, code, copy), the buttons appear under it, and AI writes nothing outside `show_reply`;
   - on a host without MCP Apps, fallback mode gives normal chat replies with no tool call after them.
 
 ## 13. Out of scope for the MVP
 
-"I understood: …" clarification lines, prompting tips, topic-exploration buttons, collaborative filtering across users, OAuth, a server-side classifier of `user_quote` as an extra annotator, localisation of button labels, stages 2 and 3 of section 5.3, and the replay-evaluation script (needed before the first model switch, not at launch; the MVP logs everything it requires).
+Prompting tips ("help me ask better"), suggested follow-up questions (rejected: they cost output tokens on every reply and push engagement), a quick-start questionnaire (preferences are learned fast enough), several profiles per user, a public benchmark of how well each AI listens, topic-exploration buttons, collaborative filtering across users, OAuth, a server-side classifier of `user_quote` as an extra annotator, locale catalogs beyond English and French, stages 2 and 3 of section 5.3, and the replay-evaluation script (needed before the first model switch, not at launch; the MVP logs everything it requires).
 
 **Planned: a timing tool for fallback mode.** Fallback-mode lengths are less precise than widget-mode ones, which works against the purpose of the product. Add it back as soon as a host without MCP Apps matters:
 
@@ -448,4 +511,5 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
 3. `plan_reply` as an `MCPServer` tool mounted in FastAPI, tested with the MCP Inspector.
 4. `show_reply` with its MCP App (Markdown reply, streamed when the host allows, and buttons from `structuredContent`), per-call mode selection, `record_click`, and `gold_label` with its debug page.
 5. Nightly job: EM refits, then replay to rebuild derived state. Then the `/metrics` endpoint.
-6. Deploy behind HTTPS, add the connector on claude.ai, paste the account instruction, and test on mobile.
+6. Form preferences, learned topic domains, clarification, localized sentence buttons, platform context, the profile page and the comparison arms.
+7. Deploy behind HTTPS, add the connector on claude.ai, paste the account instruction, and test on mobile.

@@ -206,10 +206,9 @@ function probBars(probs, colors = OUTCOME_COLORS) {
 async function renderLive() {
   const [overview, turns] = await Promise.all([api("/admin/api/overview"), api(`/admin/api/turns?${new URLSearchParams(state.filters)}`)]);
   const c = overview.counts;
-  const s = overview.sessions;
   const kpis = [
     [c.turns, "turns", `${c.turns_24h} in 24 h`],
-    [c.conversations, "conversations", `${pct(ratio(c.control_conversations, c.conversations))} control`],
+    [c.conversations, "conversations", `${pct(ratio(c.held_back_conversations, c.conversations))} in comparison arms`],
     [c.users, "users", ""],
     [pct(ratio(c.widget_turns, c.turns)), "widget mode", `${c.widget_turns} turns`],
     [pct(ratio(c.widget_turns_with_reply, c.widget_turns)), "show_reply coverage", "of widget turns"],
@@ -224,11 +223,9 @@ async function renderLive() {
         <tr><th>host</th><th>protocol</th><th>apps</th><th>conv.</th><th>last</th></tr>
         ${overview.hosts.map((h) => `<tr class="mono"><td>${esc(h.host)}</td><td>${esc(h.protocol_version || "—")}</td><td>${h.ui_supported ? chip("yes", "var(--aqua)") : chip("no", "var(--err)")}</td><td>${h.conversations}</td><td>${time(h.last_seen)}</td></tr>`).join("")}
       </table></div></div>
-      <div class="panel"><h2>Transport sessions vs conversations</h2>${kv([
-        ["MCP sessions seen", num(s.sessions)],
-        ["max conversations per session", num(s.max_conversations_per_session)],
-        ["max sessions per conversation", num(s.max_sessions_per_conversation)],
-      ])}<p class="faint" style="margin:8px 0 0">One conversation per session would make the session a reliable conversation key.</p></div>
+      <div class="panel"><h2>Topic domains · ${c.topic_clusters}</h2>${overview.topic_clusters.length
+        ? kv(overview.topic_clusters.map((k) => [`topic:${k.id} · ${k.size}`, `“${esc(k.medoid_topic)}”`]))
+        : '<p class="faint">Learned by the nightly job from 20 topics on: one domain until then.</p>'}</div>
       <div class="panel"><h2>Tool calls · 24 h</h2>${kv(overview.tool_calls.map((t) => [t.tool, t.calls_24h]))}</div>
       <div class="panel"><h2>Settings</h2>${kv(Object.entries(overview.settings).map(([k, v]) => [k, esc(Array.isArray(v) ? v.join(", ") || "—" : v)]))}</div>
     </div>
@@ -264,7 +261,7 @@ function turnRow(t) {
     <td class="mono">t_${t.id}<span class="faint"> #${t.turn_index}</span></td>
     <td class="mono">u${t.user_id} · c_${t.conversation_id}</td>
     <td class="mono">${esc(t.host)}</td>
-    <td>${chip(t.reply_mode, t.reply_mode === "widget" ? "var(--aqua)" : "var(--warn)")} ${t.grp === "control" ? chip("control", "var(--faint)") : ""}</td>
+    <td>${chip(t.reply_mode, t.reply_mode === "widget" ? "var(--aqua)" : "var(--warn)")} ${t.grp !== "treatment" ? chip(t.grp, "var(--faint)") : ""}</td>
     <td class="mono">${esc(t.request_type)}</td>
     <td class="topic" title="${esc(t.topic)}">${esc(t.topic)} <span class="faint mono">${esc(t.language)}</span></td>
     <td class="mono">${words}</td>
@@ -292,6 +289,8 @@ async function openTurn(id) {
   const inf = d.inference;
   const cs = d.conversation_state;
   const verdict = d.outcomes.find((o) => o.source === "assistant");
+  const style = t.style && !Array.isArray(t.style) ? t.style : {};
+  const form = Object.entries(style.form || {}).filter(([, v]) => v !== "auto");
   const gold = d.gold_labels.at(-1);
   const drawer = $("#drawer");
   drawer.innerHTML = `
@@ -313,11 +312,14 @@ async function openTurn(id) {
       ["posterior mean ratio ± sd (log)", t.post_mean === null ? "—" : `${num(Math.exp(t.post_mean), 3)} ± ${num(t.post_sd, 3)}`],
       ["b̃ sample", num(t.b_sample, 3)],
       ["propensity", num(t.propensity, 3)],
-      ["style modifiers", esc((t.style || []).join(", ") || "—")],
+      ["form drawn", form.map(([k, v]) => chip(`${k}: ${v}`, "var(--violet)")).join(" ") || "auto"],
+      ["clarification", esc(style.clarify || "—")],
+      ["length cell · domain", `${esc(style.cell || t.request_type)} · ${esc(style.domain || "—")}`],
+      ["language", esc(t.language)],
       ...d.shadow_decisions.map((s) => [`shadow ${s.model_version}`, `${s.target_words} (p=${num(s.propensity, 2)})`]),
     ])}</section>
     <section><h2>Reaction</h2>${kv([
-      ["assistant verdict", `${outcomeChip(verdict?.observed)} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${click ? ' <span class="faint">(ignored: clicked)</span>' : ""}`],
+      ["assistant verdict", `${outcomeChip(verdict?.observed)} ${verdict?.format_issue ? chip(verdict.format_issue, "var(--violet)") : ""} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${click ? ' <span class="faint">(ignored: clicked)</span>' : ""}`],
       ["buttons", d.buttons_shown.map((b) => chip(`${b.position}:${b.button}`, "var(--accent)", click?.button === b.button ? "clicked" : "")).join(" ") || "—"],
       ["gold label", gold ? outcomeChip(gold.outcome) : "—"],
     ])}<div style="margin-top:10px">${probBars(inf?.reaction_probs)}</div></section>
@@ -330,7 +332,7 @@ async function openTurn(id) {
       ["host · protocol", `${esc(d.conversation.host)} · ${esc(d.conversation.protocol_version || "—")}`],
       ["group · apps", `${esc(d.conversation.grp)} · ${d.conversation.ui_supported ? "yes" : "no"}`],
       ["assistant model (self-report)", esc(d.conversation.assistant_model || "—")],
-      ["transport session", esc(t.transport_session || "—")],
+      ["platform · locale", esc(d.context.map((x) => `${x.platform || "?"} · ${x.locale || "?"}`).join(", ") || "—")],
       ["compliance (written / requested)", cs ? `${num(Math.exp(cs.kappa_mean), 3)} ± ${num(Math.sqrt(cs.kappa_var), 3)}` : "—"],
       ["writing speed", cs ? `${num(Math.exp(cs.speed_mean), 1)} words/s` : "—"],
     ])}<div style="margin-top:10px">${cs ? probBars(cs.family_probs, {}) : ""}</div>
@@ -371,17 +373,18 @@ async function renderUser(id) {
   const lo = Math.log(0.1), hi = Math.log(2);
   const x = (r) => (100 * (Math.log(r) - lo)) / (hi - lo);
   $("#user-detail").innerHTML = `<div class="grid panels">
-    <div class="panel"><h2>u${id} · θ by request type (needed-length ratio)</h2><table>
-      <tr><th>type</th><th>ratio</th><th>0.1 ←→ 2.0</th></tr>
-      ${d.theta.map((t) => `<tr><td class="mono">${esc(t.request_type)}</td><td class="mono">${num(t.ratio, 3)} <span class="faint">±${num(t.sd, 2)}</span></td>
+    <div class="panel"><h2>u${id} · length per cell (ratio of needed words)</h2><table>
+      <tr><th>cell</th><th>ratio</th><th>0.1 ←→ 2.0</th></tr>
+      ${d.lengths.map((t) => `<tr><td class="mono">${esc(t.cell)}</td><td class="mono">${num(t.ratio, 3)} <span class="faint">±${num(t.sd, 2)}</span></td>
         <td><div class="ratio"><div class="band" style="left:${x(t.ratio * Math.exp(-t.sd))}%;width:${x(t.ratio * Math.exp(t.sd)) - x(t.ratio * Math.exp(-t.sd))}%"></div><div class="dot" style="left:${x(t.ratio)}%"></div></div></td></tr>`).join("") || '<tr><td colspan="3" class="faint">No finalized turn yet.</td></tr>'}
     </table></div>
     <div class="panel"><h2>Reading</h2>${kv([["speed", `${num(d.reading.wps, 1)} words/s ± ${num(d.reading.rho_sd, 2)} (log)`]])}
       <div style="margin-top:10px">${probBars(d.reading.mixture, { read: "var(--aqua)", skim: "var(--warn)", away: "var(--faint)" })}</div>
       <h2 style="margin-top:16px">Reaction prior</h2>${probBars(d.reading.reaction_prior)}</div>
-    <div class="panel scroll"><h2>Buttons &amp; style (Beta counts)</h2><table>
-      <tr><th>type</th><th>key</th><th>mean</th><th>signals</th></tr>
-      ${d.beta_counts.map((c) => `<tr class="mono"><td>${esc(c.request_type)}</td><td>${esc(c.key)}</td><td>${num(c.mean, 2)}</td><td>${num(c.signals)}</td></tr>`).join("") || '<tr><td colspan="4" class="faint">None yet.</td></tr>'}
+    <div class="panel scroll"><h2>Preferences, buttons &amp; clarification</h2><table>
+      <tr><th>scope</th><th>dimension</th><th>posterior means</th><th>evidence</th></tr>
+      ${d.preferences.map((p) => `<tr class="mono"><td>${esc(p.scope)}</td><td>${esc(p.dimension)}</td>
+        <td>${Object.entries(p.means).map(([v, m]) => `${esc(v)} ${pct(m)}`).join(" · ")}</td><td>${num(p.evidence, 1)}</td></tr>`).join("") || '<tr><td colspan="4" class="faint">None yet.</td></tr>'}
     </table></div></div>`;
 }
 
@@ -447,14 +450,15 @@ async function renderMetrics() {
     ["words per step forward", num(s.words_per_step_forward, 1) + ci(s.words_per_step_forward_ci95)],
     ["repair rate", pct(s.repair_rate) + ci(s.repair_rate_ci95)],
     ["missing-info rate", pct(s.missing_info_rate) + ci(s.missing_info_rate_ci95)],
+    ["tool words per turn", num(s.tool_words_per_turn, 1) + ci(s.tool_words_per_turn_ci95)],
   ]);
   $("#view").innerHTML = `
     <div class="grid panels">
       ${Object.entries(m.by_group).map(([g, s]) => `<div class="panel"><h2>${esc(g)} ${chip(s.label, "var(--warn)")}</h2>${summary(s)}</div>`).join("")}
-      <div class="panel"><h2>Saving ${chip("measured", "var(--aqua)")}</h2>${m.measured ? kv([
-        ["words per step saved", pct(m.measured.words_per_step_saving)],
-        ["95% CI", m.measured.ci95 ? `${pct(m.measured.ci95[0])} … ${pct(m.measured.ci95[1])}` : "—"],
-      ]) : '<p class="faint">Needs at least 2 treatment and 2 control clusters.</p>'}</div>
+      ${Object.entries(m.measured).map(([arm, r]) => `<div class="panel"><h2>Saving vs ${esc(arm)} ${chip("measured", "var(--aqua)")}</h2>${r ? kv([
+        ["words per step saved", pct(r.words_per_step_saving)],
+        ["95% CI", r.ci95 ? `${pct(r.ci95[0])} … ${pct(r.ci95[1])}` : "—"],
+      ]) : '<p class="faint">Needs at least 2 clusters in each arm (CONTROL_SHARE / CONCISE_SHARE).</p>'}</div>`).join("")}
       <div class="panel"><h2>Tool coverage</h2>${kv(Object.entries(m.tool_coverage).map(([k, v]) => [k, typeof v === "number" && v <= 1 && k !== "turns" ? pct(v) : num(v)]))}</div>
     </div>
     <div class="grid panels">

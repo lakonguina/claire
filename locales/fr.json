@@ -1,0 +1,43 @@
+{
+  "buttons": {
+    "shorter": {"label": "Fais plus court", "message": "Plus court, s'il te plaît."},
+    "more_detail": {"label": "Développe davantage", "message": "Développe davantage."},
+    "one_line": {"label": "Résume en une ligne", "message": "Résume en une ligne."},
+    "example": {"label": "Donne-moi un exemple", "message": "Donne-moi un exemple."},
+    "simpler": {"label": "Explique plus simplement", "message": "Explique plus simplement."},
+    "as_list": {"label": "Mets-le en liste", "message": "Mets-le en liste."},
+    "as_prose": {"label": "Écris-le en texte suivi", "message": "Écris-le en texte suivi, sans liste."},
+    "not_this": {
+      "label": "Ce n'est pas ce que je voulais",
+      "message": "Ce n'est pas ce que je voulais. Pose-moi une seule question courte pour comprendre ce dont j'ai besoin."
+    }
+  },
+  "widget": {
+    "copy": "Copier",
+    "copied": "Copié ✓",
+    "copy_reply": "Copier la réponse",
+    "profile": "Ce que j'ai appris de toi"
+  },
+  "profile": {
+    "title": "Ce que j'ai appris de toi",
+    "intro": "Ce que tes assistants IA savent de tes réponses préférées. Modifie une ligne : c'est pris en compte dès la réponse suivante.",
+    "save": "Enregistrer",
+    "in_general": "En général",
+    "topics_like": "Sujets comme « {topic} »",
+    "on_mobile": "sur mobile",
+    "length": "Longueur",
+    "nothing": "Rien d'appris pour l'instant : continue à discuter."
+  },
+  "dimensions": {
+    "format": {"name": "Format", "values": {"auto": "Pas de préférence", "bullets": "Listes à puces", "prose": "Texte suivi", "table": "Tableaux"}},
+    "level": {"name": "Niveau", "values": {"auto": "Pas de préférence", "simple": "Simple", "technical": "Technique"}},
+    "examples": {"name": "Exemples", "values": {"auto": "Si utile", "yes": "Toujours"}},
+    "tone": {"name": "Ton", "values": {"auto": "Pas de préférence", "direct": "Direct", "warm": "Chaleureux"}},
+    "headings": {"name": "Titres", "values": {"auto": "Pas de préférence", "yes": "Oui", "no": "Non"}}
+  },
+  "lengths": {"short": "Courte", "medium": "Moyenne", "detailed": "Détaillée"},
+  "request_types": {
+    "fact": "Faits", "explanation": "Explications", "advice": "Conseils", "decision": "Décisions",
+    "code": "Code", "writing": "Rédaction", "plan": "Plans"
+  }
+}

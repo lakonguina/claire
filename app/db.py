@@ -1,37 +1,64 @@
-"""PostgreSQL access: one async pool, migrations applied at start."""
+"""PostgreSQL access: migrations, one async pool, small query helpers."""
 
-from pathlib import Path
+import pathlib
+from typing import Any
 
-from psycopg import AsyncConnection
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
-from psycopg_pool import AsyncConnectionPool
+import pgvector.psycopg
+import psycopg
+from psycopg import rows
+from psycopg.types import json as psycopg_json
+import psycopg_pool
 
-from app.config import settings
+from app import config
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
-pool = AsyncConnectionPool(settings.database_url, open=False, kwargs={"row_factory": dict_row, "autocommit": False})
+MIGRATIONS = pathlib.Path(__file__).resolve().parent.parent / "migrations"
+Connection = psycopg.AsyncConnection
+Jsonb = psycopg_json.Jsonb
 
-__all__ = ["AsyncConnection", "Jsonb", "pool", "migrate", "fetch", "fetchrow", "execute"]
+
+async def _configure(conn: Connection) -> None:
+    await pgvector.psycopg.register_vector_async(conn)
+
+
+pool = psycopg_pool.AsyncConnectionPool(
+    config.settings.database_url,
+    open=False,
+    configure=_configure,
+    kwargs={"row_factory": rows.dict_row, "autocommit": False},
+)
 
 
 async def migrate() -> None:
-    async with pool.connection() as conn:
-        await conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY)")
-        done = {r["name"] for r in await (await conn.execute("SELECT name FROM schema_migrations")).fetchall()}
+    """Applies the migrations not applied yet, on a dedicated connection.
+
+    The pool's connections register the vector type, which exists only once
+    the migrations have run.
+    """
+    async with await Connection.connect(config.settings.database_url) as conn:
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations "
+            "(name text PRIMARY KEY)"
+        )
+        cursor = await conn.execute("SELECT name FROM schema_migrations")
+        done = {name for (name,) in await cursor.fetchall()}
         for path in sorted(MIGRATIONS.glob("*.sql")):
             if path.name not in done:
                 await conn.execute(path.read_text())
-                await conn.execute("INSERT INTO schema_migrations VALUES (%s)", (path.name,))
+                await conn.execute(
+                    "INSERT INTO schema_migrations VALUES (%s)", (path.name,)
+                )
 
 
-async def fetch(conn: AsyncConnection, sql: str, *args) -> list[dict]:
+async def fetch(conn: Connection, sql: str, *args: Any) -> list[dict]:
+    """Returns every row of a query."""
     return await (await conn.execute(sql, args)).fetchall()
 
 
-async def fetchrow(conn: AsyncConnection, sql: str, *args) -> dict | None:
+async def fetchrow(conn: Connection, sql: str, *args: Any) -> dict | None:
+    """Returns the first row of a query, or None."""
     return await (await conn.execute(sql, args)).fetchone()
 
 
-async def execute(conn: AsyncConnection, sql: str, *args) -> None:
+async def execute(conn: Connection, sql: str, *args: Any) -> None:
+    """Runs a statement."""
     await conn.execute(sql, args)

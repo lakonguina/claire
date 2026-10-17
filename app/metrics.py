@@ -1,123 +1,210 @@
-"""GET /metrics (section 11). Treatment vs control comparisons are 'measured'; everything else is 'estimated'."""
+"""GET /metrics (SPEC 11).
 
+Treatment-versus-arm comparisons are labelled "measured"; every other figure
+is "estimated".
+"""
+
+import collections
 import math
 import random
 import statistics
-from collections import defaultdict
 
-from app.config import settings
-from app.db import AsyncConnection, fetch
-from app.model.stats import bootstrap_ci
-from app.params import load_params
+from app import config
+from app import db
+from app import params as params_lib
+from app import vocab
+from app.model import stats
+
+CHARS_PER_TOKEN = 4.0
+WORDS_PER_TOKEN = 0.75
+RESAMPLES = 1000
+ESTIMATED, MEASURED = "estimated", "measured"
 
 
-def _wpsf(turns: list[dict]) -> float | None:
+def _words_per_step(turns: list[dict]) -> float | None:
     moved = sum(t["p_moved"] for t in turns)
-    return sum(t["words"] for t in turns) / moved if moved > 0 else None
+    words = sum(t["words"] + t["tool_words"] for t in turns)
+    return words / moved if moved > 0 else None
 
 
-def _rate(key: str):
-    return lambda turns: sum(t[key] for t in turns) / len(turns) if turns else None
+def _mean_of(key: str):
+    def mean(turns: list[dict]) -> float | None:
+        return sum(t[key] for t in turns) / len(turns) if turns else None
+
+    return mean
 
 
-STATS = {"words_per_step_forward": _wpsf, "repair_rate": _rate("p_repair"), "missing_info_rate": _rate("p_missing")}
+STATISTICS = {
+    "words_per_step_forward": _words_per_step,
+    "repair_rate": _mean_of("p_repair"),
+    "missing_info_rate": _mean_of("p_missing"),
+    "tool_words_per_turn": _mean_of("tool_words"),
+}
 
 
-def _summary(turns: list[dict], cluster_key: str) -> dict:
-    clusters = defaultdict(list)
-    for t in turns:
-        clusters[t[cluster_key]].append(t)
-    groups = list(clusters.values())
-    flat = lambda gs: [t for g in gs for t in g]
-    out = {"turns": len(turns), "label": "estimated"}
-    for name, fn in STATS.items():
-        out[name] = fn(turns)
-        out[name + "_ci95"] = bootstrap_ci(groups, lambda gs, fn=fn: fn(flat(gs)))
-    return out
-
-
-def _measured_saving(treatment: list[dict], control: list[dict], cluster_key: str) -> dict | None:
-    """Relative reduction of words per step forward, control vs treatment, bootstrapped per group."""
-    def clusters(turns):
-        by = defaultdict(list)
-        for t in turns:
-            by[t[cluster_key]].append(t)
-        return list(by.values())
-
-    tc, cc = clusters(treatment), clusters(control)
-    if len(tc) < 2 or len(cc) < 2:
-        return None
-    saving = lambda t, c: (1 - _wpsf(t) / _wpsf(c)) if _wpsf(t) and _wpsf(c) else None
-    rng = random.Random(0)
-    draws = sorted(v for v in (
-        saving([x for g in rng.choices(tc, k=len(tc)) for x in g], [x for g in rng.choices(cc, k=len(cc)) for x in g])
-        for _ in range(1000)) if v is not None)
-    ci = (draws[int(0.025 * (len(draws) - 1))], draws[int(0.975 * (len(draws) - 1))]) if draws else None
-    return {"label": "measured", "words_per_step_saving": saving(treatment, control), "ci95": ci}
-
-
-async def compute(conn: AsyncConnection) -> dict:
-    rows = await fetch(conn, """
-        SELECT t.id, t.user_id, t.conversation_id, c.grp, c.host, t.requested_words, t.reply_mode,
-               to_char(date_trunc('week', t.created_at), 'YYYY-MM-DD') AS week,
-               i.length_mean, i.reaction_probs, cs.family_probs
-        FROM turns t JOIN conversations c ON c.id = t.conversation_id
-        JOIN turn_inference i ON i.turn_id = t.id
-        LEFT JOIN conversation_state cs ON cs.conversation_id = t.conversation_id""")
-    turns = [{
-        **r, "words": math.exp(r["length_mean"]), "p_moved": r["reaction_probs"]["moved_on"],
-        "p_repair": 1 - r["reaction_probs"]["moved_on"], "p_missing": r["reaction_probs"]["missing_info"],
-        "family": max(r["family_probs"], key=r["family_probs"].get) if r["family_probs"] else "other",
-    } for r in rows]
-    cluster_key = "user_id" if settings.control_unit == "user" else "conversation_id"
-    by = lambda *keys: _group(turns, keys)
-
-    out = {
-        "control_unit": settings.control_unit,
-        "by_group": {g: _summary(ts, cluster_key) for (g,), ts in by("grp").items()},
-        "measured": _measured_saving([t for t in turns if t["grp"] == "treatment"],
-                                     [t for t in turns if t["grp"] == "control"], cluster_key),
-        "weekly": [{"week": w, "group": g, **_summary(ts, cluster_key)} for (w, g), ts in sorted(by("week", "grp").items())],
-        "per_user": [{"user_id": u, "group": g, **_summary(ts, cluster_key)} for (u, g), ts in sorted(by("user_id", "grp").items())],
-        "compliance": [
-            {"family": f, "host": h, "median_length_over_requested": statistics.median(
-                t["words"] / t["requested_words"] for t in ts)}
-            for (f, h), ts in sorted(_group([t for t in turns if t["requested_words"]], ("family", "host")).items())
-        ],
-    }
-    if settings.control_unit == "conversation":
-        out["control_over_time"] = [
-            {"user_id": u, "week": w, **_summary(ts, cluster_key)}
-            for (u, w), ts in sorted(_group([t for t in turns if t["grp"] == "control"], ("user_id", "week")).items())
-        ]
-    out["clicks"] = await fetch(conn, """
-        SELECT s.button, s.position, count(*) AS shown, count(k.turn_id) AS clicked,
-               count(k.turn_id)::float / count(*) AS click_rate
-        FROM buttons_shown s LEFT JOIN clicks k ON k.turn_id = s.turn_id AND k.button = s.button
-        GROUP BY s.button, s.position ORDER BY s.button, s.position""")
-    params = await load_params(conn)
-    out["noise"] = {
-        "sensor_sigma": params.noise,
-        "confusion_diagonal": {
-            f"{a}/{s}": {y: row.get(y) for y, row in rows.items() if y in row}
-            for a, strata in params.confusions.items() if a == "assistant" for s, rows in strata.items()
-        },
-    }
-    coverage = (await fetch(conn, """
-        SELECT count(*) AS turns,
-               avg((EXISTS (SELECT 1 FROM replies r WHERE r.turn_id = t.id))::int)
-                   FILTER (WHERE t.reply_mode = 'widget') AS widget_turns_with_show_reply,
-               avg((t.reply_mode = 'widget')::int) AS widget_share
-        FROM turns t"""))[0]
-    reuse = (await fetch(conn, """
-        SELECT avg((n > 1)::int) AS conversation_id_reused FROM (
-            SELECT count(*) AS n FROM turns GROUP BY conversation_id) c"""))[0]
-    out["tool_coverage"] = {**coverage, **reuse}
-    return out
-
-
-def _group(turns: list[dict], keys: tuple) -> dict:
-    out = defaultdict(list)
+def _group(turns: list[dict], *keys: str) -> dict[tuple, list[dict]]:
+    out = collections.defaultdict(list)
     for t in turns:
         out[tuple(t[k] for k in keys)].append(t)
+    return out
+
+
+def _flat(clusters: list[list[dict]]) -> list[dict]:
+    return [t for cluster in clusters for t in cluster]
+
+
+def _summary(turns: list[dict], unit: str) -> dict:
+    clusters = list(_group(turns, unit).values())
+    out = {"turns": len(turns), "label": ESTIMATED}
+    for name, statistic in STATISTICS.items():
+        out[name] = statistic(turns)
+        out[f"{name}_ci95"] = stats.bootstrap_ci(
+            clusters, lambda cs, f=statistic: f(_flat(cs))
+        )
+    return out
+
+
+def _saving(treatment: list[dict], arm: list[dict]) -> float | None:
+    t, a = _words_per_step(treatment), _words_per_step(arm)
+    return 1 - t / a if t and a else None
+
+
+def _measured(turns: list[dict], arm: str, unit: str) -> dict | None:
+    """Returns the words-per-step saving of treatment over an arm."""
+    by_arm = {
+        g: list(_group(ts, unit).values())
+        for (g,), ts in _group(turns, "grp").items()
+    }
+    treated, other = by_arm.get(vocab.Arm.TREATMENT, []), by_arm.get(arm, [])
+    if len(treated) < 2 or len(other) < 2:
+        return None
+    rng = random.Random(0)
+    draws = sorted(
+        v
+        for v in (
+            _saving(
+                _flat(rng.choices(treated, k=len(treated))),
+                _flat(rng.choices(other, k=len(other))),
+            )
+            for _ in range(RESAMPLES)
+        )
+        if v is not None
+    )
+    last = len(draws) - 1
+    return {
+        "label": MEASURED,
+        "words_per_step_saving": _saving(_flat(treated), _flat(other)),
+        "ci95": (draws[int(0.025 * last)], draws[int(0.975 * last)])
+        if draws
+        else None,
+    }
+
+
+async def compute(conn: db.Connection) -> dict:
+    """Returns every metric of SPEC 11."""
+    settings = config.settings
+    rows = await db.fetch(
+        conn,
+        "SELECT t.id, t.user_id, t.conversation_id, c.grp, c.host, "
+        "t.requested_words, length(t.raw_payload::text) AS payload_chars, "
+        "to_char(date_trunc('week', t.created_at), 'YYYY-MM-DD') AS week, "
+        "i.length_mean, i.reaction_probs, cs.family_probs "
+        "FROM turns t JOIN conversations c ON c.id = t.conversation_id "
+        "JOIN turn_inference i ON i.turn_id = t.id "
+        "LEFT JOIN conversation_state cs "
+        "ON cs.conversation_id = t.conversation_id",
+    )
+    turns = []
+    for r in rows:
+        probs, families = r["reaction_probs"], r["family_probs"] or {}
+        turns.append(
+            {
+                **r,
+                "words": math.exp(r["length_mean"]),
+                "tool_words": r["payload_chars"]
+                / CHARS_PER_TOKEN
+                * WORDS_PER_TOKEN,
+                "p_moved": probs[vocab.Outcome.MOVED_ON],
+                "p_repair": 1 - probs[vocab.Outcome.MOVED_ON],
+                "p_missing": probs[vocab.Outcome.MISSING_INFO],
+                "family": max(families, key=families.get, default=None),
+            }
+        )
+    unit = (
+        "user_id"
+        if settings.control_unit == vocab.RandomizationUnit.USER
+        else "conversation_id"
+    )
+    out = {
+        "control_unit": settings.control_unit,
+        "by_group": {
+            g: _summary(ts, unit) for (g,), ts in _group(turns, "grp").items()
+        },
+        "measured": {
+            arm: _measured(turns, arm, unit)
+            for arm in vocab.Arm
+            if arm != vocab.Arm.TREATMENT
+        },
+        "weekly": [
+            {"week": w, "group": g, **_summary(ts, unit)}
+            for (w, g), ts in sorted(_group(turns, "week", "grp").items())
+        ],
+        "per_user": [
+            {"user_id": u, "group": g, **_summary(ts, unit)}
+            for (u, g), ts in sorted(_group(turns, "user_id", "grp").items())
+        ],
+        "compliance": [
+            {
+                "family": f,
+                "host": h,
+                "median_length_over_requested": statistics.median(
+                    t["words"] / t["requested_words"] for t in ts
+                ),
+            }
+            for (f, h), ts in sorted(
+                _group(
+                    [t for t in turns if t["requested_words"]], "family", "host"
+                ).items()
+            )
+        ],
+    }
+    if settings.control_unit == vocab.RandomizationUnit.CONVERSATION:
+        held_back = [t for t in turns if t["grp"] != vocab.Arm.TREATMENT]
+        out["arms_over_time"] = [
+            {"user_id": u, "week": w, **_summary(ts, unit)}
+            for (u, w), ts in sorted(
+                _group(held_back, "user_id", "week").items()
+            )
+        ]
+    out["clicks"] = await db.fetch(
+        conn,
+        "SELECT s.button, s.position, count(*) AS shown, "
+        "count(k.turn_id) AS clicked, "
+        "count(k.turn_id)::float / count(*) AS click_rate "
+        "FROM buttons_shown s LEFT JOIN clicks k "
+        "ON k.turn_id = s.turn_id AND k.button = s.button "
+        "GROUP BY s.button, s.position ORDER BY s.button, s.position",
+    )
+    p = await params_lib.load_params(conn)
+    out["noise"] = {
+        "sensor_sigma": p.noise,
+        "confusion_diagonal": {
+            f"{vocab.Source.ASSISTANT}/{s}": {
+                y: row[y] for y, row in rows_.items()
+            }
+            for s, rows_ in p.confusions[vocab.Source.ASSISTANT].items()
+        },
+    }
+    out["tool_coverage"] = await db.fetchrow(
+        conn,
+        "SELECT count(*) AS turns, "
+        "avg((EXISTS (SELECT 1 FROM replies r WHERE r.turn_id = t.id))::int) "
+        "FILTER (WHERE t.reply_mode = %s) AS widget_turns_with_show_reply, "
+        "avg((t.reply_mode = %s)::int) AS widget_share, "
+        "(SELECT avg((n > 1)::int) FROM (SELECT count(*) AS n FROM turns "
+        "GROUP BY conversation_id) c) AS conversation_id_reused "
+        "FROM turns t",
+        vocab.ReplyMode.WIDGET,
+        vocab.ReplyMode.WIDGET,
+    )
     return out

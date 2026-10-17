@@ -1,0 +1,172 @@
+{
+  "prompts": {
+    "reply_in_words": "Reply in about {words} words.",
+    "no_preamble": "No preamble, no recap.",
+    "widget_mode": "Write the reply only in show_reply.",
+    "clarify": "Ask one short question to clarify, nothing else.",
+    "arms": {
+      "control": "Reply normally.",
+      "concise": "Be concise."
+    },
+    "fragments": {
+      "format": {
+        "bullets": "Use a bulleted list.",
+        "prose": "Write in prose, no lists.",
+        "table": "Use a table where it fits."
+      },
+      "level": {
+        "simple": "Use simple words, no jargon.",
+        "technical": "Be technical; skip the basics."
+      },
+      "examples": {
+        "yes": "Include one short example."
+      },
+      "tone": {
+        "direct": "Be direct.",
+        "warm": "Be warm and friendly."
+      },
+      "headings": {
+        "yes": "Use short headings.",
+        "no": "No headings."
+      }
+    }
+  },
+  "buttons": {
+    "shorter": {
+      "label": "Make it shorter",
+      "message": "Shorter, please."
+    },
+    "more_detail": {
+      "label": "Tell me more",
+      "message": "Tell me more."
+    },
+    "one_line": {
+      "label": "Sum it up in one line",
+      "message": "Sum it up in one line."
+    },
+    "example": {
+      "label": "Show me an example",
+      "message": "Show me an example."
+    },
+    "simpler": {
+      "label": "Explain it more simply",
+      "message": "Explain it more simply."
+    },
+    "as_list": {
+      "label": "Make it a list",
+      "message": "Make it a list."
+    },
+    "as_prose": {
+      "label": "Write it as plain text",
+      "message": "Write it as plain text, no lists."
+    },
+    "not_this": {
+      "label": "Not what I wanted",
+      "message": "That's not what I wanted. Ask me one short question to understand what I need."
+    }
+  },
+  "widget": {
+    "copy": "Copy",
+    "copied": "Copied ✓",
+    "copy_reply": "Copy reply",
+    "profile": "What I learned about you"
+  },
+  "profile": {
+    "title": "What I learned about you",
+    "intro": "What your AI assistants know about how you like answers. Change any line: it takes effect on the next reply.",
+    "save": "Save",
+    "in_general": "In general",
+    "topics_like": "Topics like “{topic}”",
+    "on_mobile": "on mobile",
+    "length": "Length",
+    "nothing": "Nothing learned yet: keep chatting."
+  },
+  "dimensions": {
+    "format": {
+      "name": "Format",
+      "values": {
+        "auto": "No preference",
+        "bullets": "Bulleted lists",
+        "prose": "Plain prose",
+        "table": "Tables"
+      }
+    },
+    "level": {
+      "name": "Level",
+      "values": {
+        "auto": "No preference",
+        "simple": "Simple",
+        "technical": "Technical"
+      }
+    },
+    "examples": {
+      "name": "Examples",
+      "values": {
+        "auto": "When useful",
+        "yes": "Always"
+      }
+    },
+    "tone": {
+      "name": "Tone",
+      "values": {
+        "auto": "No preference",
+        "direct": "Direct",
+        "warm": "Warm"
+      }
+    },
+    "headings": {
+      "name": "Headings",
+      "values": {
+        "auto": "No preference",
+        "yes": "Yes",
+        "no": "No"
+      }
+    }
+  },
+  "lengths": {
+    "short": "Short",
+    "medium": "Medium",
+    "detailed": "Detailed"
+  },
+  "request_types": {
+    "fact": "Facts",
+    "explanation": "Explanations",
+    "advice": "Advice",
+    "decision": "Decisions",
+    "code": "Code",
+    "writing": "Writing",
+    "plan": "Plans"
+  },
+  "tools": {
+    "plan_reply": {
+      "description": "Call before every reply. Returns the conversation_id, turn_id and the instruction to follow.",
+      "fields": {
+        "request_type": "The kind of request",
+        "topic": "What the request is about, max 15 words, in the user's language",
+        "language": "ISO 639-1 code of the language of the user's message",
+        "needed_words": "Words a complete, no-filler answer needs",
+        "last_reply_outcome": "How the user's latest message reacted to your previous reply",
+        "conversation_id": "Omit on the first message; reuse the returned value",
+        "user_quote": "The user's exact words proving the outcome, max 5 words",
+        "format_issue": "Only when last_reply_outcome is wrong_format: what was wrong",
+        "ambiguous": "Only when true: the request has several plausible readings",
+        "last_reply_words": "Fallback mode only: approximate length of your previous reply",
+        "user_message_words": "Length of the user's message",
+        "assistant_model": "First call only: the model answering, if you know it"
+      }
+    },
+    "show_reply": {
+      "description": "Widget mode: write your entire reply here, in Markdown, and nothing in the chat."
+    },
+    "record_click": {
+      "description": "Internal to the reply widget. The model must never call this."
+    },
+    "report_context": {
+      "description": "Internal to the reply widget. The model must never call this."
+    },
+    "errors": {
+      "handle": "Unknown or invalid turn_id / conversation_id.",
+      "show_reply": "Invalid show_reply call."
+    }
+  }
+}
