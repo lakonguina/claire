@@ -84,10 +84,6 @@ async def load_params(session: sa_asyncio.AsyncSession) -> Params:
         strata = p.confusions.setdefault(r.annotator, {})
         rows_of = strata.setdefault(r.stratum, {})
         rows_of.setdefault(r.true_outcome, {})[r.observed] = r.prob
-    for r in await rows(models.SelfReportReliability):
-        families.reliability.setdefault(r.reported_family, {})[
-            r.true_family
-        ] = r.prob
     for r in await rows(models.HostFamilyPrior):
         families.host_prior.setdefault(r.host, {})[r.model_family] = r.prob
     return p

@@ -74,7 +74,6 @@ Input:
 | `format_issue` | enum (below), only when `last_reply_outcome` is `wrong_format` | What exactly was wrong with the form |
 | `ambiguous` | bool, only when true | The request has several plausible readings |
 | `user_message_words` | int | Length of the user's message (rhythm, a stage-2 feature) |
-| `assistant_model` | string, first call of a conversation only | The model answering (e.g. `claude-opus-5-5`, `gpt-6-astra`), if the assistant knows it |
 
 `format_issue` values: `too_technical`, `too_simple`, `want_list`, `want_prose`, `want_example`, `wrong_tone`. Each one feeds the matching preference dimension directly (section 7).
 
@@ -83,7 +82,7 @@ Every field costs output tokens on every turn, so fields that no model uses are 
 **Token economy rule:** every field AI sends costs output tokens, the most expensive and slowest kind. Anything the server can compute itself is never asked from AI:
 
 - the server computes `turn_index`, timestamps, durations, reading time and the control group;
-- the server stores `assistant_model` per conversation after the first call;
+- the server never asks which model answers: it infers how the assistant behaves (section 6.3);
 - the server fills defaults for omitted optional fields;
 - the **language** is the one field the server cannot compute as well as the assistant: the assistant reads the whole message, the server only a 15-word topic. So the assistant sends it (an ISO code, about 2 tokens), **per turn**, because users switch languages. It selects the locale catalog for the buttons and the widget; a language without a catalog falls back to English;
 - the server derives the **topic domain** itself (section 7.1): it embeds `topic` with a local multilingual model and assigns it to the nearest learned topic cluster.
@@ -185,7 +184,7 @@ The same user may run many conversations in parallel, switch models (Opus, Sonne
 - **Parallel conversations:** everything is keyed by `conversation_id`, and durations and reading time are computed per conversation. If the assistant forgets the id, the server starts a new conversation and the previous verdict is lost. That is acceptable, but monitored through tool coverage (section 11).
 - **One user everywhere:** the token identifies the user across hosts, so one profile serves all of them.
 - **Host detection at zero token cost:** read the client name (`clientInfo`, from the `initialize` handshake on 2025-11-25 or from the request's `_meta` on 2026-07-28) and store it as `host` on the conversation, or `unknown` if the client sends none. Never ask the assistant for it.
-- **Model identity is never trusted as a label.** Models often do not know their exact version, or name an older one. The model family is a latent variable inferred from behaviour (section 6.3). The self-report `assistant_model` is one noisy clue among others.
+- **Model identity is never asked.** Models often do not know their exact version, name an older one, or can be made to say anything. What matters is behaviour, which the server measures itself (section 6.3).
 - **Hosts with MCP Apps:** Claude (web and desktop) and ChatGPT both support MCP Apps (official extension support matrix), so widget mode is the normal case on both.
 - **Hosts without MCP Apps:** fallback mode (section 4.1): normal chat replies, estimated lengths (section 6.2), and no buttons if the host cannot render them, in which case the other annotators carry the reaction model.
 
@@ -265,7 +264,7 @@ Notation: Φ is the standard normal CDF (`math.erf`). All lengths are on the log
 | α(u), γ(t) | user; request type | Multilevel decomposition of θ (section 6.5) |
 | L | turn | True log length of the reply |
 | y | turn | True user reaction: `moved_on`, `too_long`, `too_short`, `missing_info`, `misunderstood`, `wrong_format` |
-| π(c, f) | conversation | Probability that the assistant in conversation *c* belongs to model family *f* |
+| π(c, f) | conversation | Probability that the assistant in conversation *c* belongs to behaviour class *f* |
 | b(c) | conversation | Assistant's bias when estimating `needed_words` |
 | κ(c), v(c) | conversation | Compliance (log written / requested) and writing speed (log words per second) |
 | ρ(u), mixture weights | user | Reading speed and reading behaviour (section 6.6) |
@@ -278,7 +277,7 @@ For a given message, the minimal sufficient log ratio is S = θ(u,t) + b(c) + ε
 Three sensors measure the true length L of a reply:
 
 1. **Exact count** (widget mode): L = log(`reply_words_exact`), with zero variance.
-2. **Writing time** (widget mode): s₂ = log(duration − overhead) = L − v(c) + e₂, where duration is the gap between `plan_reply` and `show_reply`, overhead starts at 3 s (refit nightly), and v(c) is the conversation's log writing speed. With the exact count known, this sensor measures the writing speed, which feeds the family posterior (section 6.3). Use a heavy-tailed error (Student-t, 4 degrees of freedom, applied as a robust down-weighting of large residuals), because extended thinking, network delays and server load inflate some durations.
+2. **Writing time** (widget mode): s₂ = log(duration − overhead) = L − v(c) + e₂, where duration is the gap between `plan_reply` and `show_reply`, overhead starts at 3 s (refit nightly), and v(c) is the conversation's log writing speed. With the exact count known, this sensor measures the writing speed, which feeds the behaviour-class posterior (section 6.3). Use a heavy-tailed error (Student-t, 4 degrees of freedom, applied as a robust down-weighting of large residuals), because extended thinking, network delays and server load inflate some durations.
 3. **Requested length:** s₃ = log(requested words) + κ(c) = L + e₃.
 4. **Self-report** (fallback mode): s₁ = log(`last_reply_words`) = L + e₁, sent with the next `plan_reply`. It defines the unit (assistant-counted words), so it has no bias term by construction.
 
@@ -290,23 +289,22 @@ Nightly, estimate the writing-time and requested-length noise from widget-mode t
 
 ### 6.3 Assistant behaviour
 
-What matters is not *which* model answers but *how it behaves*. Behaviour follows a hierarchy: population → model family → conversation.
+What matters is not *which* model answers but *how it behaves*, and what an assistant says about itself is never trusted, nor even asked. Behaviour follows a hierarchy: population → behaviour class → conversation.
 
-**An open set of families, no vendor list.** A family is the self-reported model name without its version tokens (every token holding a digit): `mistral-large-2411` and `Mistral Large 2` are `mistral-large`, `gemini-2.5-pro` is `gemini-pro`, `claude-opus-5-5` is `claude-opus`; no self-report is `unknown`. A family exists as soon as one assistant reports it. Until its own evidence reaches the nightly threshold, its behaviour (speed, bias, compliance) is the average of the families already learned (before any, a population prior: no bias, about 50 words per second, wide spread); the annotator confusion of an unlearned family is the pooled one.
+**Behaviour classes, learned.** Nightly, every conversation with measured writing speeds is placed by two numbers the server measures itself: its mean log writing speed (section 6.2) and its compliance κ(c). A Gaussian mixture (scikit-learn, diagonal covariances) finds the classes, its number of components chosen by BIC up to 6, with at least 10 conversations per component; below 10 conversations there is one class, the population (no bias, about 50 words per second, wide spread). Class ids stay stable across nights: new components are matched to the previous ones by distance between means with the Hungarian algorithm. Each class gets the speed and compliance of its component and the estimation bias of its conversations. A class is a family of assistants that behave alike, whatever their brand or version.
 
-**Family as a probability, never a hard label.** For each conversation, keep π(c, f) over the known families plus the reported one:
+**Class as a probability, never a hard label.** For each conversation, keep π(c, f) over the learned classes:
 
-π(c, f) ∝ P(f | host) × P(self-report | f) × Π over turns of N(v̂; μ_v(f), s_v(f)²)
+π(c, f) ∝ P(f | host) × Π over turns of N(v̂; μ_v(f), s_v(f)²)
 
-- `P(f | host)`: share of each family per host, learned; uniform until learned.
-- `P(self-report | f)`: a **reliability matrix** for self-reports, learned. Example: "when a model says Opus, it is Opus 85 % of the time" (0.85 is the initial value for a new family). A missing self-report contributes 1.
+- `P(f | host)`: share of each class per host, learned; uniform until learned.
 - v̂: the turn's estimated log writing speed from section 6.2.
 
 π(c, ·) is updated after every turn.
 
-**Estimation bias:** b(c) = Σ_f π(c, f) · b(f), with variance Var b(c) = Σ_f π(c, f) · (b(f)² + w(f)) − b(c)². Var b(c) is added to τ² everywhere S appears. An uncertain family therefore widens the posterior and leads to a little more exploration, instead of a confident wrong answer.
+**Estimation bias:** b(c) = Σ_f π(c, f) · b(f), with variance Var b(c) = Σ_f π(c, f) · (b(f)² + w(f)) − b(c)². Var b(c) is added to τ² everywhere S appears. An uncertain class therefore widens the posterior and leads to a little more exploration, instead of a confident wrong answer.
 
-**Compliance and speed:** per conversation, Gaussian priors centred on the family mixture, Σ_f π(c, f) · κ(f) and Σ_f π(c, f) · μ_v(f), with sd 0.3 for compliance and the family spread for speed, updated by the sensor fusion of section 6.2.
+**Compliance and speed:** per conversation, Gaussian priors centred on the class mixture, Σ_f π(c, f) · κ(f) and Σ_f π(c, f) · μ_v(f), with sd 0.3 for compliance and the class spread for speed, updated by the sensor fusion of section 6.2.
 
 ### 6.4 User reaction: several annotators, Dawid–Skene
 
@@ -314,7 +312,7 @@ The true reaction y of each turn is hidden. Several independent annotators obser
 
 | Annotator | What it reports | Confusion matrix learned per |
 | --- | --- | --- |
-| Assistant verdict (`last_reply_outcome`) | One of the outcome values | Model family (soft-weighted by π) |
+| Assistant verdict (`last_reply_outcome`) | One of the outcome values | Behaviour class (soft-weighted by π; pooled until a class has data) |
 | Button click | The outcome of the clicked button (section 4.4), or "no click" | Button position |
 | Reading behaviour | P(skimmed), from section 6.6 | Population |
 
@@ -418,8 +416,8 @@ The schema is the SQLAlchemy models (section 3); Alembic migrations, generated f
 **Events** (append-only: no `UPDATE` or `DELETE`):
 
 - `users(id, token_hash, created_at)`
-- `conversations(id, user_id, grp ['treatment'|'control'|'concise'], host, ui_supported bool, assistant_model, protocol_version, created_at)`
-- `turns(id, user_id, conversation_id, turn_index, created_at, reply_mode ['widget'|'fallback'], model_version, schema_version, raw_payload jsonb, request_type, topic, needed_words, language, user_message_words, assistant_model, target_words, requested_words, propensity, theta_sample, b_sample, post_mean, post_sd, style jsonb, transport_session)`. `style` holds the drawn form values, the clarification decision, the length cell and the topic domain used.
+- `conversations(id, user_id, grp ['treatment'|'control'|'concise'], host, ui_supported bool, protocol_version, created_at)` (legacy `assistant_model` kept for old rows)
+- `turns(id, user_id, conversation_id, turn_index, created_at, reply_mode ['widget'|'fallback'], model_version, schema_version, raw_payload jsonb, request_type, topic, needed_words, language, user_message_words, target_words, requested_words, propensity, theta_sample, b_sample, post_mean, post_sd, style jsonb, transport_session)`. `style` holds the drawn form values, the clarification decision, the length cell and the topic domain used.
 - `replies(turn_id, reply_words_exact, created_at)`: one row per `show_reply` call. Kept apart from `turns` so that `turns` is never updated; `created_at` ends the writing time.
 - `outcomes(turn_id, source ['assistant'|'button'|'reading'], observed, user_quote, last_reply_words, reading_seconds, model_version, schema_version, created_at)`
 - `buttons_shown(turn_id, button, position, shuffled, thompson_draw)`
@@ -443,7 +441,6 @@ The schema is the SQLAlchemy models (section 3); Alembic migrations, generated f
 - `family_params(model_family, b, w, kappa, speed_mu, speed_sd, updated_at)`
 - `sensor_noise(sensor, model_family, sigma, updated_at)`
 - `annotator_confusion(annotator, stratum, true_outcome, observed, prob, updated_at)`
-- `self_report_reliability(reported_family, true_family, prob, updated_at)`
 - `host_family_prior(host, model_family, prob, updated_at)`
 - `hyperparams(name, value, updated_at)` for μ₀, σ_α, σ_γ, σ_η, γ(t), τ, overhead and the reading-mixture population priors
 
@@ -460,8 +457,8 @@ To paste in AI → Settings → Instructions for AI (or ChatGPT's custom instruc
 - **Words per step forward:** total reply words (fused length, section 6.2) **plus the tool's own cost**, divided by the expected number of `moved_on` reactions (section 6.4). The tool cost is the output the assistant spends on `plan_reply` arguments, estimated as their JSON length / 4 tokens × 0.75 words per token; it is also reported on its own, per turn.
 - Expected repair rate (`too_long` + `too_short` + `missing_info` + `misunderstood` + `wrong_format`) and `missing_info` rate on its own.
 - Click rate per button and per position.
-- Compliance: median of fused length / requested words, per model family and host.
-- Noise and reliability: sensor noise per family, and the diagonal of each annotator's confusion matrix.
+- Compliance: median of fused length / requested words, per behaviour class and host.
+- Noise and reliability: sensor noise, and the diagonal of each annotator's confusion matrix.
 - Tool coverage: share of widget-mode turns that have a `show_reply` call, share of turns in widget mode, and share of conversations where `conversation_id` is reused correctly.
 
 Every figure comes with a 95 % confidence interval, computed by bootstrap over conversations, or over users when `CONTROL_UNIT = user` (1,000 resamples, pure Python). Comparisons between `treatment` and an arm (`control` or `concise`) are labelled **measured**. Any figure without a control comparison is labelled **estimated**. Never present an estimate as a measured saving. While `CONTROL_UNIT = conversation`, also report each user's control metrics over time, which makes the spillover of learning visible.
@@ -473,7 +470,7 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
   - topic clustering recovers well-separated groups of multilingual topics, and keeps cluster ids stable when it is rerun on more data;
   - the two-sensor estimate recovers a known self-report noise variance within 20 % on 2,000 simulated turns;
   - Dawid–Skene recovers known confusion matrices within 0.05 on 2,000 simulated turns;
-  - the family posterior identifies a simulated model whose self-report is wrong 30 % of the time;
+  - the behaviour mixture finds simulated classes of assistants and keeps their ids when refit; the class posterior identifies a simulated assistant from its writing speed;
   - the reading mixture separates simulated read, skim and away gaps.
 - **System:**
   - `show_reply` stores the exact word count and **no trace of the text** anywhere: database (including `raw_payload`), logs or error output;
@@ -506,7 +503,7 @@ Prompting tips ("help me ask better"), suggested follow-up questions (rejected: 
 1. Docker Compose (app + PostgreSQL with pgvector), SQLAlchemy models and Alembic migrations, health endpoint.
 2. Pure-Python model core with unit tests and synthetic-data recovery tests:
    1. sensor fusion and sensor-noise estimates;
-   2. family posterior;
+   2. behaviour classes and their posterior;
    3. Dawid–Skene;
    4. reading mixture;
    5. multilevel θ grids;

@@ -6,6 +6,7 @@ import collections
 import logging
 import math
 
+import numpy as np
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext import asyncio as sa_asyncio
@@ -180,78 +181,68 @@ def refit_families(
     p: params_lib.Params,
     theta_means: dict[tuple[int, str], float],
 ) -> None:
-    """Refits the behaviour of every family with enough evidence, and the
-    host priors and self-report reliabilities (SPEC 6.3).
+    """Refits the behaviour classes and the host priors (SPEC 6.3).
 
-    The set of families is open: any family a conversation gave weight to is
-    refit once its evidence reaches MIN_WEIGHT; the others keep the average
-    of the learned families.
+    Each conversation with measured writing speeds is placed by its mean log
+    speed and its compliance; the classes found keep their names across
+    nights, and each gets the estimation bias of its conversations.
     """
-    families = p.families
-    seen = sorted(
-        {f for t in turns for f in t["family_probs"]}
-        | {f for c in conversations for f in c["family_probs"]}
-        | set(families.params)
-    )
-    learned = {}
-    for f in seen:
-        speeds, speed_w, biases, bias_w = [], [], [], []
+    speeds = collections.defaultdict(list)
+    for t in turns:
+        w = (t["duration"] or 0) - p.overhead
+        if w > 0:
+            speeds[t["conversation_id"]].append(t["length_mean"] - math.log(w))
+    measured = [c for c in conversations if c["id"] in speeds]
+    features = np.array(
+        [
+            [stats.mean_var(speeds[c["id"]])[0], c["kappa_mean"]]
+            for c in measured
+        ]
+    ).reshape(len(measured), 2)
+    fit = family.fit_classes(features, p.families)
+    if fit is None:
+        p.families = family.Families()
+        return
+    membership = {
+        c["id"]: dict(zip(fit.names, row))
+        for c, row in zip(measured, fit.memberships)
+    }
+    params = {}
+    for k, name in enumerate(fit.names):
+        biases, weights = [], []
         for t in turns:
-            weight = t["family_probs"].get(f, 0.0)
-            w = (t["duration"] or 0) - p.overhead
-            if w > 0:
-                speeds.append(t["length_mean"] - math.log(w))
-                speed_w.append(weight)
-            if _cell(t) in theta_means:
+            weight = membership.get(t["conversation_id"], {}).get(name, 0.0)
+            if weight and _cell(t) in theta_means:
                 biases.append(
                     t["length_mean"]
                     - math.log(t["needed_words"])
                     - theta_means[_cell(t)]
                 )
-                bias_w.append(weight)
-        weights = [c["family_probs"].get(f, 0.0) for c in conversations]
-        fam = dict(families.of(f))
-        if sum(speed_w) >= MIN_WEIGHT:
-            mu, var = stats.mean_var(speeds, speed_w)
-            fam.update(speed_mu=mu, speed_sd=math.sqrt(max(var, MIN_VAR)))
-        if sum(bias_w) >= MIN_WEIGHT:
-            b, var = stats.mean_var(biases, bias_w)
-            fam.update(b=b, w=max(var, MIN_VAR))
+                weights.append(weight)
+        b, w = family.PRIOR["b"], family.PRIOR["w"]
         if sum(weights) >= MIN_WEIGHT:
-            fam["kappa"] = stats.mean_var(
-                [c["kappa_mean"] for c in conversations], weights
-            )[0]
-        if max(sum(speed_w), sum(bias_w), sum(weights)) >= MIN_WEIGHT:
-            learned[f] = fam  # Only families with evidence are learned.
-    if learned:
-        # mu0 holds the population level, so the family biases are centred.
-        center = sum(fam["b"] for fam in learned.values()) / len(learned)
-        for fam in learned.values():
-            fam["b"] -= center
-    families.params = learned
+            b, w = stats.mean_var(biases, weights)
+        params[name] = {
+            "b": b,
+            "w": max(w, MIN_VAR),
+            "kappa": float(fit.means[k, 1]),
+            "speed_mu": float(fit.means[k, 0]),
+            "speed_sd": math.sqrt(fit.variances[k, 0]),
+        }
+    # mu0 holds the population level, so the class biases are centred.
+    center = sum(c["b"] for c in params.values()) / len(params)
+    for c in params.values():
+        c["b"] -= center
 
-    by_host, by_report = (
-        collections.defaultdict(list),
-        collections.defaultdict(list),
-    )
-    for c in conversations:
-        by_host[c["host"]].append(c["family_probs"])
-        reported = family.family_of(c["assistant_model"])
-        if reported != family.UNKNOWN:
-            by_report[reported].append(c["family_probs"])
-
-    def average(probs: list[dict]) -> dict[str, float]:
-        sums = [
-            sum(x.get(f, 0.0) for x in probs) + HOST_SMOOTHING for f in seen
-        ]
-        return dict(zip(seen, stats.normalize(sums)))
-
-    families.host_prior = {
-        h: average(v) for h, v in by_host.items() if len(v) >= MIN_WEIGHT
-    }
-    families.reliability = {
-        r: average(v) for r, v in by_report.items() if len(v) >= MIN_WEIGHT
-    }
+    by_host = collections.defaultdict(list)
+    for c in measured:
+        by_host[c["host"]].append(membership[c["id"]])
+    host_prior = {}
+    for host, rows in by_host.items():
+        if len(rows) >= MIN_WEIGHT:
+            sums = [sum(r[n] for r in rows) + HOST_SMOOTHING for n in fit.names]
+            host_prior[host] = dict(zip(fit.names, stats.normalize(sums)))
+    p.families = family.Families(params, host_prior)
 
 
 def refit_reading(
@@ -340,13 +331,6 @@ async def save_params(session: Session, p: params_lib.Params) -> None:
                 for o, prob in obs.items()
             ),
             *(
-                models.SelfReportReliability(
-                    reported_family=r, true_family=f, prob=prob
-                )
-                for r, row in p.families.reliability.items()
-                for f, prob in row.items()
-            ),
-            *(
                 models.HostFamilyPrior(host=h, model_family=f, prob=prob)
                 for h, row in p.families.host_prior.items()
                 for f, prob in row.items()
@@ -404,8 +388,8 @@ async def run(session: Session) -> int:
         (
             await session.execute(
                 sa.select(
+                    models.Conversation.id,
                     models.Conversation.host,
-                    models.Conversation.assistant_model,
                     models.ConversationState.family_probs,
                     models.ConversationState.kappa_mean,
                 ).join(

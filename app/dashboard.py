@@ -420,7 +420,6 @@ async def learned_model() -> dict:
         },
         "noise": p.noise,
         "confusions": p.confusions,
-        "reliability": p.families.reliability,
         "host_prior": p.families.host_prior,
     }
 

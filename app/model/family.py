@@ -1,101 +1,62 @@
-"""Assistant behaviour (SPEC 6.3): an open set of model families.
+"""Assistant behaviour (SPEC 6.3): latent behaviour classes.
 
-A family is whatever model the assistants say they are, normalised by
-dropping version tokens: "mistral-large-2411" and "mistral-large-2407" are
-one family, "gemini-2.5-pro" is "gemini-pro". No list of vendors is known in
-advance: a family exists once some assistant reports it, starts from the
-average of the families learned so far, and gets its own behaviour (writing
-speed, estimation bias, compliance) as its conversations accumulate.
+What an assistant says about itself is never trusted, nor even asked. A
+"family" is a class of assistants that behave alike, learned nightly from what
+the server measures: the writing speed and the compliance with requested
+lengths of each conversation. A Gaussian mixture finds the classes, its size
+chosen by BIC; their ids stay stable across nights. Online, a conversation's
+class is inferred from its host and the speed measured on every turn.
 """
 
 import dataclasses
 import math
-import re
 
+import numpy as np
+from sklearn import mixture
+
+from app.model import matching
 from app.model import stats
 
-UNKNOWN = "unknown"  # The family of an assistant that does not say.
-SEPARATORS = re.compile(r"[\s\-_./:@]+")
-VERSION = re.compile(r"\d")  # Version and date tokens all hold a digit.
+POPULATION = "population"  # The single class before any is learned.
+CLASS_PREFIX = "class-"
 FIELDS = ("b", "w", "kappa", "speed_mu", "speed_sd")
-# Before any family is learned: no bias, ~50 words per second, wide spread.
-POPULATION = dict(zip(FIELDS, (0.0, 0.05, 0.0, math.log(50.0), 0.6)))
-SELF_REPORT_RELIABILITY = 0.85  # Initial P(true family | reported family).
-
-
-def family_of(assistant_model: str | None) -> str:
-    """Returns the family of a self-reported model name: its version-free words.
-
-    Args:
-        assistant_model: The model name the assistant gave, if any.
-
-    Returns:
-        The family key, or UNKNOWN.
-    """
-    if not assistant_model:
-        return UNKNOWN
-    words = SEPARATORS.split(assistant_model.lower())
-    return "-".join(w for w in words if w and not VERSION.search(w)) or UNKNOWN
+# Before any class is learned: no bias, ~50 words per second, wide spread.
+PRIOR = dict(zip(FIELDS, (0.0, 0.05, 0.0, math.log(50.0), 0.6)))
+MAX_CLASSES = 6
+CONVERSATIONS_PER_CLASS = 10  # Evidence needed per mixture component.
+MIN_VAR = 1e-2
 
 
 @dataclasses.dataclass
 class Families:
-    """What is learned about every family seen so far.
+    """What is learned about the behaviour classes.
 
     Attributes:
-        params: Family -> behaviour (FIELDS), learned nightly.
-        reliability: Reported family -> P(true family), learned nightly.
-        host_prior: Host -> P(family), learned nightly.
+        params: Class -> behaviour (FIELDS), learned nightly.
+        host_prior: Host -> P(class), learned nightly.
     """
 
     params: dict[str, dict[str, float]] = dataclasses.field(
-        default_factory=dict
-    )
-    reliability: dict[str, dict[str, float]] = dataclasses.field(
         default_factory=dict
     )
     host_prior: dict[str, dict[str, float]] = dataclasses.field(
         default_factory=dict
     )
 
-    def known(self, *extra: str) -> list[str]:
-        """Returns every family known, plus any given."""
-        return sorted({UNKNOWN, *self.params, *extra})
+    def known(self) -> list[str]:
+        """Returns the classes learned so far, or the population alone."""
+        return sorted(self.params) or [POPULATION]
 
     def of(self, name: str) -> dict[str, float]:
-        """Returns a family's behaviour, or the average of the learned ones."""
-        if name in self.params:
-            return self.params[name]
-        if not self.params:
-            return POPULATION
-        learned = list(self.params.values())
-        return {k: sum(p[k] for p in learned) / len(learned) for k in FIELDS}
+        """Returns a class's behaviour; a vanished class gets the prior."""
+        return self.params.get(name, PRIOR)
 
-    def initial_probs(self, host: str, reported: str) -> dict[str, float]:
-        """Returns pi(c, f) before any turn: P(f | host) x P(report | f).
-
-        Args:
-            host: The MCP client name.
-            reported: The family the assistant reported, or UNKNOWN.
-
-        Returns:
-            The probability of each known family.
-        """
-        families = self.known(reported)
-        uniform = 1 / len(families)
-        host_prior = self.host_prior.get(host, {})
-        learned = self.reliability.get(reported, {})
-        off = (1 - SELF_REPORT_RELIABILITY) / max(len(families) - 1, 1)
-
-        def report(f: str) -> float:
-            if reported == UNKNOWN:
-                return 1.0
-            if f in learned:
-                return learned[f]
-            return SELF_REPORT_RELIABILITY if f == reported else off
-
-        weights = [host_prior.get(f, uniform) * report(f) for f in families]
-        return dict(zip(families, stats.normalize(weights)))
+    def initial_probs(self, host: str) -> dict[str, float]:
+        """Returns pi(c, f) before any turn: P(f | host)."""
+        classes = self.known()
+        prior = self.host_prior.get(host, {})
+        weights = [prior.get(f, 1 / len(classes)) for f in classes]
+        return dict(zip(classes, stats.normalize(weights)))
 
     def update_with_speed(
         self, probs: dict[str, float], speed: float
@@ -111,11 +72,11 @@ class Families:
         return dict(zip(probs, stats.normalize_log(logs)))
 
     def mix(self, probs: dict[str, float], key: str) -> float:
-        """Returns the family mixture of one behaviour field."""
+        """Returns the class mixture of one behaviour field."""
         return sum(p * self.of(f)[key] for f, p in probs.items())
 
     def bias(self, probs: dict[str, float]) -> tuple[float, float]:
-        """Returns b(c) and Var b(c) for the family mixture."""
+        """Returns b(c) and Var b(c) for the class mixture."""
         b = self.mix(probs, "b")
         second = sum(
             p * (self.of(f)["b"] ** 2 + self.of(f)["w"])
@@ -131,3 +92,63 @@ class Families:
             for f, p in probs.items()
         )
         return mean, max(second - mean**2, 1e-4)
+
+
+@dataclasses.dataclass
+class Fit:
+    """Behaviour classes fitted on conversations.
+
+    Attributes:
+        names: The stable name of each class.
+        means: Per class, the mean (log speed, log compliance).
+        variances: Per class, the variances of the same.
+        memberships: Per conversation, P(class), one column per class.
+    """
+
+    names: list[str]
+    means: np.ndarray
+    variances: np.ndarray
+    memberships: np.ndarray
+
+
+def fit_classes(features: np.ndarray, previous: Families) -> Fit | None:
+    """Fits behaviour classes on (log speed, log compliance) per conversation.
+
+    Args:
+        features: One row per conversation.
+        previous: The classes learned before, to keep their names.
+
+    Returns:
+        The fit, or None without enough conversations for one class.
+    """
+    largest = min(MAX_CLASSES, len(features) // CONVERSATIONS_PER_CLASS)
+    if largest < 1:
+        return None
+    best = min(
+        (
+            mixture.GaussianMixture(
+                k, covariance_type="diag", random_state=0
+            ).fit(features)
+            for k in range(1, largest + 1)
+        ),
+        key=lambda model: model.bic(features),
+    )
+    old = [n for n in previous.params if n.startswith(CLASS_PREFIX)]
+    old_means = np.array(
+        [
+            [previous.params[n]["speed_mu"], previous.params[n]["kappa"]]
+            for n in old
+        ]
+    ).reshape(len(old), 2)
+    distance = np.linalg.norm(
+        best.means_[:, None, :] - old_means[None, :, :], axis=-1
+    )
+    ids = matching.stable_ids(
+        -distance, [int(n.removeprefix(CLASS_PREFIX)) for n in old]
+    )
+    return Fit(
+        names=[f"{CLASS_PREFIX}{i}" for i in ids],
+        means=best.means_,
+        variances=np.maximum(best.covariances_, MIN_VAR),
+        memberships=best.predict_proba(features),
+    )

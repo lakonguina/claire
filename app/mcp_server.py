@@ -171,7 +171,6 @@ async def plan_reply(
     user_message_words: Annotated[
         int | None, _field("user_message_words")
     ] = None,
-    assistant_model: Annotated[str | None, _field("assistant_model")] = None,
 ) -> str:
     # The signature is the tool schema; the arguments sent are kept as the raw
     # payload (SPEC 5.4), so they are collected as received.

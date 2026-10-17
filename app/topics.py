@@ -10,7 +10,6 @@ import os
 
 import fastembed
 import numpy as np
-from scipy import optimize
 from sklearn import cluster
 from sklearn import metrics
 import sqlalchemy as sa
@@ -18,6 +17,7 @@ from sqlalchemy.ext import asyncio as sa_asyncio
 
 from app import config
 from app import models
+from app.model import matching
 
 MIN_TOPICS = 20  # Below this, every topic is in one domain.
 MAX_CLUSTERS = 30
@@ -73,30 +73,6 @@ def _best_k_means(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return _unit(best.cluster_centers_), best.labels_
 
 
-def stable_ids(new: np.ndarray, old: dict[int, np.ndarray]) -> list[int]:
-    """Matches new centroids to old ids by cosine similarity (Hungarian).
-
-    Args:
-        new: The new unit centroids, one per row.
-        old: The previous centroids by id.
-
-    Returns:
-        An id for each new centroid: the matched old id, or a fresh one.
-    """
-    ids = [-1] * len(new)
-    if old:
-        old_ids = list(old)
-        similarity = new @ np.stack([old[i] for i in old_ids]).T
-        rows, cols = optimize.linear_sum_assignment(-similarity)
-        for r, c in zip(rows, cols):
-            ids[r] = old_ids[c]
-    fresh = max(old, default=0) + 1
-    for i, assigned in enumerate(ids):
-        if assigned < 0:
-            ids[i], fresh = fresh, fresh + 1
-    return ids
-
-
 async def recluster(session: sa_asyncio.AsyncSession) -> int:
     """Refits the topic clusters on every embedding; returns their number."""
     rows = (
@@ -115,7 +91,14 @@ async def recluster(session: sa_asyncio.AsyncSession) -> int:
         return 0
     vectors = _unit(np.stack([np.asarray(r.embedding) for r in rows]))
     centroids, labels = _best_k_means(vectors)
-    for index, cluster_id in enumerate(stable_ids(centroids, old)):
+    old_ids = list(old)
+    similarity = (
+        centroids @ np.stack([old[i] for i in old_ids]).T
+        if old_ids
+        else np.zeros((len(centroids), 0))
+    )
+    ids = matching.stable_ids(similarity, old_ids)
+    for index, cluster_id in enumerate(ids):
         members = np.flatnonzero(labels == index)
         medoid = members[np.argmax(vectors[members] @ centroids[index])]
         session.add(

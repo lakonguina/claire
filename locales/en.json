@@ -151,8 +151,7 @@
         "format_issue": "Only when last_reply_outcome is wrong_format: what was wrong",
         "ambiguous": "Only when true: the request has several plausible readings",
         "last_reply_words": "Fallback mode only: approximate length of your previous reply",
-        "user_message_words": "Length of the user's message",
-        "assistant_model": "First call only: the model answering, if you know it"
+        "user_message_words": "Length of the user's message"
       }
     },
     "show_reply": {

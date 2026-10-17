@@ -13,6 +13,7 @@ from app import vocab
 from app.model import bandits
 from app.model import family
 from app.model import length
+from app.model import matching
 from app.model import policy
 from app.model import prefs
 from app.model import reaction
@@ -21,7 +22,7 @@ from app.model import stats
 from app.model import theta
 
 CONF = reaction.default_confusions()
-FAMILY_PROBS = {"claude-opus": 0.5, "mistral-large": 0.5}
+FAMILY_PROBS = {"class-1": 0.5, "class-2": 0.5}
 
 
 def outcome_probs(verdict: str) -> list[float]:
@@ -151,54 +152,44 @@ def test_dawid_skene_recovers_confusions():
     assert max(errors) < 0.1
 
 
-def test_family_names_are_normalised_without_a_vendor_list():
-    cases = {
-        "mistral-large-2411": "mistral-large",
-        "Mistral Large 2": "mistral-large",
-        "gemini-2.5-pro": "gemini-pro",
-        "claude-opus-5-5": "claude-opus",
-        "llama-3.1-70b-instruct": "llama-instruct",
-        None: family.UNKNOWN,
-        "4o": family.UNKNOWN,
-    }
-    for name, expected in cases.items():
-        assert family.family_of(name) == expected
-
-
-def test_new_families_start_from_the_learned_average():
-    families = family.Families(
+def test_behaviour_classes_are_found_and_keep_their_names():
+    rng = np.random.default_rng(1)
+    fast = rng.normal([math.log(90), -0.1], 0.05, size=(60, 2))
+    slow = rng.normal([math.log(35), 0.1], 0.05, size=(60, 2))
+    fit = family.fit_classes(np.vstack([fast, slow]), family.Families())
+    assert len(fit.names) == 2
+    assert (
+        fit.memberships[:60].argmax(1).tolist()
+        == [fit.memberships[0].argmax()] * 60
+    )
+    previous = family.Families(
         params={
-            "a": {**family.POPULATION, "speed_mu": math.log(40)},
-            "b": {**family.POPULATION, "speed_mu": math.log(60)},
+            name: {**family.PRIOR, "speed_mu": m[0], "kappa": m[1]}
+            for name, m in zip(fit.names, fit.means)
         }
     )
-    unseen = families.of("mistral-large")
-    assert unseen["speed_mu"] == pytest.approx(
-        (math.log(40) + math.log(60)) / 2
-    )
-    probs = families.initial_probs("Le Chat", "mistral-large")
-    assert set(probs) == {"a", "b", "mistral-large", family.UNKNOWN}
-    assert max(probs, key=probs.get) == "mistral-large"
+    refit = family.fit_classes(np.vstack([slow, fast]), previous)
+    assert sorted(refit.names) == sorted(fit.names)
+    assert family.fit_classes(fast[:5], family.Families()) is None
 
 
-def test_family_posterior_sees_through_wrong_self_reports():
+def test_family_posterior_follows_measured_speed():
     rng = random.Random(11)
-    speeds = {"slow": 35, "medium": 50, "fast": 90}
+    speeds = {"class-1": 35, "class-2": 50, "class-3": 90}
     families = family.Families(
         params={
-            f: {**family.POPULATION, "speed_mu": math.log(v), "speed_sd": 0.3}
+            f: {**family.PRIOR, "speed_mu": math.log(v), "speed_sd": 0.3}
             for f, v in speeds.items()
         }
     )
     hits = 0
     for _ in range(100):
-        reported = "medium" if rng.random() < 0.3 else "fast"
-        probs = families.initial_probs("host", reported)
+        probs = families.initial_probs("host")
         for _ in range(8):
             probs = families.update_with_speed(
                 probs, rng.gauss(math.log(90), 0.3)
             )
-        hits += max(probs, key=probs.get) == "fast"
+        hits += max(probs, key=probs.get) == "class-3"
     assert hits >= 95
 
 
@@ -318,5 +309,5 @@ def test_topic_clustering_is_multilingual_and_stable():
     found, labels = topics._best_k_means(vectors)  # pylint: disable=protected-access
     assert len(found) == 3
     assert len(set(labels[:40])) == len(set(labels[40:80])) == 1
-    ids = topics.stable_ids(found[::-1], {7: found[0], 9: found[1]})
+    ids = matching.stable_ids(found[::-1] @ found[:2].T, [7, 9])
     assert ids == [ids[0], 9, 7] and ids[0] not in (7, 9)

@@ -331,7 +331,6 @@ async function openTurn(id) {
     <section><h2>Conversation</h2>${kv([
       ["host · protocol", `${esc(d.conversation.host)} · ${esc(d.conversation.protocol_version || "—")}`],
       ["group · apps", `${esc(d.conversation.grp)} · ${d.conversation.ui_supported ? "yes" : "no"}`],
-      ["assistant model (self-report)", esc(d.conversation.assistant_model || "—")],
       ["platform · locale", esc(d.context.map((x) => `${x.platform || "?"} · ${x.locale || "?"}`).join(", ") || "—")],
       ["compliance (written / requested)", cs ? `${num(Math.exp(cs.kappa_mean), 3)} ± ${num(Math.sqrt(cs.kappa_var), 3)}` : "—"],
       ["writing speed", cs ? `${num(Math.exp(cs.speed_mean), 1)} words/s` : "—"],
@@ -414,8 +413,8 @@ async function renderModel() {
       ])}</div>
       <div class="panel"><h2>Sensor noise σ ${learned("sensor_noise")}</h2>${kv(Object.entries(m.noise).map(([k, v]) => [k, num(v, 3)]))}
         <h2 style="margin-top:16px">Reading mixture</h2>${kv(Object.entries(m.reading).map(([k, v]) => [k, num(v, 3)]))}</div>
-      <div class="panel scroll"><h2>Model families ${learned("family_params")}</h2><table>
-        <tr><th>family</th><th>speed</th><th>b</th><th>w</th><th>κ</th></tr>
+      <div class="panel scroll"><h2>Behaviour classes ${learned("family_params")}</h2><table>
+        <tr><th>class</th><th>speed</th><th>b</th><th>w</th><th>κ</th></tr>
         ${Object.entries(m.family).map(([f, v]) => `<tr class="mono"><td>${esc(f)}</td><td>${num(v.speed_wps, 0)} w/s</td><td>${num(v.b, 3)}</td><td>${num(v.w, 3)}</td><td>${num(v.kappa, 3)}</td></tr>`).join("")}
       </table></div>
     </div>
@@ -424,7 +423,6 @@ async function renderModel() {
     <div class="grid panels">
       <div class="panel"><h2>Button annotator</h2>${heatmap(m.confusions.button.all)}</div>
       <div class="panel"><h2>Reading annotator</h2>${heatmap(m.confusions.reading.all)}</div>
-      <div class="panel"><h2>Self-report reliability ${learned("self_report_reliability")}</h2>${heatmap(m.reliability)}</div>
       <div class="panel"><h2>Host → family prior ${learned("host_family_prior")}</h2>${Object.keys(m.host_prior).length ? heatmap(m.host_prior) : '<p class="faint">Uniform until learned (the nightly job needs 20 conversations per host).</p>'}</div>
     </div>`;
   const showFamily = () => { $("#assistant-heat").innerHTML = heatmap(m.confusions.assistant[$("#family").value]); };

@@ -125,7 +125,6 @@ async def _conversation(
         grp=_arm(caller.user_id),
         host=caller.host,
         ui_supported=caller.ui,
-        assistant_model=args.get("assistant_model"),
         protocol_version=caller.protocol_version,
     )
     session.add(conv)
@@ -302,7 +301,6 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
             needed_words=needed,
             language=args["language"],
             user_message_words=args.get("user_message_words"),
-            assistant_model=args.get("assistant_model") or conv.assistant_model,
             target_words=decision.target_words if treated else None,
             requested_words=decision.requested_words if treated else None,
             propensity=propensity if treated else None,

@@ -94,6 +94,7 @@ class Conversation(Base):
     grp: orm.Mapped[vocab.Arm] = orm.mapped_column(_checked(vocab.Arm))
     host: orm.Mapped[str]
     ui_supported: orm.Mapped[bool]
+    # No longer asked (SPEC 6.3); kept for the rows that have it.
     assistant_model: orm.Mapped[str | None]
     protocol_version: orm.Mapped[str | None]
     created_at: orm.Mapped[datetime.datetime] = _created()
@@ -129,6 +130,7 @@ class Turn(Base):
     user_specified: orm.Mapped[list[str] | None] = orm.mapped_column(
         postgresql.ARRAY(sa.Text)
     )
+    # No longer asked (SPEC 6.3); kept for the rows that have it.
     assistant_model: orm.Mapped[str | None]
     target_words: orm.Mapped[int | None]
     requested_words: orm.Mapped[int | None]
@@ -423,16 +425,6 @@ class AnnotatorConfusion(Base):
     updated_at: orm.Mapped[datetime.datetime] = _created()
 
 
-class SelfReportReliability(Base):
-    """Learned P(true family | reported family)."""
-
-    __tablename__ = "self_report_reliability"
-    reported_family: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    true_family: orm.Mapped[str] = orm.mapped_column(primary_key=True)
-    prob: orm.Mapped[float]
-    updated_at: orm.Mapped[datetime.datetime] = _created()
-
-
 class HostFamilyPrior(Base):
     """Learned P(family | host)."""
 
@@ -456,7 +448,6 @@ LEARNED = (
     FamilyParam,
     SensorNoise,
     AnnotatorConfusion,
-    SelfReportReliability,
     HostFamilyPrior,
     Hyperparam,
 )

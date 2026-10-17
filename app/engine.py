@@ -20,7 +20,6 @@ from app import params as params_lib
 from app import topics
 from app import vocab
 from app.model import bandits
-from app.model import family
 from app.model import length
 from app.model import prefs
 from app.model import reaction
@@ -42,9 +41,7 @@ async def conversation_state(
     if state:
         return state
     conv = await session.get(models.Conversation, conversation_id)
-    probs = p.families.initial_probs(
-        conv.host, family.family_of(conv.assistant_model)
-    )
+    probs = p.families.initial_probs(conv.host)
     speed_mean, speed_var = p.families.speed_prior(probs)
     return models.ConversationState(
         conversation_id=conversation_id,

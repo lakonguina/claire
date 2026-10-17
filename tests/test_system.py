@@ -108,11 +108,7 @@ async def test_full_turn_sequence_and_no_trace_of_text(
 ):
     caplog.set_level(logging.DEBUG)
     client = await make_client()
-    plan = (
-        await client.call(
-            "plan_reply", **PLAN, assistant_model="claude-opus-5-5"
-        )
-    )["data"]
+    plan = (await client.call("plan_reply", **PLAN))["data"]
     assert plan["instruction"].endswith(WIDGET_SENTENCE)
     shown = await client.call(
         "show_reply",
