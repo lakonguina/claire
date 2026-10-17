@@ -91,3 +91,20 @@ pre > button.copy {
   right: 6px;
   padding: 2px 8px;
 }
+
+button.copied {
+  color: var(--color-text-success, #1a7f37);
+  animation: pop 0.3s ease-out;
+}
+
+@keyframes pop {
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+#sampling {
+  margin: 8px 0 0;
+  font-size: var(--font-text-xs-size, 12px);
+  color: var(--color-text-tertiary, GrayText);
+}

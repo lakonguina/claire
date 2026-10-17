@@ -8,7 +8,7 @@ from collections import defaultdict
 from app import engine, params as params_mod
 from app.db import AsyncConnection, execute, fetch, migrate, pool
 from app.model.family import FAMILIES, reported_family
-from app.model.length import three_cornered_hat
+from app.model.length import self_report_variance
 from app.model.reaction import Item, dawid_skene
 from app.model.reading import fit_mixture
 from app.model.stats import grid_mean_var, mean_var, normalize
@@ -49,7 +49,7 @@ def refit_reactions(turns: list[dict], p: Params) -> None:
 
 
 def refit_sensors(turns: list[dict], p: Params) -> None:
-    writing, requested, hat = [], [], ([], [], [])
+    writing, requested, fallback = [], [], ([], [])
     for t in turns:
         w = (t["duration"] or 0) - p.overhead
         s2 = math.log(w) + t["speed_mean"] if w > 0 else None
@@ -60,15 +60,15 @@ def refit_sensors(turns: list[dict], p: Params) -> None:
                 writing.append(s2 - truth)
             if s3 is not None:
                 requested.append(s3 - truth)
-        elif t["self_report"] and s2 is not None and s3 is not None:
-            for series, value in zip(hat, (math.log(t["self_report"]), s2, s3)):
-                series.append(value)
+        elif t["self_report"] and s3 is not None:
+            fallback[0].append(math.log(t["self_report"]))
+            fallback[1].append(s3)
     if len(writing) >= MIN_WEIGHT:
         p.noise["writing_time"] = math.sqrt(max(mean_var(writing)[1], 0.01))
     if len(requested) >= MIN_WEIGHT:
         p.noise["requested"] = math.sqrt(max(mean_var(requested)[1], 0.01))
-    if len(hat[0]) >= MIN_WEIGHT:
-        p.noise["self_report"] = math.sqrt(three_cornered_hat(*hat)[0])
+    if len(fallback[0]) >= MIN_WEIGHT:
+        p.noise["self_report"] = math.sqrt(self_report_variance(*fallback, p.noise["requested"] ** 2))
     widget = [float(t["duration"]) - math.exp(math.log(t["exact"]) - t["speed_mean"])
               for t in turns if t["exact"] and t["duration"]]
     if len(widget) >= MIN_WEIGHT:

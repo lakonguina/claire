@@ -105,7 +105,8 @@ async def compute(conn: AsyncConnection) -> dict:
     }
     coverage = (await fetch(conn, """
         SELECT count(*) AS turns,
-               avg((EXISTS (SELECT 1 FROM replies r WHERE r.turn_id = t.id))::int) AS with_reply_tool,
+               avg((EXISTS (SELECT 1 FROM replies r WHERE r.turn_id = t.id))::int)
+                   FILTER (WHERE t.reply_mode = 'widget') AS widget_turns_with_show_reply,
                avg((t.reply_mode = 'widget')::int) AS widget_share
         FROM turns t"""))[0]
     reuse = (await fetch(conn, """

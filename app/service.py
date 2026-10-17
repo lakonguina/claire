@@ -1,4 +1,4 @@
-"""Tool logic, independent of the MCP layer: plan_reply, show_reply, show_feedback, record_click."""
+"""Tool logic, independent of the MCP layer: plan_reply, show_reply, record_click."""
 
 import hashlib
 import json
@@ -78,10 +78,10 @@ async def _conversation(conn: AsyncConnection, caller: Caller, handle: str | Non
 
 
 def _instruction(requested: int | None, styles: list[str], ui: bool) -> str:
-    mode = "Write the reply only in show_reply." if ui else "Then call show_feedback."
-    if requested is None:
-        return f"Reply normally. {mode}"
-    parts = [f"Reply in about {requested} words.", "No preamble, no recap.", *(STYLES[s] for s in styles), mode]
+    parts = ["Reply normally."] if requested is None else [
+        f"Reply in about {requested} words.", "No preamble, no recap.", *(STYLES[s] for s in styles)]
+    if ui:
+        parts.append("Write the reply only in show_reply.")
     return " ".join(parts)
 
 
@@ -166,17 +166,8 @@ async def show_reply(caller: Caller, turn_handle: Any, text: Any) -> dict:
     async with pool.connection() as conn, conn.transaction():
         turn = await _owned_turn(conn, caller, turn_handle)
         await _log_call(conn, caller, "show_reply")
-        await execute(conn, "INSERT INTO replies (turn_id, tool, reply_words_exact) VALUES (%s, 'show_reply', %s)",
-                      turn["id"], words)
+        await execute(conn, "INSERT INTO replies (turn_id, reply_words_exact) VALUES (%s, %s)", turn["id"], words)
         return {"turn_id": turn_handle, "buttons": await _buttons(conn, turn)}
-
-
-async def show_feedback(caller: Caller, turn_handle: Any) -> dict:
-    async with pool.connection() as conn, conn.transaction():
-        turn = await _owned_turn(conn, caller, turn_handle)
-        await _log_call(conn, caller, "show_feedback")
-        await execute(conn, "INSERT INTO replies (turn_id, tool) VALUES (%s, 'show_feedback')", turn["id"])
-        return {"turn_id": turn_handle, "buttons": await _buttons(conn, turn) if caller.ui else []}
 
 
 async def record_click(caller: Caller, turn_handle: Any, button: Any, position: Any) -> None:

@@ -19,6 +19,8 @@ class Settings:
     control_unit: str = os.environ.get("CONTROL_UNIT", "conversation")
     control_share: float = float(os.environ.get("CONTROL_SHARE", "0.1"))
     q: float = float(os.environ.get("TARGET_QUANTILE", "0.8"))
+    # ttlMs on tools/list and resources; set to 0 while developing the widget so hosts refetch it.
+    cache_ttl_ms: int = int(os.environ.get("CACHE_TTL_MS", "3600000"))
     # Per-host override of MCP Apps support, e.g. {"some-host": false}.
     host_ui_override: dict[str, bool] = field(
         default_factory=lambda: json.loads(os.environ.get("HOST_UI_OVERRIDE", "{}"))

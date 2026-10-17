@@ -22,6 +22,7 @@ services:
       SHADOW_POLICIES: ${SHADOW_POLICIES:-}
       CONTROL_UNIT: ${CONTROL_UNIT:-conversation}
       HOST_UI_OVERRIDE: ${HOST_UI_OVERRIDE:-{}}
+      CACHE_TTL_MS: ${CACHE_TTL_MS:-3600000}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

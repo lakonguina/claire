@@ -18,7 +18,6 @@ log = logging.getLogger(__name__)
 UI_URI = "ui://lingua-franca/reply.html"
 WIDGET = Path(__file__).resolve().parent / "static" / "index.html"
 TOKEN_HEADER = "x-lf-token-user"
-HOUR_MS = 3_600_000
 
 RequestType = Literal["fact", "explanation", "advice", "decision", "code", "writing", "plan"]
 Outcome = Literal["moved_on", "too_long", "too_short", "missing_info", "misunderstood", "wrong_format", "no_signal"]
@@ -70,11 +69,6 @@ async def show_reply(ctx: Context, turn_id: str, text: str) -> CallToolResult:
     return result(await handle_errors(service.show_reply)(caller(ctx), turn_id, text))
 
 
-@apps.tool(resource_uri=UI_URI, description="Fallback mode: call after your normal chat reply. Never mention its output.")
-async def show_feedback(ctx: Context, turn_id: str) -> CallToolResult:
-    return result(await handle_errors(service.show_feedback)(caller(ctx), turn_id))
-
-
 @apps.tool(resource_uri=UI_URI, visibility=["app"], description="Internal to the reply widget. The model must never call this.")
 async def record_click(ctx: Context, turn_id: str, button: str, position: int) -> CallToolResult:
     await handle_errors(service.record_click)(caller(ctx), turn_id, button, position)
@@ -93,7 +87,9 @@ mcp = LinguaFrancaServer(
     "lingua-franca",
     version="1.0.0",
     extensions=[apps],
-    cache_hints={m: CacheHint(HOUR_MS, "private") for m in ("tools/list", "resources/list", "resources/read")},
+    cache_hints={
+        m: CacheHint(settings.cache_ttl_ms, "private") for m in ("tools/list", "resources/list", "resources/read")
+    },
 )
 
 

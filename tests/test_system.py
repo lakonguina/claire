@@ -56,10 +56,10 @@ async def test_show_reply_errors_hide_the_text(make_client, db, caplog):
 
 async def test_mode_selection_in_both_protocol_eras(make_client, db):
     for version in (LEGACY, MODERN):
-        for apps, suffix, mode in ((True, "only in show_reply.", "widget"), (False, "call show_feedback.", "fallback")):
+        for apps, mode in ((True, "widget"), (False, "fallback")):
             client = await make_client(apps=apps, version=version)
             plan = (await client.call("plan_reply", **PLAN))["data"]
-            assert plan["instruction"].endswith(suffix), (version, apps)
+            assert plan["instruction"].endswith("Write the reply only in show_reply.") == apps, (version, apps)
             async with db.connection() as conn:
                 row = await fetchrow(conn, """SELECT t.reply_mode, c.host FROM turns t JOIN conversations c
                                               ON c.id = t.conversation_id WHERE t.id = %s""", int(plan["turn_id"][2:]))
@@ -70,7 +70,7 @@ async def test_foreign_handles_are_rejected(make_client):
     alice, bob = await make_client(), await make_client()
     plan = (await alice.call("plan_reply", **PLAN))["data"]
     assert (await bob.call("show_reply", turn_id=plan["turn_id"], text="hi"))["isError"]
-    assert (await bob.call("show_feedback", turn_id=plan["turn_id"]))["isError"]
+    assert (await bob.call("record_click", turn_id=plan["turn_id"], button="shorter", position=0))["isError"]
     assert (await bob.call("plan_reply", **PLAN, conversation_id=plan["conversation_id"]))["isError"]
 
 
@@ -166,3 +166,10 @@ async def test_admin_endpoints(http, make_client):
     assert "moved_on" in (await http.get("/debug", headers=auth)).text
     body = (await http.get("/metrics", headers=auth)).json()
     assert body["tool_coverage"]["turns"] == 2
+
+
+async def test_only_plan_reply_and_show_reply_reach_the_model(make_client):
+    client = await make_client()
+    tools = {t["name"]: t for t in (await client.rpc("tools/list"))["result"]["tools"]}
+    assert set(tools) == {"plan_reply", "show_reply", "record_click"}
+    assert tools["record_click"]["_meta"]["ui"]["visibility"] == ["app"]  # hosts hide it from the model

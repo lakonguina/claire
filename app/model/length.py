@@ -1,4 +1,4 @@
-"""Reply length (section 6.2): sensor fusion over (L, kappa, v) and the three-cornered hat."""
+"""Reply length (section 6.2): sensor fusion over (L, kappa, v) and the self-report noise estimate."""
 
 import math
 from dataclasses import dataclass
@@ -55,13 +55,6 @@ def fuse(prior: Gaussian3, sensors: Sensors, noise: dict[str, float]) -> Gaussia
     return post
 
 
-def three_cornered_hat(s1: list[float], s2: list[float], s3: list[float]) -> tuple[float, float, float]:
-    """Noise variances of three independent sensors of the same quantity, from pairwise differences."""
-    v12 = mean_var([a - b for a, b in zip(s1, s2)])[1]
-    v13 = mean_var([a - c for a, c in zip(s1, s3)])[1]
-    v23 = mean_var([b - c for b, c in zip(s2, s3)])[1]
-    return (
-        max((v12 + v13 - v23) / 2, 0.01),
-        max((v12 + v23 - v13) / 2, 0.01),
-        max((v13 + v23 - v12) / 2, 0.01),
-    )
+def self_report_variance(self_reports: list[float], requested: list[float], requested_var: float) -> float:
+    """Var(s1 - s3) = sigma1^2 + sigma3^2 for two independent sensors, with sigma3^2 known from widget turns."""
+    return max(mean_var([a - b for a, b in zip(self_reports, requested)])[1] - requested_var, 0.01)

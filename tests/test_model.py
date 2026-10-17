@@ -51,13 +51,14 @@ def test_policy_decision_and_propensity():
     assert (fixed.target_words, p) == (160, 1.0)
 
 
-def test_three_cornered_hat_recovers_variances():
+def test_self_report_noise_from_two_sensors():
     rng = random.Random(7)
-    sigmas = (0.3, 0.5, 0.2)
+    self_sigma, requested_sigma = 0.3, 0.2
     truth = [rng.gauss(5, 1) for _ in range(2000)]
-    series = [[x + rng.gauss(0, s) for x in truth] for s in sigmas]
-    for est, s in zip(length.three_cornered_hat(*series), sigmas):
-        assert abs(est - s * s) / (s * s) < 0.2
+    self_reports = [x + rng.gauss(0, self_sigma) for x in truth]
+    requested = [x + rng.gauss(0, requested_sigma) for x in truth]
+    est = length.self_report_variance(self_reports, requested, requested_sigma**2)
+    assert abs(est - self_sigma**2) / self_sigma**2 < 0.2
 
 
 def test_sensor_fusion_exact_length_wins():

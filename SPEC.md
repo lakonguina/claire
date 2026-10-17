@@ -20,7 +20,7 @@ An instruction in the user's AI account (section 10) makes AI:
 1. Call `plan_reply` **before** every reply. AI sends (a) its verdict on how the user reacted to its previous reply, with a short quote as proof, and (b) facts about the new request.
 2. The server records the outcome for the previous turn, updates the user's model instantly, picks a target length and style, and returns a short instruction. The instruction also sets the **reply mode** for this turn.
 3. **Widget mode (main mode):** AI writes its reply **only** as the `text` argument of `show_reply`, and nothing in the chat. The MCP App renders the reply (as it streams, when the host streams tool input), with 3 buttons underneath; the buttons arrive in the tool result's `structuredContent`, which the host gives to the app but not to the model. The server counts the words exactly, then discards the text.
-4. **Fallback mode** (host without MCP Apps support): AI replies normally in the chat, then calls `show_feedback`, which shows the buttons if it can.
+4. **Fallback mode** (host without MCP Apps support): AI replies normally in the chat and calls no tool after it. Such a host cannot render buttons, so there are none.
 5. If the user clicks a button, the UI records the click and sends the matching follow-up message into the chat. Users who type instead are covered by step 1 on the next message.
 
 Widget mode costs no extra tokens (the reply is written once, as a tool argument instead of chat text) and gives an exact length. The reply stays in the conversation history as a tool call, so the assistant keeps full access to what it wrote.
@@ -38,7 +38,7 @@ Rules:
 
 - Python: do not add libraries beyond these, a PostgreSQL driver (`psycopg` 3 and its pool), the ASGI server (uvicorn) and pytest. The models in sections 5 and 6 are implemented in **pure Python** with the standard library (`math`, `random`, `statistics.NormalDist` for the normal CDF and quantile; small Gaussian updates written by hand). No numpy, scipy or ML framework.
 - Widget: built with Vite and `vite-plugin-singlefile` into one self-contained HTML file (all code inlined, no external requests at runtime), using `@modelcontextprotocol/ext-apps` (the official MCP Apps SDK) for the host protocol, `marked` for Markdown and `DOMPurify` for sanitising. The Node build runs in a separate Docker build stage; the running app is Python only.
-- The model-facing tools (`plan_reply`, `show_reply`, `show_feedback`) are `MCPServer` tools; `show_reply` and `show_feedback` are bound to the `ui://` reply resource with `Apps.tool(resource_uri=...)`. `record_click` is an app-only tool (`visibility=["app"]`). `gold_label`, health and metrics are plain FastAPI routes, never MCP tools.
+- The model-facing tools (`plan_reply`, `show_reply`) are `MCPServer` tools; `show_reply` is bound to the `ui://` reply resource with `Apps.tool(resource_uri=...)`. `record_click` is an app-only tool (`visibility=["app"]`). `gold_label`, health and metrics are plain FastAPI routes, never MCP tools.
 - The owner self-hosts the server. It **must be reachable over public HTTPS**, because Anthropic's servers call it. TLS termination happens outside the app, via a reverse proxy.
 - Auth (MVP): one secret token per user, carried in the connector URL (`/mcp/<token>`). The token identifies the user. No OAuth yet: AI supports authless remote servers, and the user cannot add custom headers to a connector. A small ASGI wrapper around the MCP app moves the token from the path into a request header, which tools read through `ctx.headers`.
 - **Both protocol eras.** The server serves MCP `2025-11-25` clients (with the `initialize` handshake and `Mcp-Session-Id` sessions) and `2026-07-28` clients (stateless: protocol version, client capabilities and client info travel in each request's `_meta`, plus `server/discover`). The SDK handles both; application code never depends on either era.
@@ -103,7 +103,7 @@ Output (keep it under ~60 tokens):
 }
 ```
 
-The last sentence of `instruction` sets the reply mode: "Write the reply only in show_reply." in widget mode, or "Then call show_feedback." in fallback mode. **Mode selection, per call:** read the client capabilities carried by the current request (from the `initialize` handshake on 2025-11-25, from the request's `_meta` on 2026-07-28; the SDK's `client_supports_apps(ctx)` covers both). If the host declares MCP Apps support (`io.modelcontextprotocol/ui` with the `text/html;profile=mcp-app` MIME type), the turn uses widget mode; otherwise, fallback mode. Store the mode as `reply_mode` on the turn, and the first value as `ui_supported` on the conversation. Confirm on each host that the declaration matches what is actually rendered, and keep a per-host override in configuration.
+In widget mode, `instruction` ends with "Write the reply only in show_reply."; in fallback mode it has no tool sentence, and the assistant replies in the chat. **Mode selection, per call:** read the client capabilities carried by the current request (from the `initialize` handshake on 2025-11-25, from the request's `_meta` on 2026-07-28; the SDK's `client_supports_apps(ctx)` covers both). If the host declares MCP Apps support (`io.modelcontextprotocol/ui` with the `text/html;profile=mcp-app` MIME type), the turn uses widget mode; otherwise, fallback mode. Store the mode as `reply_mode` on the turn, and the first value as `ui_supported` on the conversation. Confirm on each host that the declaration matches what is actually rendered, and keep a per-host override in configuration.
 
 `target_words` is the length the user should receive. The word count in `instruction` is the **requested** length, corrected for this assistant's compliance (section 6.3), so that the assistant actually writes about `target_words`.
 
@@ -114,7 +114,7 @@ Keep the output short and in exactly the same format on every call: the tool res
 - `conversation` (default while there are fewer than 100 active users): each new conversation goes to `control` with probability 0.1;
 - `user` (from 100 active users): each new user goes to `control` with probability 0.1. This avoids spillover: a user who learns to be concise in treatment conversations is also more concise in their control conversations, which makes conversation-level comparisons underestimate the effect.
 
-In `control`, `plan_reply` still records everything and still updates the models, but returns `target_words: null` and `instruction: "Reply normally."`, and `show_feedback` shows no buttons. This group is what turns estimated savings into measured savings (section 11).
+In `control`, `plan_reply` still records everything and still updates the models, but returns `target_words: null` and `instruction: "Reply normally."` (followed by the widget-mode sentence when it applies), and `show_reply` returns no buttons. This group is what turns estimated savings into measured savings (section 11).
 
 ### 4.2 `show_reply` (MCP tool, widget mode: carries the reply itself)
 
@@ -137,10 +137,6 @@ The MCP App (implemented following the current MCP Apps extension specification,
 - stay readable on a phone-width screen.
 
 In `control` conversations, the widget shows the reply without buttons.
-
-### 4.2b `show_feedback` (MCP tool, fallback mode only)
-
-Input: `turn_id`. Called after a normal chat reply. It records the arrival time (writing duration, a length sensor in section 6.2) and returns `"ok"` as `content`, with the buttons in `structuredContent` for a host that renders the app (same widget, without a reply body). The account instruction tells AI never to mention this tool's output.
 
 ### 4.3 Internal endpoints (not exposed to the model)
 
@@ -251,17 +247,18 @@ For a given message, the minimal sufficient log ratio is S = θ(u,t) + b(c) + ε
 
 ### 6.2 Reply length
 
-**Widget mode: exact.** L = log(`reply_words_exact`), with zero variance. These turns are also **ground truth** for the two server-side sensors below: on them, the noise of the writing-time and requested-length sensors is measured directly against the exact length.
+Three sensors measure the true length L of a reply:
 
-**Fallback mode: three sensors, no calibration set.** Three independent sensors measure the true length L of each reply:
-
-1. **Self-report:** s₁ = log(`last_reply_words`) = L + e₁. It defines the unit (assistant-counted words), so it has no bias term by construction.
-2. **Writing time:** s₂ = log(duration − overhead) = L − v(c) + e₂, where duration is the gap between `plan_reply` and `show_feedback` (or `show_reply`), overhead starts at 3 s (refit nightly), and v(c) is the conversation's log writing speed. Use a heavy-tailed error (Student-t, 4 degrees of freedom, applied as a robust down-weighting of large residuals), because extended thinking, network delays and server load inflate some durations.
+1. **Exact count** (widget mode): L = log(`reply_words_exact`), with zero variance.
+2. **Writing time** (widget mode): s₂ = log(duration − overhead) = L − v(c) + e₂, where duration is the gap between `plan_reply` and `show_reply`, overhead starts at 3 s (refit nightly), and v(c) is the conversation's log writing speed. With the exact count known, this sensor measures the writing speed, which feeds the family posterior (section 6.3). Use a heavy-tailed error (Student-t, 4 degrees of freedom, applied as a robust down-weighting of large residuals), because extended thinking, network delays and server load inflate some durations.
 3. **Requested length:** s₃ = log(requested words) + κ(c) = L + e₃.
+4. **Self-report** (fallback mode): s₁ = log(`last_reply_words`) = L + e₁, sent with the next `plan_reply`. It defines the unit (assistant-counted words), so it has no bias term by construction.
+
+In fallback mode no tool call follows the reply, so only the self-report and the requested length are available.
 
 Online, per turn: fuse the available sensors with a small Gaussian update over (L, κ(c), v(c)). This gives a posterior mean and variance for L, and updates the conversation's compliance and speed. Any sensor may be missing.
 
-Nightly, estimate the writing-time and requested-length noise from widget-mode turns (exact ground truth), and the self-report noise with the **three-cornered hat** method from metrology on fallback turns: for three independent sensors, Var(sᵢ − sⱼ) = σᵢ² + σⱼ², so the three pairwise variances determine the three noise variances with no ground truth and no calibration runs. Use soft family assignments π(c, f) as weights. If a variance comes out negative (sampling noise), floor it at 0.01.
+Nightly, estimate the writing-time and requested-length noise from widget-mode turns, where the exact count is ground truth. Then estimate the self-report noise from fallback turns: the two sensors are independent, so Var(s₁ − s₃) = σ₁² + σ₃², which gives σ₁² from the already known σ₃². If it comes out negative (sampling noise), floor it at 0.01.
 
 ### 6.3 Assistant behaviour
 
@@ -365,7 +362,7 @@ Manage the schema with a plain SQL migration file applied at container start.
 - `users(id, token_hash, created_at)`
 - `conversations(id, user_id, grp ['treatment'|'control'], host, ui_supported bool, assistant_model, protocol_version, created_at)`
 - `turns(id, user_id, conversation_id, turn_index, created_at, reply_mode ['widget'|'fallback'], model_version, schema_version, raw_payload jsonb, request_type, topic, needed_words, language, user_message_words, pasted_content, user_specified text[], assistant_model, target_words, requested_words, propensity, theta_sample, b_sample, post_mean, post_sd, style jsonb)`
-- `replies(turn_id, tool ['show_reply'|'show_feedback'], reply_words_exact, created_at)`: one row per `show_reply` or `show_feedback` call. Kept apart from `turns` so that `turns` is never updated; `created_at` is the feedback time.
+- `replies(turn_id, reply_words_exact, created_at)`: one row per `show_reply` call. Kept apart from `turns` so that `turns` is never updated; `created_at` ends the writing time.
 - `outcomes(turn_id, source ['assistant'|'button'|'reading'], observed, user_quote, last_reply_words, reading_seconds, model_version, schema_version, created_at)`
 - `buttons_shown(turn_id, button, position, shuffled, thompson_draw)`
 - `clicks(turn_id, button, position, created_at)`
@@ -392,7 +389,7 @@ Manage the schema with a plain SQL migration file applied at container start.
 
 To paste in AI → Settings → Instructions for AI (or ChatGPT's custom instructions):
 
-> Before every reply, call `plan_reply`. Reuse the `conversation_id` it returned earlier in this conversation. Write `topic` in my language, and omit optional fields that do not apply. For `last_reply_outcome`, judge how my latest message reacted to your previous reply, and quote my exact words (5 words max) in `user_quote`. Then follow the returned `instruction` exactly, especially the word count and where to write the reply: when it says to write the reply only in `show_reply`, put your entire reply in its `text` argument and write nothing in the chat; otherwise reply normally, then call `show_feedback` with the `turn_id`. Never mention these tools or their output.
+> Before every reply, call `plan_reply`. Reuse the `conversation_id` it returned earlier in this conversation. Write `topic` in my language, and omit optional fields that do not apply. For `last_reply_outcome`, judge how my latest message reacted to your previous reply, and quote my exact words (5 words max) in `user_quote`. Then follow the returned `instruction` exactly, especially the word count and where to write the reply: when it says to write the reply only in `show_reply`, put your entire reply in its `text` argument and write nothing in the chat; otherwise reply normally in the chat. Never mention these tools or their output.
 
 ## 11. Metrics
 
@@ -403,7 +400,7 @@ To paste in AI → Settings → Instructions for AI (or ChatGPT's custom instruc
 - Click rate per button and per position.
 - Compliance: median of fused length / requested words, per model family and host.
 - Noise and reliability: sensor noise per family, and the diagonal of each annotator's confusion matrix.
-- Tool coverage: share of turns that have a `show_reply` or `show_feedback` call, share of turns in widget mode, and share of conversations where `conversation_id` is reused correctly.
+- Tool coverage: share of widget-mode turns that have a `show_reply` call, share of turns in widget mode, and share of conversations where `conversation_id` is reused correctly.
 
 Every figure comes with a 95 % confidence interval, computed by bootstrap over conversations, or over users when `CONTROL_UNIT = user` (1,000 resamples, pure Python). Comparisons between `treatment` and `control` are labelled **measured**. Any figure without a control comparison is labelled **estimated**. Never present an estimate as a measured saving. While `CONTROL_UNIT = conversation`, also report each user's control metrics over time, which makes the spillover of learning visible.
 
@@ -411,7 +408,7 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
 
 - **Model behaviour:** a `too_long` signal lowers the posterior mean, `too_short` raises it, and `moved_on` lowers it slightly. Clamps and rounding behave as specified. A repair outcome without a quote is stored as `no_signal`.
 - **Recovery on synthetic data:**
-  - three-cornered hat recovers known sensor variances within 20 % on 2,000 simulated turns;
+  - the two-sensor estimate recovers a known self-report noise variance within 20 % on 2,000 simulated turns;
   - Dawid–Skene recovers known confusion matrices within 0.05 on 2,000 simulated turns;
   - the family posterior identifies a simulated model whose self-report is wrong 30 % of the time;
   - the reading mixture separates simulated read, skim and away gaps.
@@ -426,7 +423,7 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
 - **Integration:** `docker compose up` starts the app and PostgreSQL. All tools are exercised with the MCP Inspector over Streamable HTTP, including a full turn sequence: plan, feedback, click, next plan.
 - **Manual check:** add the connector on claude.ai, then confirm on web and on the AI mobile app:
   - in widget mode, the reply renders correctly (streaming, Markdown, code, copy), the buttons appear under it, and AI writes nothing outside `show_reply`;
-  - on a host without MCP Apps, fallback mode gives normal chat replies.
+  - on a host without MCP Apps, fallback mode gives normal chat replies with no tool call after them.
 
 ## 13. Out of scope for the MVP
 
@@ -436,13 +433,13 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
 
 1. Docker Compose (app + PostgreSQL), SQL migration, health endpoint.
 2. Pure-Python model core with unit tests and synthetic-data recovery tests:
-   1. sensor fusion and three-cornered hat;
+   1. sensor fusion and sensor-noise estimates;
    2. family posterior;
    3. Dawid–Skene;
    4. reading mixture;
    5. multilevel θ grids;
    6. decision rule.
 3. `plan_reply` as an `MCPServer` tool mounted in FastAPI, tested with the MCP Inspector.
-4. `show_reply` with its MCP App (Markdown reply, streamed when the host allows, and buttons from `structuredContent`), per-call mode selection, `show_feedback` for fallback mode, `record_click`, and `gold_label` with its debug page.
+4. `show_reply` with its MCP App (Markdown reply, streamed when the host allows, and buttons from `structuredContent`), per-call mode selection, `record_click`, and `gold_label` with its debug page.
 5. Nightly job: EM refits, then replay to rebuild derived state. Then the `/metrics` endpoint.
 6. Deploy behind HTTPS, add the connector on claude.ai, paste the account instruction, and test on mobile.
