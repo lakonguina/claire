@@ -34,6 +34,7 @@ class McpAuth:
         token = scope["path"].removeprefix(root).strip("/").split("/")[0]
         user_id = self.users.get(token) or (await service.user_for_token(token) if token else None)
         if user_id is None:
+            log.info("%s /mcp/<redacted> rejected: unknown connector token", scope["method"])
             await send({"type": "http.response.start", "status": 404, "headers": [(b"content-type", b"text/plain")]})
             return await send({"type": "http.response.body", "body": b"Not found"})
         self.users[token] = user_id
