@@ -6,10 +6,14 @@ import json
 import random
 from typing import Any
 
+import sqlalchemy as sa
+from sqlalchemy.ext import asyncio as sa_asyncio
+
 from app import config
 from app import db
 from app import engine
 from app import i18n
+from app import models
 from app import params as params_lib
 from app import text
 from app import topics
@@ -20,6 +24,7 @@ from app.model import policy
 from app.model import prefs
 from app.model import theta
 
+Session = sa_asyncio.AsyncSession
 CONVERSATION_PREFIX = "c_"
 TURN_PREFIX = "t_"
 QUOTE_FREE = frozenset({vocab.Outcome.MOVED_ON, vocab.Outcome.NO_SIGNAL})
@@ -59,13 +64,12 @@ def compact(data: dict) -> str:
 
 async def user_for_token(token: str) -> int | None:
     """Returns the user behind a connector token, or None."""
-    async with db.pool.connection() as conn:
-        row = await db.fetchrow(
-            conn,
-            "SELECT id FROM users WHERE token_hash = %s",
-            token_hash(token),
+    async with db.session() as session:
+        return await session.scalar(
+            sa.select(models.User.id).where(
+                models.User.token_hash == token_hash(token)
+            )
         )
-    return row["id"] if row else None
 
 
 def _parse(handle: Any, prefix: str) -> int:
@@ -77,17 +81,21 @@ def _parse(handle: Any, prefix: str) -> int:
     return int(number)
 
 
-async def _owned_turn(conn: db.Connection, caller: Caller, handle: Any) -> dict:
-    row = await db.fetchrow(
-        conn,
-        "SELECT t.*, c.grp FROM turns t "
-        "JOIN conversations c ON c.id = t.conversation_id WHERE t.id = %s",
-        _parse(handle, TURN_PREFIX),
+async def _lock(session: Session, caller: Caller) -> None:
+    """Serialises one user's writes for the rest of the transaction."""
+    await session.execute(
+        sa.select(sa.func.pg_advisory_xact_lock(caller.user_id))
     )
-    if not row or row["user_id"] != caller.user_id:
+
+
+async def _owned_turn(
+    session: Session, caller: Caller, handle: Any
+) -> tuple[models.Turn, models.Conversation]:
+    turn = await session.get(models.Turn, _parse(handle, TURN_PREFIX))
+    if not turn or turn.user_id != caller.user_id:
         raise HandleError
-    await db.execute(conn, "SELECT pg_advisory_xact_lock(%s)", caller.user_id)
-    return row
+    await _lock(session, caller)
+    return turn, await session.get(models.Conversation, turn.conversation_id)
 
 
 def _arm(user_id: int) -> vocab.Arm:
@@ -103,32 +111,27 @@ def _arm(user_id: int) -> vocab.Arm:
 
 
 async def _conversation(
-    conn: db.Connection,
-    caller: Caller,
-    handle: str | None,
-    assistant_model: str | None,
-) -> dict:
+    session: Session, caller: Caller, args: dict
+) -> models.Conversation:
+    handle = args.get("conversation_id")
     if handle is not None:
-        row = await db.fetchrow(
-            conn,
-            "SELECT * FROM conversations WHERE id = %s",
-            _parse(handle, CONVERSATION_PREFIX),
+        conv = await session.get(
+            models.Conversation, _parse(handle, CONVERSATION_PREFIX)
         )
-        if not row or row["user_id"] != caller.user_id:
+        if not conv or conv.user_id != caller.user_id:
             raise HandleError
-        return row
-    return await db.fetchrow(
-        conn,
-        "INSERT INTO conversations (user_id, grp, host, ui_supported, "
-        "assistant_model, protocol_version) VALUES (%s, %s, %s, %s, %s, %s) "
-        "RETURNING *",
-        caller.user_id,
-        _arm(caller.user_id),
-        caller.host,
-        caller.ui,
-        assistant_model,
-        caller.protocol_version,
+        return conv
+    conv = models.Conversation(
+        user_id=caller.user_id,
+        grp=_arm(caller.user_id),
+        host=caller.host,
+        ui_supported=caller.ui,
+        assistant_model=args.get("assistant_model"),
+        protocol_version=caller.protocol_version,
     )
+    session.add(conv)
+    await session.flush()
+    return conv
 
 
 def _form(
@@ -177,47 +180,59 @@ def _instruction(arm: str, requested: int | None, style: dict, ui: bool) -> str:
     return " ".join(parts)
 
 
-async def _log_call(conn: db.Connection, caller: Caller, tool: str) -> None:
-    await db.execute(
-        conn,
-        "INSERT INTO tool_calls (user_id, tool) VALUES (%s, %s)",
-        caller.user_id,
-        tool,
-    )
+def _log_call(session: Session, caller: Caller, tool: str) -> None:
+    session.add(models.ToolCall(user_id=caller.user_id, tool=tool))
 
 
 async def _close_previous(
-    conn: db.Connection, conv: dict, args: dict, now: Any, p: params_lib.Params
-) -> dict | None:
+    session: Session,
+    conv: models.Conversation,
+    args: dict,
+    now: Any,
+    p: params_lib.Params,
+) -> models.Turn | None:
     """Records the verdict on the previous turn and closes it."""
-    prev = await db.fetchrow(
-        conn,
-        "SELECT * FROM turns WHERE conversation_id = %s "
-        "ORDER BY turn_index DESC LIMIT 1",
-        conv["id"],
+    prev = await session.scalar(
+        sa.select(models.Turn)
+        .where(models.Turn.conversation_id == conv.id)
+        .order_by(models.Turn.turn_index.desc())
+        .limit(1)
     )
     if not prev:
         return None
     outcome = args.get("last_reply_outcome") or vocab.Outcome.NO_SIGNAL
     if outcome not in QUOTE_FREE and not (args.get("user_quote") or "").strip():
         outcome = vocab.Outcome.NO_SIGNAL
-    issue = args.get("format_issue")
-    await db.execute(
-        conn,
-        "INSERT INTO outcomes (turn_id, source, observed, user_quote, "
-        "last_reply_words, format_issue, model_version, schema_version) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        prev["id"],
-        vocab.Source.ASSISTANT,
-        outcome,
-        args.get("user_quote"),
-        args.get("last_reply_words"),
-        issue if outcome == vocab.Outcome.WRONG_FORMAT else None,
-        prev["model_version"],
-        config.SCHEMA_VERSION,
+    session.add(
+        models.Outcome(
+            turn_id=prev.id,
+            source=vocab.Source.ASSISTANT,
+            observed=outcome,
+            user_quote=args.get("user_quote"),
+            last_reply_words=args.get("last_reply_words"),
+            format_issue=(
+                args.get("format_issue")
+                if outcome == vocab.Outcome.WRONG_FORMAT
+                else None
+            ),
+            model_version=prev.model_version,
+            schema_version=config.SCHEMA_VERSION,
+        )
     )
-    await engine.finalize_turn(conn, prev["id"], now, p)
+    await session.flush()
+    await engine.finalize_turn(session, prev.id, now, p)
     return prev
+
+
+async def _platform(session: Session, conv: models.Conversation) -> str | None:
+    """Returns the conversation's latest platform reported by the widget."""
+    return await session.scalar(
+        sa.select(models.TurnContext.platform)
+        .join(models.Turn, models.Turn.id == models.TurnContext.turn_id)
+        .where(models.Turn.conversation_id == conv.id)
+        .order_by(models.TurnContext.created_at.desc())
+        .limit(1)
+    )
 
 
 async def plan_reply(caller: Caller, args: dict) -> dict:
@@ -235,143 +250,129 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
     needed = min(max(int(args["needed_words"]), MIN_NEEDED), MAX_NEEDED)
     request_type = args["request_type"]
     length_policy = policy.POLICIES[settings.policy]
-    async with db.pool.connection() as conn, conn.transaction():
-        await db.execute(
-            conn, "SELECT pg_advisory_xact_lock(%s)", caller.user_id
-        )
-        await _log_call(conn, caller, "plan_reply")
-        p = await params_lib.cache.get(conn)
-        now = (await db.fetchrow(conn, "SELECT now() AS now"))["now"]
-        conv = await _conversation(
-            conn,
-            caller,
-            args.get("conversation_id"),
-            args.get("assistant_model"),
-        )
-        prev = await _close_previous(conn, conv, args, now, p)
-        context = await db.fetchrow(
-            conn,
-            "SELECT x.platform FROM turn_context x "
-            "JOIN turns t ON t.id = x.turn_id "
-            "WHERE t.conversation_id = %s ORDER BY x.created_at DESC LIMIT 1",
-            conv["id"],
-        )
-        domain = await topics.domain_of(conn, embedding)
-        cell = theta.cell_of(request_type, context and context["platform"])
-        theta_grid, _ = await engine.grids(conn, caller.user_id, cell, p)
-        state = await engine.conversation_state(conn, conv["id"], p)
-        b_mean, b_var = family.bias(state["family_probs"], p.family)
+    async with db.session() as session, session.begin():
+        await _lock(session, caller)
+        _log_call(session, caller, "plan_reply")
+        p = await params_lib.cache.get(session)
+        now = await session.scalar(sa.select(sa.func.now()))
+        conv = await _conversation(session, caller, args)
+        prev = await _close_previous(session, conv, args, now, p)
+        domain = await topics.domain_of(session, embedding)
+        cell = theta.cell_of(request_type, await _platform(session, conv))
+        cell_theta, _ = await engine.grids(session, caller.user_id, cell, p)
+        state = await engine.conversation_state(session, conv.id, p)
+        b_mean, b_var = family.bias(state.family_probs, p.family)
         ctx = policy.Context(
             needed,
-            theta_grid,
+            cell_theta.grid,
             b_mean,
             b_var,
-            state["kappa_mean"],
+            state.kappa_mean,
             p.hyper.tau,
             settings.q,
         )
         decision, propensity = length_policy(rng).decide(ctx)
         counts = await engine.pref_counts(
-            conn, caller.user_id, {request_type, domain}
+            session, caller.user_id, {request_type, domain}
         )
-        treated = conv["grp"] == vocab.Arm.TREATMENT
-        clarify = (
-            _clarify(counts[request_type])
-            if treated and args.get("ambiguous")
-            else None
-        )
+        treated = conv.grp == vocab.Arm.TREATMENT
         style = {
             "form": _form(counts, request_type, domain) if treated else {},
-            "clarify": clarify,
+            "clarify": (
+                _clarify(counts[request_type])
+                if treated and args.get("ambiguous")
+                else None
+            ),
             "cell": cell,
             "domain": domain,
         }
-        turn = await db.fetchrow(
-            conn,
-            "INSERT INTO turns (user_id, conversation_id, turn_index, "
-            "reply_mode, model_version, schema_version, raw_payload, "
-            "request_type, topic, needed_words, language, user_message_words, "
-            "assistant_model, target_words, requested_words, propensity, "
-            "theta_sample, b_sample, post_mean, post_sd, style, "
-            "transport_session) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, "
-            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            caller.user_id,
-            conv["id"],
-            prev["turn_index"] + 1 if prev else 1,
-            vocab.ReplyMode.WIDGET if caller.ui else vocab.ReplyMode.FALLBACK,
-            length_policy.version,
-            config.SCHEMA_VERSION,
-            db.Jsonb(args),
-            request_type,
-            args["topic"],
-            needed,
-            args["language"],
-            args.get("user_message_words"),
-            args.get("assistant_model") or conv["assistant_model"],
-            decision.target_words if treated else None,
-            decision.requested_words if treated else None,
-            propensity if treated else None,
-            decision.theta_sample,
-            decision.b_sample,
-            decision.post_mean,
-            decision.post_sd,
-            db.Jsonb(style),
-            caller.transport_session,
+        turn = models.Turn(
+            user_id=caller.user_id,
+            conversation_id=conv.id,
+            turn_index=prev.turn_index + 1 if prev else 1,
+            reply_mode=(
+                vocab.ReplyMode.WIDGET
+                if caller.ui
+                else vocab.ReplyMode.FALLBACK
+            ),
+            model_version=length_policy.version,
+            schema_version=config.SCHEMA_VERSION,
+            raw_payload=args,
+            request_type=request_type,
+            topic=args["topic"],
+            needed_words=needed,
+            language=args["language"],
+            user_message_words=args.get("user_message_words"),
+            assistant_model=args.get("assistant_model") or conv.assistant_model,
+            target_words=decision.target_words if treated else None,
+            requested_words=decision.requested_words if treated else None,
+            propensity=propensity if treated else None,
+            theta_sample=decision.theta_sample,
+            b_sample=decision.b_sample,
+            post_mean=decision.post_mean,
+            post_sd=decision.post_sd,
+            style=style,
+            transport_session=caller.transport_session,
         )
-        await db.execute(
-            conn,
-            "INSERT INTO topic_embeddings VALUES (%s, %s, %s)",
-            turn["id"],
-            topics.MODEL,
-            embedding,
+        session.add(turn)
+        await session.flush()
+        session.add(
+            models.TopicEmbedding(
+                turn_id=turn.id,
+                model=config.settings.embedding_model,
+                embedding=embedding,
+            )
         )
         for version in settings.shadow_policies:
             shadow, shadow_p = policy.POLICIES[version](rng).decide(ctx)
-            await db.execute(
-                conn,
-                "INSERT INTO shadow_decisions VALUES (%s, %s, %s, %s, %s)",
-                turn["id"],
-                version,
-                shadow.target_words,
-                shadow_p,
-                db.Jsonb({"requested_words": shadow.requested_words}),
+            session.add(
+                models.ShadowDecision(
+                    turn_id=turn.id,
+                    model_version=version,
+                    target_words=shadow.target_words,
+                    propensity=shadow_p,
+                    details={"requested_words": shadow.requested_words},
+                )
             )
     return {
-        "conversation_id": f"{CONVERSATION_PREFIX}{conv["id"]}",
-        "turn_id": f"{TURN_PREFIX}{turn["id"]}",
+        "conversation_id": f"{CONVERSATION_PREFIX}{conv.id}",
+        "turn_id": f"{TURN_PREFIX}{turn.id}",
         "target_words": decision.target_words if treated else None,
         "instruction": _instruction(
-            conv["grp"], decision.requested_words, style, caller.ui
+            conv.grp, decision.requested_words, style, caller.ui
         ),
     }
 
 
-async def _buttons(conn: db.Connection, turn: dict) -> list[dict]:
+async def _buttons(
+    session: Session, turn: models.Turn, conv: models.Conversation
+) -> list[dict]:
     """Chooses and logs a turn's buttons once; later calls get the same."""
-    shown = await db.fetch(
-        conn,
-        "SELECT button, position FROM buttons_shown WHERE turn_id = %s "
-        "ORDER BY position",
-        turn["id"],
-    )
-    if not shown and turn["grp"] == vocab.Arm.TREATMENT:
-        counts = await engine.pref_counts(
-            conn, turn["user_id"], [turn["request_type"]]
+    shown = list(
+        await session.scalars(
+            sa.select(models.ButtonShown)
+            .where(models.ButtonShown.turn_id == turn.id)
+            .order_by(models.ButtonShown.position)
         )
-        for s in bandits.choose(counts[turn["request_type"]], rng):
-            await db.execute(
-                conn,
-                "INSERT INTO buttons_shown VALUES (%s, %s, %s, %s, %s)",
-                turn["id"],
-                s.button,
-                s.position,
-                s.shuffled,
-                s.thompson_draw,
+    )
+    if not shown and conv.grp == vocab.Arm.TREATMENT:
+        counts = await engine.pref_counts(
+            session, turn.user_id, [turn.request_type]
+        )
+        shown = [
+            models.ButtonShown(
+                turn_id=turn.id,
+                button=s.button,
+                position=s.position,
+                shuffled=s.shuffled,
+                thompson_draw=s.thompson_draw,
             )
-            shown.append({"button": s.button, "position": s.position})
-    texts = i18n.catalog(turn["language"])["buttons"]
+            for s in bandits.choose(counts[turn.request_type], rng)
+        ]
+        session.add_all(shown)
+    texts = i18n.catalog(turn.language)["buttons"]
     return [
-        {"id": s["button"], "position": s["position"], **texts[s["button"]]}
+        {"id": s.button, "position": s.position, **texts[s.button]}
         for s in shown
     ]
 
@@ -393,23 +394,16 @@ async def show_reply(caller: Caller, turn_handle: Any, reply: Any) -> dict:
     if not isinstance(reply, str):
         raise HandleError
     words = text.count_words(reply)
-    async with db.pool.connection() as conn, conn.transaction():
-        turn = await _owned_turn(conn, caller, turn_handle)
-        await _log_call(conn, caller, "show_reply")
-        await db.execute(
-            conn,
-            "INSERT INTO replies (turn_id, reply_words_exact) VALUES (%s, %s)",
-            turn["id"],
-            words,
-        )
-        user = await db.fetchrow(
-            conn, "SELECT token_hash FROM users WHERE id = %s", caller.user_id
-        )
+    async with db.session() as session, session.begin():
+        turn, conv = await _owned_turn(session, caller, turn_handle)
+        _log_call(session, caller, "show_reply")
+        session.add(models.Reply(turn_id=turn.id, reply_words_exact=words))
+        user = await session.get(models.User, caller.user_id)
         return {
             "turn_id": turn_handle,
-            "buttons": await _buttons(conn, turn),
-            "labels": i18n.catalog(turn["language"])["widget"],
-            "profile_url": profile_url(user["token_hash"]),
+            "buttons": await _buttons(session, turn, conv),
+            "labels": i18n.catalog(turn.language)["widget"],
+            "profile_url": profile_url(user.token_hash),
         }
 
 
@@ -417,36 +411,29 @@ async def record_click(
     caller: Caller, turn_handle: Any, button: Any, position: Any
 ) -> None:
     """Records a click on a shown button (SPEC 4.3)."""
-    async with db.pool.connection() as conn, conn.transaction():
-        turn = await _owned_turn(conn, caller, turn_handle)
-        shown = await db.fetchrow(
-            conn,
-            "SELECT 1 FROM buttons_shown "
-            "WHERE turn_id = %s AND button = %s AND position = %s",
-            turn["id"],
-            button,
-            position,
+    async with db.session() as session, session.begin():
+        turn, _ = await _owned_turn(session, caller, turn_handle)
+        shown = await session.scalar(
+            sa.select(models.ButtonShown).where(
+                models.ButtonShown.turn_id == turn.id,
+                models.ButtonShown.button == button,
+                models.ButtonShown.position == position,
+            )
         )
-        if not shown:
+        if not shown or button not in bandits.EFFECTS:
             raise HandleError
-        await _log_call(conn, caller, "record_click")
-        await db.execute(
-            conn,
-            "INSERT INTO clicks (turn_id, button, position) "
-            "VALUES (%s, %s, %s)",
-            turn["id"],
-            button,
-            position,
-        )
-        await db.execute(
-            conn,
-            "INSERT INTO outcomes (turn_id, source, observed, model_version, "
-            "schema_version) VALUES (%s, %s, %s, %s, %s)",
-            turn["id"],
-            vocab.Source.BUTTON,
-            bandits.EFFECTS[button].outcome,
-            turn["model_version"],
-            config.SCHEMA_VERSION,
+        _log_call(session, caller, "record_click")
+        session.add_all(
+            [
+                models.Click(turn_id=turn.id, button=button, position=position),
+                models.Outcome(
+                    turn_id=turn.id,
+                    source=vocab.Source.BUTTON,
+                    observed=bandits.EFFECTS[button].outcome,
+                    model_version=turn.model_version,
+                    schema_version=config.SCHEMA_VERSION,
+                ),
+            ]
         )
 
 
@@ -454,13 +441,12 @@ async def report_context(
     caller: Caller, turn_handle: Any, platform: Any, locale: Any
 ) -> None:
     """Records the host context the widget saw (SPEC 4.3)."""
-    async with db.pool.connection() as conn, conn.transaction():
-        turn = await _owned_turn(conn, caller, turn_handle)
-        await db.execute(
-            conn,
-            "INSERT INTO turn_context (turn_id, platform, locale) "
-            "VALUES (%s, %s, %s)",
-            turn["id"],
-            platform if platform in vocab.Platform else None,
-            locale if isinstance(locale, str) else None,
+    async with db.session() as session, session.begin():
+        turn, _ = await _owned_turn(session, caller, turn_handle)
+        session.add(
+            models.TurnContext(
+                turn_id=turn.id,
+                platform=platform if platform in vocab.Platform else None,
+                locale=locale if isinstance(locale, str) else None,
+            )
         )

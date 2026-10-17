@@ -7,14 +7,15 @@ RUN mkdir -p ../app/static && npm run build
 
 FROM python:3.12-slim
 WORKDIR /srv
-ENV FASTEMBED_CACHE_PATH=/srv/models
+ENV FASTEMBED_CACHE_PATH=/srv/models \
+    EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 # Bake the topic embedding model into the image: topics never leave the server.
-COPY app/topics.py app/db.py app/config.py app/vocab.py app/__init__.py app/
-RUN python -c "from app import topics; topics._model()"
+RUN python -c "import fastembed, os; fastembed.TextEmbedding(os.environ['EMBEDDING_MODEL'])"
 COPY app/ app/
 COPY locales/ locales/
+COPY alembic.ini ./
 COPY migrations/ migrations/
 COPY --from=widget /app/static/index.html app/static/index.html
 EXPOSE 8000

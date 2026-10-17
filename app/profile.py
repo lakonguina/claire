@@ -8,10 +8,13 @@ import urllib.parse
 
 import fastapi
 from fastapi import responses
+import sqlalchemy as sa
+from sqlalchemy.ext import asyncio as sa_asyncio
 
 from app import db
 from app import engine
 from app import i18n
+from app import models
 from app import params as params_lib
 from app import topics
 from app import vocab
@@ -26,53 +29,61 @@ ROW = string.Template((HERE / "profile_row.html").read_text())
 router = fastapi.APIRouter()
 
 
-async def _user(conn: db.Connection, key: str) -> dict:
-    user = await db.fetchrow(
-        conn,
-        "SELECT u.id, (SELECT language FROM turns t WHERE t.user_id = u.id "
-        "ORDER BY t.id DESC LIMIT 1) AS language "
-        "FROM users u WHERE u.token_hash = %s",
-        key,
+Session = sa_asyncio.AsyncSession
+
+
+async def _user(session: Session, key: str) -> tuple[models.User, str | None]:
+    """Returns the user behind a profile key and their latest language."""
+    user = await session.scalar(
+        sa.select(models.User).where(models.User.token_hash == key)
     )
     if not user:
         raise fastapi.HTTPException(status_code=404)
-    return user
-
-
-async def _scopes(conn: db.Connection, user_id: int) -> dict[str, list[str]]:
-    """Returns the scopes shown per dimension: general, domains, cells."""
-    domains = await db.fetch(
-        conn,
-        "SELECT DISTINCT scope FROM pref_counts "
-        "WHERE user_id = %s AND dimension = %s AND scope LIKE %s "
-        "ORDER BY scope",
-        user_id,
-        vocab.Dimension.LEVEL,
-        topics.DOMAIN_PREFIX + "%",
+    language = await session.scalar(
+        sa.select(models.Turn.language)
+        .where(models.Turn.user_id == user.id)
+        .order_by(models.Turn.id.desc())
+        .limit(1)
     )
-    cells = await db.fetch(
-        conn,
-        "SELECT request_type FROM theta_posteriors WHERE user_id = %s "
-        "ORDER BY request_type",
-        user_id,
+    return user, language
+
+
+async def _scopes(session: Session, user_id: int) -> dict[str, list[str]]:
+    """Returns the scopes shown per dimension: general, domains, cells."""
+    pc, tp = models.PrefCount, models.ThetaPosterior
+    domains = await session.scalars(
+        sa.select(pc.scope)
+        .distinct()
+        .where(
+            pc.user_id == user_id,
+            pc.dimension == vocab.Dimension.LEVEL,
+            pc.scope.startswith(topics.DOMAIN_PREFIX),
+        )
+        .order_by(pc.scope)
+    )
+    cells = await session.scalars(
+        sa.select(tp.request_type)
+        .where(tp.user_id == user_id)
+        .order_by(tp.request_type)
     )
     out = {d: [prefs.USER_SCOPE] for d in vocab.Dimension}
-    out[vocab.Dimension.LEVEL] += [r["scope"] for r in domains]
-    out[vocab.LENGTH] = [r["request_type"] for r in cells]
+    out[vocab.Dimension.LEVEL] += list(domains)
+    out[vocab.LENGTH] = list(cells)
     return out
 
 
-async def _scope_name(conn: db.Connection, scope: str, texts: dict) -> str:
-    if scope in (prefs.USER_SCOPE, topics.ANY_DOMAIN):
-        return texts["profile"]["in_general"]
-    if scope.startswith(topics.DOMAIN_PREFIX):
-        row = await db.fetchrow(
-            conn,
-            "SELECT medoid_topic FROM topic_clusters WHERE id = %s",
-            int(scope.removeprefix(topics.DOMAIN_PREFIX)),
+async def _scope_name(session: Session, scope: str, texts: dict) -> str:
+    cluster = None
+    if scope.startswith(topics.DOMAIN_PREFIX) and scope != topics.ANY_DOMAIN:
+        cluster = await session.get(
+            models.TopicCluster, int(scope.removeprefix(topics.DOMAIN_PREFIX))
         )
-        topic = row["medoid_topic"] if row else "…"
-        return texts["profile"]["topics_like"].format(topic=topic)
+    if cluster:
+        return texts["profile"]["topics_like"].format(
+            topic=cluster.medoid_topic
+        )
+    if scope == prefs.USER_SCOPE or scope.startswith(topics.DOMAIN_PREFIX):
+        return texts["profile"]["in_general"]
     name = texts["request_types"][theta.request_type_of(scope)]
     mobile = scope != theta.request_type_of(scope)
     return f"{name} · {texts["profile"]["on_mobile"]}" if mobile else name
@@ -97,18 +108,18 @@ def _options(names: dict[str, str], current: str) -> str:
 @router.get("/me/{key}", response_class=responses.HTMLResponse)
 async def page(key: str) -> str:
     """Renders what the server believes about the user, line by line."""
-    async with db.pool.connection() as conn:
-        user = await _user(conn, key)
-        texts = i18n.catalog(user["language"])
-        p = await params_lib.cache.get(conn)
+    async with db.session() as session:
+        user, language = await _user(session, key)
+        texts = i18n.catalog(language)
+        p = await params_lib.cache.get(session)
         rows = []
-        for dimension, scopes in (await _scopes(conn, user["id"])).items():
-            counts = await engine.pref_counts(conn, user["id"], scopes)
+        for dimension, scopes in (await _scopes(session, user.id)).items():
+            counts = await engine.pref_counts(session, user.id, scopes)
             for scope in scopes:
                 if dimension == vocab.LENGTH:
-                    grid, _ = await engine.grids(conn, user["id"], scope, p)
+                    cell, _ = await engine.grids(session, user.id, scope, p)
                     name, names = texts["profile"]["length"], texts["lengths"]
-                    current = _length_choice(grid)
+                    current = _length_choice(cell.grid)
                 else:
                     belief = prefs.posterior(counts[scope], dimension)
                     entry = texts["dimensions"][dimension]
@@ -118,7 +129,7 @@ async def page(key: str) -> str:
                     ROW.substitute(
                         name=html.escape(name),
                         scope=html.escape(
-                            await _scope_name(conn, scope, texts)
+                            await _scope_name(session, scope, texts)
                         ),
                         scope_id=html.escape(scope),
                         dimension=dimension,
@@ -127,7 +138,7 @@ async def page(key: str) -> str:
                     )
                 )
     return TEMPLATE.substitute(
-        language=html.escape(user["language"] or i18n.FALLBACK),
+        language=html.escape(language or i18n.FALLBACK),
         title=html.escape(texts["profile"]["title"]),
         intro=html.escape(texts["profile"]["intro"]),
         rows="".join(rows),
@@ -143,24 +154,22 @@ async def correct(key: str, request: fastapi.Request) -> responses.Response:
         form.get("value"),
         form.get("scope"),
     )
-    async with db.pool.connection() as conn, conn.transaction():
-        user = await _user(conn, key)
+    async with db.session() as session, session.begin():
+        user, _ = await _user(session, key)
         valid = (
             value in vocab.LengthChoice
             if dimension == vocab.LENGTH
             else value in vocab.DIMENSION_VALUES.get(dimension, ())
         )
-        scopes = (await _scopes(conn, user["id"])).get(dimension, [])
+        scopes = (await _scopes(session, user.id)).get(dimension, [])
         if not valid or scope not in scopes:
             raise fastapi.HTTPException(status_code=422)
-        edit = await db.fetchrow(
-            conn,
-            "INSERT INTO profile_edits (user_id, scope, dimension, value) "
-            "VALUES (%s, %s, %s, %s) RETURNING *",
-            user["id"],
-            scope,
-            dimension,
-            value,
+        edit = models.ProfileEdit(
+            user_id=user.id, scope=scope, dimension=dimension, value=value
         )
-        await engine.apply_edit(conn, edit, await params_lib.cache.get(conn))
+        session.add(edit)
+        await session.flush()
+        await engine.apply_edit(
+            session, edit, await params_lib.cache.get(session)
+        )
     return responses.RedirectResponse(f"/me/{key}", status_code=303)

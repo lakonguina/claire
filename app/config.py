@@ -42,6 +42,11 @@ class Settings:
         }
     )
     q: float = float(_env("TARGET_QUANTILE", "0.8"))
+    # Local multilingual sentence model for topic domains (SPEC 7.1).
+    embedding_model: str = _env(
+        "EMBEDDING_MODEL",
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    )
     # ttlMs of tools/list and resources; 0 while developing the widget.
     cache_ttl_ms: int = int(_env("CACHE_TTL_MS", "3600000"))
     # Origins allowed to call the MCP endpoint (DNS-rebinding protection).

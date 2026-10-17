@@ -13,10 +13,12 @@ import numpy as np
 from scipy import optimize
 from sklearn import cluster
 from sklearn import metrics
+import sqlalchemy as sa
+from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import db
+from app import config
+from app import models
 
-MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 MIN_TOPICS = 20  # Below this, every topic is in one domain.
 MAX_CLUSTERS = 30
 DOMAIN_PREFIX = "topic:"
@@ -26,7 +28,8 @@ ANY_DOMAIN = DOMAIN_PREFIX + "any"
 @functools.cache
 def _model() -> fastembed.TextEmbedding:
     return fastembed.TextEmbedding(
-        MODEL, cache_dir=os.environ.get("FASTEMBED_CACHE_PATH")
+        config.settings.embedding_model,
+        cache_dir=os.environ.get("FASTEMBED_CACHE_PATH"),
     )
 
 
@@ -45,14 +48,16 @@ def domain_scope(cluster_id: int | None) -> str:
     return ANY_DOMAIN if cluster_id is None else f"{DOMAIN_PREFIX}{cluster_id}"
 
 
-async def domain_of(conn: db.Connection, embedding: np.ndarray) -> str:
+async def domain_of(
+    session: sa_asyncio.AsyncSession, embedding: np.ndarray
+) -> str:
     """Returns the scope of the cluster nearest to an embedding."""
-    row = await db.fetchrow(
-        conn,
-        "SELECT id FROM topic_clusters ORDER BY centroid <=> %s LIMIT 1",
-        embedding,
+    cluster_id = await session.scalar(
+        sa.select(models.TopicCluster.id)
+        .order_by(models.TopicCluster.centroid.cosine_distance(embedding))
+        .limit(1)
     )
-    return domain_scope(row["id"] if row else None)
+    return domain_scope(cluster_id)
 
 
 def _best_k_means(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -92,32 +97,34 @@ def stable_ids(new: np.ndarray, old: dict[int, np.ndarray]) -> list[int]:
     return ids
 
 
-async def recluster(conn: db.Connection) -> int:
+async def recluster(session: sa_asyncio.AsyncSession) -> int:
     """Refits the topic clusters on every embedding; returns their number."""
-    rows = await db.fetch(
-        conn,
-        """SELECT e.embedding, t.topic FROM topic_embeddings e
-           JOIN turns t ON t.id = e.turn_id""",
-    )
+    rows = (
+        await session.execute(
+            sa.select(models.TopicEmbedding.embedding, models.Turn.topic).join(
+                models.Turn, models.Turn.id == models.TopicEmbedding.turn_id
+            )
+        )
+    ).all()
     old = {
-        r["id"]: r["centroid"]
-        for r in await db.fetch(conn, "SELECT id, centroid FROM topic_clusters")
+        c.id: np.asarray(c.centroid)
+        for c in await session.scalars(sa.select(models.TopicCluster))
     }
-    await db.execute(conn, "DELETE FROM topic_clusters")
+    await session.execute(sa.delete(models.TopicCluster))
     if len(rows) < MIN_TOPICS:
         return 0
-    vectors = _unit(np.stack([r["embedding"] for r in rows]))
+    vectors = _unit(np.stack([np.asarray(r.embedding) for r in rows]))
     centroids, labels = _best_k_means(vectors)
     for index, cluster_id in enumerate(stable_ids(centroids, old)):
         members = np.flatnonzero(labels == index)
         medoid = members[np.argmax(vectors[members] @ centroids[index])]
-        await db.execute(
-            conn,
-            "INSERT INTO topic_clusters (id, centroid, medoid_topic, size) "
-            "VALUES (%s, %s, %s, %s)",
-            cluster_id,
-            centroids[index],
-            rows[medoid]["topic"],
-            len(members),
+        session.add(
+            models.TopicCluster(
+                id=cluster_id,
+                centroid=centroids[index],
+                medoid_topic=rows[medoid].topic,
+                size=len(members),
+            )
         )
+    await session.flush()
     return len(centroids)

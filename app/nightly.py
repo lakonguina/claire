@@ -6,8 +6,13 @@ import collections
 import logging
 import math
 
+import sqlalchemy as sa
+from sqlalchemy import orm
+from sqlalchemy.ext import asyncio as sa_asyncio
+
 from app import db
 from app import engine
+from app import models
 from app import params as params_lib
 from app import topics
 from app import vocab
@@ -18,15 +23,9 @@ from app.model import reading
 from app.model import stats
 from app.model import theta
 
+Session = sa_asyncio.AsyncSession
 log = logging.getLogger(__name__)
-DERIVED = [
-    "turn_inference",
-    "conversation_state",
-    "theta_posteriors",
-    "alpha_posteriors",
-    "user_reading",
-    "pref_counts",
-]
+DERIVED = models.DERIVED
 MIN_WEIGHT = 20.0  # Evidence needed before a parameter leaves its prior.
 MIN_ITEMS = 50  # Turns needed before Dawid-Skene runs.
 MIN_USERS = 5  # Users needed before the hyperparameters are refit.
@@ -35,31 +34,73 @@ MIN_VAR = 0.01
 HOST_SMOOTHING = 0.5
 
 
-async def finalized_turns(conn: db.Connection) -> list[dict]:
+async def _first_by_turn(
+    session: Session, model, *where, latest: bool = False
+) -> dict[int, object]:
+    """Returns each turn's first (or latest) event of a model."""
+    order = model.created_at.desc() if latest else model.created_at
+    out = {}
+    for event in await session.scalars(
+        sa.select(model).where(*where).order_by(order)
+    ):
+        out.setdefault(event.turn_id, event)
+    return out
+
+
+async def finalized_turns(session: Session) -> list[dict]:
     """Returns every closed turn with its first events and inferred state."""
-    return await db.fetch(
-        conn,
-        """SELECT t.*, c.host, i.length_mean, i.reading_probs, s.family_probs,
-               s.kappa_mean, s.speed_mean,
-               (SELECT extract(epoch FROM r.created_at - t.created_at)::float8
-                FROM replies r WHERE r.turn_id = t.id
-                ORDER BY r.created_at LIMIT 1) AS duration,
-               (SELECT r.reply_words_exact FROM replies r
-                WHERE r.turn_id = t.id ORDER BY r.created_at LIMIT 1) AS exact,
-               o.observed AS verdict, o.last_reply_words AS self_report,
-               (SELECT row_to_json(k) FROM clicks k WHERE k.turn_id = t.id
-                ORDER BY k.created_at LIMIT 1) AS click,
-               EXISTS (SELECT 1 FROM buttons_shown b WHERE b.turn_id = t.id)
-                   AS any_shown,
-               (SELECT outcome FROM gold_labels g WHERE g.turn_id = t.id
-                ORDER BY g.created_at DESC LIMIT 1) AS gold
-           FROM turns t JOIN conversations c ON c.id = t.conversation_id
-           JOIN turn_inference i ON i.turn_id = t.id
-           JOIN conversation_state s ON s.conversation_id = t.conversation_id
-           LEFT JOIN LATERAL (SELECT * FROM outcomes WHERE turn_id = t.id
-               AND source = %s ORDER BY created_at LIMIT 1) o ON true""",
-        vocab.Source.ASSISTANT,
+    rows = (
+        await session.execute(
+            sa.select(
+                models.Turn, models.TurnInference, models.ConversationState
+            )
+            .join(
+                models.TurnInference,
+                models.TurnInference.turn_id == models.Turn.id,
+            )
+            .join(
+                models.ConversationState,
+                models.ConversationState.conversation_id
+                == models.Turn.conversation_id,
+            )
+        )
+    ).all()
+    replies = await _first_by_turn(session, models.Reply)
+    verdicts = await _first_by_turn(
+        session, models.Outcome, models.Outcome.source == vocab.Source.ASSISTANT
     )
+    clicks = await _first_by_turn(session, models.Click)
+    golds = await _first_by_turn(session, models.GoldLabel, latest=True)
+    shown = set(await session.scalars(sa.select(models.ButtonShown.turn_id)))
+    out = []
+    for turn, inference, state in rows:
+        reply, verdict = replies.get(turn.id), verdicts.get(turn.id)
+        click, gold = clicks.get(turn.id), golds.get(turn.id)
+        out.append(
+            {
+                "user_id": turn.user_id,
+                "cell": engine.style_of(turn)["cell"],
+                "needed_words": turn.needed_words,
+                "requested_words": turn.requested_words,
+                "length_mean": inference.length_mean,
+                "reading_probs": inference.reading_probs,
+                "family_probs": state.family_probs,
+                "kappa_mean": state.kappa_mean,
+                "speed_mean": state.speed_mean,
+                "duration": (
+                    (reply.created_at - turn.created_at).total_seconds()
+                    if reply
+                    else None
+                ),
+                "exact": reply.reply_words_exact if reply else None,
+                "verdict": verdict.observed if verdict else None,
+                "self_report": verdict.last_reply_words if verdict else None,
+                "click": (click.button, click.position) if click else None,
+                "any_shown": turn.id in shown,
+                "gold": gold.outcome if gold else None,
+            }
+        )
+    return out
 
 
 def refit_reactions(turns: list[dict], p: params_lib.Params) -> None:
@@ -130,7 +171,7 @@ def refit_sensors(turns: list[dict], p: params_lib.Params) -> None:
 
 
 def _cell(turn: dict) -> tuple[int, str]:
-    return turn["user_id"], engine.style_of(turn)["cell"]
+    return turn["user_id"], turn["cell"]
 
 
 def refit_families(
@@ -246,34 +287,10 @@ def refit_hyper(
         hyper.sigma_eta = _sd(eta)
 
 
-async def save_params(conn: db.Connection, p: params_lib.Params) -> None:
+async def save_params(session: Session, p: params_lib.Params) -> None:
     """Replaces every learned parameter table."""
-    rows = {
-        "family_params": [
-            (f, v["b"], v["w"], v["kappa"], v["speed_mu"], v["speed_sd"])
-            for f, v in p.family.items()
-        ],
-        "sensor_noise": [
-            (s, params_lib.ALL_FAMILIES, sigma) for s, sigma in p.noise.items()
-        ],
-        "annotator_confusion": [
-            (a, s, y, o, prob)
-            for a, strata in p.confusions.items()
-            for s, ys in strata.items()
-            for y, obs in ys.items()
-            for o, prob in obs.items()
-        ],
-        "self_report_reliability": [
-            (r, f, prob)
-            for r, row in p.reliability.items()
-            for f, prob in row.items()
-        ],
-        "host_family_prior": [
-            (h, f, prob)
-            for h, row in p.host_prior.items()
-            for f, prob in row.items()
-        ],
-    }
+    for model in models.LEARNED:
+        await session.execute(sa.delete(model))
     hyper = {name: getattr(p.hyper, name) for name in params_lib.HYPER_NAMES}
     hyper |= {
         n: getattr(p.reading, f) for n, f in params_lib.READING_NAMES.items()
@@ -282,74 +299,121 @@ async def save_params(conn: db.Connection, p: params_lib.Params) -> None:
         f"{params_lib.GAMMA_PREFIX}{t}": g for t, g in p.hyper.gamma.items()
     }
     hyper["overhead"] = p.overhead
-    rows["hyperparams"] = list(hyper.items())
-    async with conn.cursor() as cursor:
-        for table, values in rows.items():
-            await cursor.execute(f"DELETE FROM {table}")
-            if values:
-                # Trailing columns (updated_at) take their defaults.
-                columns = ", ".join(["%s"] * len(values[0]))
-                await cursor.executemany(
-                    f"INSERT INTO {table} VALUES ({columns})", values
+    session.add_all(
+        [
+            *(
+                models.FamilyParam(model_family=f, **v)
+                for f, v in p.family.items()
+            ),
+            *(
+                models.SensorNoise(
+                    sensor=s, model_family=params_lib.ALL_FAMILIES, sigma=sigma
                 )
+                for s, sigma in p.noise.items()
+            ),
+            *(
+                models.AnnotatorConfusion(
+                    annotator=a,
+                    stratum=s,
+                    true_outcome=y,
+                    observed=o,
+                    prob=prob,
+                )
+                for a, strata in p.confusions.items()
+                for s, ys in strata.items()
+                for y, obs in ys.items()
+                for o, prob in obs.items()
+            ),
+            *(
+                models.SelfReportReliability(
+                    reported_family=r, true_family=f, prob=prob
+                )
+                for r, row in p.reliability.items()
+                for f, prob in row.items()
+            ),
+            *(
+                models.HostFamilyPrior(host=h, model_family=f, prob=prob)
+                for h, row in p.host_prior.items()
+                for f, prob in row.items()
+            ),
+            *(models.Hyperparam(name=n, value=v) for n, v in hyper.items()),
+        ]
+    )
+    await session.flush()
 
 
-async def replay(conn: db.Connection, p: params_lib.Params) -> int:
+async def replay(session: Session, p: params_lib.Params) -> int:
     """Rebuilds every derived table from the events, in their live order.
 
     Args:
-        conn: The connection, inside the nightly transaction.
+        session: The session, inside the nightly transaction.
         p: The parameters to replay with.
 
     Returns:
         The number of turns closed.
     """
-    await db.execute(conn, f"TRUNCATE {", ".join(DERIVED)}")
-    closes = await db.fetch(
-        conn,
-        """SELECT t.id, n.created_at AS at FROM turns t
-           JOIN LATERAL (SELECT created_at FROM turns n
-               WHERE n.conversation_id = t.conversation_id
-               AND n.turn_index = t.turn_index + 1) n ON true""",
-    )
-    edits = await db.fetch(
-        conn, "SELECT *, created_at AS at FROM profile_edits"
-    )
+    for model in DERIVED:
+        await session.execute(sa.delete(model))
+    session.expunge_all()
+    nxt = orm.aliased(models.Turn)
+    closes = (
+        await session.execute(
+            sa.select(models.Turn.id, nxt.created_at).join(
+                nxt,
+                sa.and_(
+                    nxt.conversation_id == models.Turn.conversation_id,
+                    nxt.turn_index == models.Turn.turn_index + 1,
+                ),
+            )
+        )
+    ).all()
+    edits = list(await session.scalars(sa.select(models.ProfileEdit)))
     events = sorted(
-        [(c["at"], 0, c) for c in closes] + [(e["at"], 1, e) for e in edits],
-        key=lambda e: (e[0], e[1], e[2].get("id", 0)),
+        [(at, 0, turn_id, None) for turn_id, at in closes]
+        + [(e.created_at, 1, e.id, e) for e in edits],
+        key=lambda e: e[:3],
     )
-    for at, is_edit, event in events:
-        if is_edit:
-            await engine.apply_edit(conn, event, p)
+    for at, _, turn_id, edit in events:
+        if edit:
+            await engine.apply_edit(session, edit, p)
         else:
-            await engine.finalize_turn(conn, event["id"], at, p)
+            await engine.finalize_turn(session, turn_id, at, p)
     return len(closes)
 
 
-async def run(conn: db.Connection) -> int:
+async def run(session: Session) -> int:
     """Refits everything, then replays; returns the number of turns closed."""
-    p = await params_lib.load_params(conn)
-    turns = await finalized_turns(conn)
-    conversations = await db.fetch(
-        conn,
-        "SELECT c.host, c.assistant_model, s.family_probs, s.kappa_mean "
-        "FROM conversations c "
-        "JOIN conversation_state s ON s.conversation_id = c.id",
+    p = await params_lib.load_params(session)
+    turns = await finalized_turns(session)
+    conversations = (
+        (
+            await session.execute(
+                sa.select(
+                    models.Conversation.host,
+                    models.Conversation.assistant_model,
+                    models.ConversationState.family_probs,
+                    models.ConversationState.kappa_mean,
+                ).join(
+                    models.ConversationState,
+                    models.ConversationState.conversation_id
+                    == models.Conversation.id,
+                )
+            )
+        )
+        .mappings()
+        .all()
     )
     thetas = {
-        (r["user_id"], r["request_type"]): r["grid"]
-        for r in await db.fetch(conn, "SELECT * FROM theta_posteriors")
+        (t.user_id, t.request_type): t.grid
+        for t in await session.scalars(sa.select(models.ThetaPosterior))
     }
     alphas = {
-        r["user_id"]: r["grid"]
-        for r in await db.fetch(conn, "SELECT * FROM alpha_posteriors")
+        a.user_id: a.grid
+        for a in await session.scalars(sa.select(models.AlphaPosterior))
     }
     rho = {
-        r["user_id"]: r["rho_mean"]
-        for r in await db.fetch(
-            conn, "SELECT user_id, rho_mean FROM user_reading"
-        )
+        r.user_id: r.rho_mean
+        for r in await session.scalars(sa.select(models.UserReading))
     }
     refit_reactions(turns, p)
     refit_sensors(turns, p)
@@ -361,23 +425,26 @@ async def run(conn: db.Connection) -> int:
     )
     refit_reading(turns, rho, p)
     refit_hyper(alphas, thetas, p)
-    await save_params(conn, p)
-    await topics.recluster(conn)
+    await save_params(session, p)
+    await topics.recluster(session)
     params_lib.cache.invalidate()
-    return await replay(conn, p)
+    return await replay(session, p)
+
+
+async def lock_derived(session: Session) -> None:
+    """Locks the derived tables for the rest of the transaction."""
+    tables = ", ".join(model.__tablename__ for model in DERIVED)
+    await session.execute(sa.text(f"LOCK TABLE {tables} IN EXCLUSIVE MODE"))
 
 
 async def main() -> None:
-    """Runs the nightly job in one transaction, locking the derived state."""
+    """Runs the nightly job in one transaction."""
     logging.basicConfig(level=logging.INFO)
     await db.migrate()
-    await db.pool.open()
-    async with db.pool.connection() as conn, conn.transaction():
-        await db.execute(
-            conn, f"LOCK TABLE {", ".join(DERIVED)} IN EXCLUSIVE MODE"
-        )
-        log.info("nightly: replayed %d turns", await run(conn))
-    await db.pool.close()
+    async with db.session() as session, session.begin():
+        await lock_derived(session)
+        log.info("nightly: replayed %d turns", await run(session))
+    await db.engine.dispose()
 
 
 if __name__ == "__main__":

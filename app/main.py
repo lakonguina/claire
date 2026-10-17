@@ -8,12 +8,14 @@ from urllib import parse
 import fastapi
 from mcp.server import transport_security
 import pydantic
+import sqlalchemy as sa
 
 from app import config
 from app import dashboard
 from app import db
 from app import mcp_server
 from app import metrics
+from app import models
 from app import profile
 from app import service
 from app import vocab
@@ -105,10 +107,9 @@ class AccessLog:
 @contextlib.asynccontextmanager
 async def lifespan(_):
     await db.migrate()
-    await db.pool.open()
     async with mcp_server.mcp.session_manager.run():
         yield
-    await db.pool.close()
+    await db.engine.dispose()
 
 
 settings = config.settings
@@ -149,24 +150,24 @@ class GoldLabel(pydantic.BaseModel):
 
 @api.get("/health")
 async def health() -> dict:
-    async with db.pool.connection() as conn:
-        await db.execute(conn, "SELECT 1")
+    async with db.session() as session:
+        await session.execute(sa.select(1))
     return {"ok": True}
 
 
 @api.post("/gold_label", dependencies=admin)
 async def gold_label(label: GoldLabel) -> dict:
-    async with db.pool.connection() as conn:
-        await db.execute(
-            conn,
-            "INSERT INTO gold_labels (turn_id, outcome) VALUES (%s, %s)",
-            int(label.turn_id.removeprefix(service.TURN_PREFIX)),
-            label.outcome,
+    async with db.session() as session, session.begin():
+        session.add(
+            models.GoldLabel(
+                turn_id=int(label.turn_id.removeprefix(service.TURN_PREFIX)),
+                outcome=label.outcome,
+            )
         )
     return {"ok": True}
 
 
 @api.get("/metrics", dependencies=admin)
 async def get_metrics() -> dict:
-    async with db.pool.connection() as conn:
-        return await metrics.compute(conn)
+    async with db.session() as session:
+        return await metrics.compute(session)

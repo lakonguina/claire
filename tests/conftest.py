@@ -14,10 +14,12 @@ os.environ.setdefault("ADMIN_TOKEN", "admin-secret")
 import httpx
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 
 from app import db
 from app import main
 from app import mcp_server
+from app import models
 from app import params as params_lib
 from app import service
 
@@ -125,51 +127,43 @@ class McpClient:
 
 @pytest_asyncio.fixture(scope="session")
 async def server():
-    """Opens the pool and runs the MCP session manager, once per process."""
+    """Migrates a fresh schema and runs the MCP session manager, once."""
     stop = asyncio.Event()
 
     async def run_manager():  # Its cancel scope must open and close here.
         async with mcp_server.mcp.session_manager.run():
             await stop.wait()
 
-    async with await db.Connection.connect(
-        os.environ["DATABASE_URL"], autocommit=True
-    ) as conn:
-        await conn.execute("DROP SCHEMA public CASCADE")
-        await conn.execute("CREATE SCHEMA public")
+    async with db.engine.begin() as conn:
+        await conn.execute(sa.text("DROP SCHEMA public CASCADE"))
+        await conn.execute(sa.text("CREATE SCHEMA public"))
+    await db.engine.dispose()
     await db.migrate()
-    await db.pool.open()
     task = asyncio.create_task(run_manager())
     await asyncio.sleep(0)
     yield
     stop.set()
     await task
-    await db.pool.close()
+    await db.engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def pool(server):
+async def database(server):
     """Empties every table (keeping the schema) before each test."""
     del server
-    async with db.pool.connection() as conn:
-        tables = [
-            r["tablename"]
-            for r in await db.fetch(
-                conn,
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
-                "AND tablename <> 'schema_migrations'",
-            )
-        ]
-        await db.execute(conn, "SET session_replication_role = replica")
-        await db.execute(conn, f"TRUNCATE {", ".join(tables)} CASCADE")
-        await db.execute(conn, "SET session_replication_role = DEFAULT")
+    tables = ", ".join(t.name for t in models.Base.metadata.sorted_tables)
+    async with db.engine.begin() as conn:
+        # Bypasses the append-only triggers, for tests only.
+        await conn.execute(sa.text("SET session_replication_role = replica"))
+        await conn.execute(sa.text(f"TRUNCATE {tables} RESTART IDENTITY"))
+        await conn.execute(sa.text("SET session_replication_role = DEFAULT"))
     params_lib.cache.invalidate()
-    return db.pool
+    return db.session
 
 
 @pytest_asyncio.fixture
-async def http(pool):
-    del pool
+async def http(database):
+    del database
     transport = httpx.ASGITransport(app=main.app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://localhost"
@@ -185,12 +179,8 @@ def make_client(http):
         apps: bool = True, version: str = MODERN, host: str = "claude-ai"
     ) -> McpClient:
         token = os.urandom(8).hex()
-        async with db.pool.connection() as conn:
-            await db.execute(
-                conn,
-                "INSERT INTO users (token_hash) VALUES (%s)",
-                service.token_hash(token),
-            )
+        async with db.session() as session, session.begin():
+            session.add(models.User(token_hash=service.token_hash(token)))
         return McpClient(http, token, apps, version, host)
 
     return make

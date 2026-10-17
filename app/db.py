@@ -1,64 +1,38 @@
-"""PostgreSQL access: migrations, one async pool, small query helpers."""
+"""Database access: the async SQLAlchemy engine, sessions and migrations."""
 
+import asyncio
 import pathlib
-from typing import Any
 
-import pgvector.psycopg
-import psycopg
-from psycopg import rows
-from psycopg.types import json as psycopg_json
-import psycopg_pool
+from alembic import command
+from alembic import config as alembic_config
+from sqlalchemy.ext import asyncio as sa_asyncio
 
 from app import config
 
-MIGRATIONS = pathlib.Path(__file__).resolve().parent.parent / "migrations"
-Connection = psycopg.AsyncConnection
-Jsonb = psycopg_json.Jsonb
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+DRIVER = "postgresql+psycopg"
 
 
-async def _configure(conn: Connection) -> None:
-    await pgvector.psycopg.register_vector_async(conn)
+def url() -> str:
+    """Returns the SQLAlchemy URL of the configured database."""
+    database_url = config.settings.database_url
+    return DRIVER + database_url[database_url.index(":") :]
 
 
-pool = psycopg_pool.AsyncConnectionPool(
-    config.settings.database_url,
-    open=False,
-    configure=_configure,
-    kwargs={"row_factory": rows.dict_row, "autocommit": False},
-)
+engine = sa_asyncio.create_async_engine(url(), pool_pre_ping=True)
+session = sa_asyncio.async_sessionmaker(engine, expire_on_commit=False)
+
+
+def _alembic() -> alembic_config.Config:
+    cfg = alembic_config.Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", url())
+    return cfg
 
 
 async def migrate() -> None:
-    """Applies the migrations not applied yet, on a dedicated connection.
+    """Upgrades the schema to the latest Alembic revision.
 
-    The pool's connections register the vector type, which exists only once
-    the migrations have run.
+    Alembic's async environment runs its own event loop, hence the thread.
     """
-    async with await Connection.connect(config.settings.database_url) as conn:
-        await conn.execute(
-            "CREATE TABLE IF NOT EXISTS schema_migrations "
-            "(name text PRIMARY KEY)"
-        )
-        cursor = await conn.execute("SELECT name FROM schema_migrations")
-        done = {name for (name,) in await cursor.fetchall()}
-        for path in sorted(MIGRATIONS.glob("*.sql")):
-            if path.name not in done:
-                await conn.execute(path.read_text())
-                await conn.execute(
-                    "INSERT INTO schema_migrations VALUES (%s)", (path.name,)
-                )
-
-
-async def fetch(conn: Connection, sql: str, *args: Any) -> list[dict]:
-    """Returns every row of a query."""
-    return await (await conn.execute(sql, args)).fetchall()
-
-
-async def fetchrow(conn: Connection, sql: str, *args: Any) -> dict | None:
-    """Returns the first row of a query, or None."""
-    return await (await conn.execute(sql, args)).fetchone()
-
-
-async def execute(conn: Connection, sql: str, *args: Any) -> None:
-    """Runs a statement."""
-    await conn.execute(sql, args)
+    await asyncio.to_thread(command.upgrade, _alembic(), "head")

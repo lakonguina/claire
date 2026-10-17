@@ -5,12 +5,17 @@ is "estimated".
 """
 
 import collections
+import datetime
+import json
 import math
 import random
 import statistics
 
+import sqlalchemy as sa
+from sqlalchemy.ext import asyncio as sa_asyncio
+
 from app import config
-from app import db
+from app import models
 from app import params as params_lib
 from app import vocab
 from app.model import stats
@@ -100,36 +105,122 @@ def _measured(turns: list[dict], arm: str, unit: str) -> dict | None:
     }
 
 
-async def compute(conn: db.Connection) -> dict:
-    """Returns every metric of SPEC 11."""
-    settings = config.settings
-    rows = await db.fetch(
-        conn,
-        "SELECT t.id, t.user_id, t.conversation_id, c.grp, c.host, "
-        "t.requested_words, length(t.raw_payload::text) AS payload_chars, "
-        "to_char(date_trunc('week', t.created_at), 'YYYY-MM-DD') AS week, "
-        "i.length_mean, i.reaction_probs, cs.family_probs "
-        "FROM turns t JOIN conversations c ON c.id = t.conversation_id "
-        "JOIN turn_inference i ON i.turn_id = t.id "
-        "LEFT JOIN conversation_state cs "
-        "ON cs.conversation_id = t.conversation_id",
-    )
-    turns = []
-    for r in rows:
-        probs, families = r["reaction_probs"], r["family_probs"] or {}
-        turns.append(
+def _week(at: datetime.datetime) -> str:
+    return (at - datetime.timedelta(days=at.weekday())).date().isoformat()
+
+
+async def _turns(session: sa_asyncio.AsyncSession) -> list[dict]:
+    """Returns every closed turn with what the metrics need."""
+    rows = (
+        await session.execute(
+            sa.select(
+                models.Turn,
+                models.Conversation,
+                models.TurnInference,
+                models.ConversationState,
+            )
+            .join(
+                models.Conversation,
+                models.Conversation.id == models.Turn.conversation_id,
+            )
+            .join(
+                models.TurnInference,
+                models.TurnInference.turn_id == models.Turn.id,
+            )
+            .outerjoin(
+                models.ConversationState,
+                models.ConversationState.conversation_id
+                == models.Turn.conversation_id,
+            )
+        )
+    ).all()
+    out = []
+    for turn, conv, inference, state in rows:
+        probs = inference.reaction_probs
+        families = state.family_probs if state else {}
+        payload_chars = len(json.dumps(turn.raw_payload, ensure_ascii=False))
+        out.append(
             {
-                **r,
-                "words": math.exp(r["length_mean"]),
-                "tool_words": r["payload_chars"]
-                / CHARS_PER_TOKEN
-                * WORDS_PER_TOKEN,
+                "user_id": turn.user_id,
+                "conversation_id": turn.conversation_id,
+                "grp": conv.grp,
+                "host": conv.host,
+                "week": _week(turn.created_at),
+                "requested_words": turn.requested_words,
+                "words": math.exp(inference.length_mean),
+                "tool_words": payload_chars / CHARS_PER_TOKEN * WORDS_PER_TOKEN,
                 "p_moved": probs[vocab.Outcome.MOVED_ON],
                 "p_repair": 1 - probs[vocab.Outcome.MOVED_ON],
                 "p_missing": probs[vocab.Outcome.MISSING_INFO],
                 "family": max(families, key=families.get, default=None),
             }
         )
+    return out
+
+
+async def _clicks(session: sa_asyncio.AsyncSession) -> list[dict]:
+    shown, click = models.ButtonShown, models.Click
+    rows = await session.execute(
+        sa.select(
+            shown.button,
+            shown.position,
+            sa.func.count().label("shown"),
+            sa.func.count(click.id).label("clicked"),
+        )
+        .outerjoin(
+            click,
+            sa.and_(
+                click.turn_id == shown.turn_id, click.button == shown.button
+            ),
+        )
+        .group_by(shown.button, shown.position)
+        .order_by(shown.button, shown.position)
+    )
+    return [
+        {**r, "click_rate": r["clicked"] / r["shown"]} for r in rows.mappings()
+    ]
+
+
+async def _coverage(session: sa_asyncio.AsyncSession) -> dict:
+    t = models.Turn
+    modes = dict(
+        (
+            await session.execute(
+                sa.select(t.reply_mode, sa.func.count()).group_by(t.reply_mode)
+            )
+        ).all()
+    )
+    widget_ids = sa.select(t.id).where(t.reply_mode == vocab.ReplyMode.WIDGET)
+    with_reply = await session.scalar(
+        sa.select(sa.func.count(sa.distinct(models.Reply.turn_id))).where(
+            models.Reply.turn_id.in_(widget_ids)
+        )
+    )
+    per_conversation = list(
+        await session.scalars(
+            sa.select(sa.func.count())
+            .select_from(t)
+            .group_by(t.conversation_id)
+        )
+    )
+    turns = sum(modes.values())
+    widget = modes.get(vocab.ReplyMode.WIDGET, 0)
+    return {
+        "turns": turns,
+        "widget_share": widget / turns if turns else None,
+        "widget_turns_with_show_reply": with_reply / widget if widget else None,
+        "conversation_id_reused": (
+            sum(n > 1 for n in per_conversation) / len(per_conversation)
+            if per_conversation
+            else None
+        ),
+    }
+
+
+async def compute(session: sa_asyncio.AsyncSession) -> dict:
+    """Returns every metric of SPEC 11."""
+    settings = config.settings
+    turns = await _turns(session)
     unit = (
         "user_id"
         if settings.control_unit == vocab.RandomizationUnit.USER
@@ -164,9 +255,12 @@ async def compute(conn: db.Connection) -> dict:
             for (f, h), ts in sorted(
                 _group(
                     [t for t in turns if t["requested_words"]], "family", "host"
-                ).items()
+                ).items(),
+                key=lambda item: tuple(map(str, item[0])),
             )
         ],
+        "clicks": await _clicks(session),
+        "tool_coverage": await _coverage(session),
     }
     if settings.control_unit == vocab.RandomizationUnit.CONVERSATION:
         held_back = [t for t in turns if t["grp"] != vocab.Arm.TREATMENT]
@@ -176,35 +270,14 @@ async def compute(conn: db.Connection) -> dict:
                 _group(held_back, "user_id", "week").items()
             )
         ]
-    out["clicks"] = await db.fetch(
-        conn,
-        "SELECT s.button, s.position, count(*) AS shown, "
-        "count(k.turn_id) AS clicked, "
-        "count(k.turn_id)::float / count(*) AS click_rate "
-        "FROM buttons_shown s LEFT JOIN clicks k "
-        "ON k.turn_id = s.turn_id AND k.button = s.button "
-        "GROUP BY s.button, s.position ORDER BY s.button, s.position",
-    )
-    p = await params_lib.load_params(conn)
+    p = await params_lib.load_params(session)
     out["noise"] = {
         "sensor_sigma": p.noise,
         "confusion_diagonal": {
             f"{vocab.Source.ASSISTANT}/{s}": {
-                y: row[y] for y, row in rows_.items()
+                y: row[y] for y, row in ys.items()
             }
-            for s, rows_ in p.confusions[vocab.Source.ASSISTANT].items()
+            for s, ys in p.confusions[vocab.Source.ASSISTANT].items()
         },
     }
-    out["tool_coverage"] = await db.fetchrow(
-        conn,
-        "SELECT count(*) AS turns, "
-        "avg((EXISTS (SELECT 1 FROM replies r WHERE r.turn_id = t.id))::int) "
-        "FILTER (WHERE t.reply_mode = %s) AS widget_turns_with_show_reply, "
-        "avg((t.reply_mode = %s)::int) AS widget_share, "
-        "(SELECT avg((n > 1)::int) FROM (SELECT count(*) AS n FROM turns "
-        "GROUP BY conversation_id) c) AS conversation_id_reused "
-        "FROM turns t",
-        vocab.ReplyMode.WIDGET,
-        vocab.ReplyMode.WIDGET,
-    )
     return out

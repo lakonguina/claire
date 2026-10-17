@@ -22,7 +22,7 @@ Each user also has a profile page, `GET /me/<token hash>`, linked from the widge
 
 The `nightly` service runs `python -m app.nightly` once a day: it refits the noise models, the hyperparameters and the topic clusters, then rebuilds all derived state by replaying the events.
 
-Texts live in `locales/<language>.json` (English is complete and is the fallback); identifiers live in `app/vocab.py`.
+Texts live in `locales/<language>.json` (English is complete and is the fallback); identifiers live in `app/vocab.py`; the schema lives in `app/models.py`, and the app applies the Alembic migrations at start.
 
 ## Develop
 
@@ -30,7 +30,8 @@ Texts live in `locales/<language>.json` (English is complete and is the fallback
 uv venv --python 3.12 .venv && uv pip install -p .venv -r requirements-dev.txt
 docker run -d --name lf-test-pg -e POSTGRES_USER=lf -e POSTGRES_PASSWORD=lf -e POSTGRES_DB=lf -p 55432:5432 pgvector/pgvector:pg17
 .venv/bin/python -m pytest
-.venv/bin/pyink app tests && .venv/bin/pylint --rcfile=.pylintrc app tests
+.venv/bin/pyink app tests migrations && .venv/bin/pylint --rcfile=.pylintrc app tests migrations
+.venv/bin/alembic revision --autogenerate -m "what changed"   # after editing app/models.py
 (cd widget && npm ci && npm run format && npm run build)   # writes app/static/index.html
 ```
 

@@ -4,7 +4,10 @@ import dataclasses
 import math
 import time
 
-from app import db
+import sqlalchemy as sa
+from sqlalchemy.ext import asyncio as sa_asyncio
+
+from app import models
 from app.model import family as family_lib
 from app.model import reaction
 from app.model import reading as reading_lib
@@ -19,12 +22,13 @@ READING_PRIOR = (6.0, 3.0, 1.0)  # Dirichlet counts: read, skim, away.
 REACTION_PRIOR = (6.0,) + (1.0,) * (len(reaction.OUTCOMES) - 1)
 RHO_PRIOR = (math.log(4.0), 0.25)  # Log words per second, variance.
 CACHE_SECONDS = 60.0
+FAMILY_FIELDS = ("b", "w", "kappa", "speed_mu", "speed_sd")
 ALL_FAMILIES = "all"  # Sensor noise shared by every model family.
 
 
 def _initial_family() -> dict[str, dict[str, float]]:
     return {
-        f: {"b": 0.0, "w": 0.05, "kappa": 0.0, "speed_mu": s, "speed_sd": 0.4}
+        f: dict(zip(FAMILY_FIELDS, (0.0, 0.05, 0.0, s, 0.4)))
         for f, s in INITIAL_SPEED.items()
     }
 
@@ -79,11 +83,14 @@ READING_NAMES = {
 GAMMA_PREFIX = "gamma:"
 
 
-async def load_params(conn: db.Connection) -> Params:
+async def load_params(session: sa_asyncio.AsyncSession) -> Params:
     """Returns the parameters, learned values over the initial ones."""
+
+    async def rows(model):
+        return list(await session.scalars(sa.select(model)))
+
     p = Params()
-    rows = await db.fetch(conn, "SELECT name, value FROM hyperparams")
-    hyper = {r["name"]: r["value"] for r in rows}
+    hyper = {r.name: r.value for r in await rows(models.Hyperparam)}
     p.hyper = dataclasses.replace(
         p.hyper,
         **{n: hyper[n] for n in HYPER_NAMES if n in hyper},
@@ -98,22 +105,19 @@ async def load_params(conn: db.Connection) -> Params:
         p.reading,
         **{f: hyper[n] for n, f in READING_NAMES.items() if n in hyper},
     )
-    for r in await db.fetch(conn, "SELECT * FROM family_params"):
-        p.family[r["model_family"]] = {k: r[k] for k in p.family["other"]}
-    for r in await db.fetch(
-        conn,
-        "SELECT sensor, sigma FROM sensor_noise WHERE model_family = %s",
-        ALL_FAMILIES,
-    ):
-        p.noise[r["sensor"]] = r["sigma"]
-    for r in await db.fetch(conn, "SELECT * FROM annotator_confusion"):
-        strata = p.confusions.setdefault(r["annotator"], {})
-        rows_of = strata.setdefault(r["stratum"], {})
-        rows_of.setdefault(r["true_outcome"], {})[r["observed"]] = r["prob"]
-    for r in await db.fetch(conn, "SELECT * FROM self_report_reliability"):
-        p.reliability[r["reported_family"]][r["true_family"]] = r["prob"]
-    for r in await db.fetch(conn, "SELECT * FROM host_family_prior"):
-        p.host_prior.setdefault(r["host"], {})[r["model_family"]] = r["prob"]
+    for r in await rows(models.FamilyParam):
+        p.family[r.model_family] = {k: getattr(r, k) for k in FAMILY_FIELDS}
+    for r in await rows(models.SensorNoise):
+        if r.model_family == ALL_FAMILIES:
+            p.noise[r.sensor] = r.sigma
+    for r in await rows(models.AnnotatorConfusion):
+        strata = p.confusions.setdefault(r.annotator, {})
+        rows_of = strata.setdefault(r.stratum, {})
+        rows_of.setdefault(r.true_outcome, {})[r.observed] = r.prob
+    for r in await rows(models.SelfReportReliability):
+        p.reliability[r.reported_family][r.true_family] = r.prob
+    for r in await rows(models.HostFamilyPrior):
+        p.host_prior.setdefault(r.host, {})[r.model_family] = r.prob
     return p
 
 
@@ -124,9 +128,9 @@ class _Cache:
         self.loaded_at = -math.inf
         self.params: Params | None = None
 
-    async def get(self, conn: db.Connection) -> Params:
+    async def get(self, session: sa_asyncio.AsyncSession) -> Params:
         if time.monotonic() - self.loaded_at > CACHE_SECONDS:
-            self.params = await load_params(conn)
+            self.params = await load_params(session)
             self.loaded_at = time.monotonic()
         return self.params
 

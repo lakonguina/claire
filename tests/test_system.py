@@ -3,9 +3,14 @@
 import dataclasses
 import logging
 
+from alembic import autogenerate
+from alembic import migration
+import sqlalchemy as sa
+
 from app import config
 from app import db
 from app import i18n
+from app import models
 from app import nightly
 from app import params as params_lib
 from app import service
@@ -30,42 +35,51 @@ def turn_number(plan: dict) -> int:
     return int(plan["turn_id"].removeprefix(service.TURN_PREFIX))
 
 
-async def fetch(pool, sql: str, *args) -> list[dict]:
-    async with pool.connection() as conn:
-        return await db.fetch(conn, sql, *args)
+async def scalar(database, statement):
+    async with database() as session:
+        return await session.scalar(statement)
 
 
-async def fetchrow(pool, sql: str, *args) -> dict | None:
-    async with pool.connection() as conn:
-        return await db.fetchrow(conn, sql, *args)
+async def rows(database, statement) -> list:
+    async with database() as session:
+        return list(await session.scalars(statement))
 
 
-async def dump(pool) -> str:
+async def dump(database) -> str:
     """Returns every row of every table, as one string."""
-    tables = await fetch(
-        pool, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-    )
-    return "\n".join(
-        [
-            str(await fetch(pool, f"SELECT * FROM {t["tablename"]}"))
-            for t in tables
-        ]
-    )
+    async with database() as session:
+        return "\n".join(
+            [
+                str((await session.execute(sa.select(table))).all())
+                for table in models.Base.metadata.sorted_tables
+            ]
+        )
+
+
+async def snapshot(database) -> dict:
+    """Returns the derived state, comparable across rebuilds."""
+    out = {}
+    async with database() as session:
+        for model in nightly.DERIVED:
+            result = await session.execute(sa.select(model.__table__))
+            out[model.__tablename__] = sorted(map(str, result.all()))
+    return out
 
 
 async def pref_count(
-    pool, user_id: int, scope: str, dimension: str, value: str
+    database, user_id: int, scope: str, dimension: str, value: str
 ) -> float:
-    found = await fetchrow(
-        pool,
-        "SELECT count FROM pref_counts WHERE user_id = %s AND "
-        "scope = %s AND dimension = %s AND value = %s",
-        user_id,
-        scope,
-        dimension,
-        value,
+    pc = models.PrefCount
+    count = await scalar(
+        database,
+        sa.select(pc.count).where(
+            pc.user_id == user_id,
+            pc.scope == scope,
+            pc.dimension == dimension,
+            pc.value == value,
+        ),
     )
-    return found["count"] if found else 0.0
+    return count or 0.0
 
 
 def with_settings(monkeypatch, **changes) -> None:
@@ -90,7 +104,7 @@ async def plan_and_close(client, **extra) -> tuple[dict, dict]:
 
 
 async def test_full_turn_sequence_and_no_trace_of_text(
-    make_client, pool, caplog
+    make_client, database, caplog
 ):
     caplog.set_level(logging.DEBUG)
     client = await make_client()
@@ -126,20 +140,21 @@ async def test_full_turn_sequence_and_no_trace_of_text(
     )["data"]
     assert nxt["conversation_id"] == plan["conversation_id"]
     turn_id = turn_number(plan)
-    reply = await fetchrow(
-        pool,
-        "SELECT reply_words_exact FROM replies WHERE turn_id = %s",
-        turn_id,
+    words = await scalar(
+        database,
+        sa.select(models.Reply.reply_words_exact).where(
+            models.Reply.turn_id == turn_id
+        ),
     )
-    assert reply["reply_words_exact"] == 6
-    for table in ("turn_inference", "topic_embeddings"):
-        assert await fetchrow(
-            pool, f"SELECT 1 FROM {table} WHERE turn_id = %s", turn_id
+    assert words == 6
+    for model in (models.TurnInference, models.TopicEmbedding):
+        assert await scalar(
+            database, sa.select(model).where(model.turn_id == turn_id)
         )
     server_logs = "\n".join(
         r.getMessage() for r in caplog.records if r.name != "httpx"
     )
-    assert MARKER not in await dump(pool)
+    assert MARKER not in await dump(database)
     assert MARKER not in server_logs
     assert client.token not in server_logs
     assert "/mcp/<redacted>" in server_logs
@@ -157,7 +172,7 @@ async def test_show_reply_errors_hide_the_text(make_client, caplog):
     assert MARKER not in caplog.text
 
 
-async def test_mode_selection_in_both_protocol_eras(make_client, pool):
+async def test_mode_selection_in_both_protocol_eras(make_client, database):
     for version in (conftest.LEGACY, conftest.MODERN):
         for apps, mode in (
             (True, vocab.ReplyMode.WIDGET),
@@ -166,13 +181,12 @@ async def test_mode_selection_in_both_protocol_eras(make_client, pool):
             client = await make_client(apps=apps, version=version)
             plan = (await client.call("plan_reply", **PLAN))["data"]
             assert plan["instruction"].endswith(WIDGET_SENTENCE) == apps
-            found = await fetchrow(
-                pool,
-                "SELECT t.reply_mode, c.host FROM turns t JOIN "
-                "conversations c ON c.id = t.conversation_id WHERE t.id = %s",
-                turn_number(plan),
-            )
-            assert (found["reply_mode"], found["host"]) == (mode, "claude-ai")
+            async with database() as session:
+                turn = await session.get(models.Turn, turn_number(plan))
+                conv = await session.get(
+                    models.Conversation, turn.conversation_id
+                )
+            assert (turn.reply_mode, conv.host) == (mode, "claude-ai")
 
 
 async def test_foreign_handles_are_rejected(make_client):
@@ -197,21 +211,23 @@ async def test_unknown_token_is_404(http):
     assert (await http.post("/mcp/not-a-token", json={})).status_code == 404
 
 
-async def test_repair_without_quote_is_no_signal(make_client, pool):
+async def test_repair_without_quote_is_no_signal(make_client, database):
     plan, _ = await plan_and_close(
         await make_client(), last_reply_outcome="too_long"
     )
-    found = await fetchrow(
-        pool,
-        "SELECT observed FROM outcomes WHERE turn_id = %s",
-        turn_number(plan),
+    observed = await scalar(
+        database,
+        sa.select(models.Outcome.observed).where(
+            models.Outcome.turn_id == turn_number(plan)
+        ),
     )
-    assert found["observed"] == vocab.Outcome.NO_SIGNAL
+    assert observed == vocab.Outcome.NO_SIGNAL
 
 
 async def test_arms_share_and_behaviour(make_client, monkeypatch):
     with_settings(
-        monkeypatch, arm_shares={vocab.Arm.CONTROL: 0.1, vocab.Arm.CONCISE: 0.1}
+        monkeypatch,
+        arm_shares={vocab.Arm.CONTROL: 0.1, vocab.Arm.CONCISE: 0.1},
     )
     client = await make_client()
     plans = [
@@ -228,7 +244,7 @@ async def test_arms_share_and_behaviour(make_client, monkeypatch):
     assert reply["structuredContent"]["buttons"] == []
 
 
-async def test_click_drops_the_assistant_verdict(make_client, pool):
+async def test_click_drops_the_assistant_verdict(make_client, database):
     client = await make_client()
     probs = {}
     for clicked in (False, True):  # The verdict is too_short both times.
@@ -255,18 +271,17 @@ async def test_click_drops_the_assistant_verdict(make_client, pool):
             last_reply_outcome="too_short",
             user_quote="tell me more",
         )
-        probs[clicked] = (
-            await fetchrow(
-                pool,
-                "SELECT reaction_probs FROM turn_inference WHERE turn_id = %s",
-                turn_number(plan),
-            )
-        )["reaction_probs"]
+        probs[clicked] = await scalar(
+            database,
+            sa.select(models.TurnInference.reaction_probs).where(
+                models.TurnInference.turn_id == turn_number(plan)
+            ),
+        )
     assert probs[False][vocab.Outcome.TOO_SHORT] > 0.5
     assert probs[True][vocab.Outcome.TOO_SHORT] < 0.2
 
 
-async def test_format_issue_moves_the_preference(make_client, pool):
+async def test_format_issue_moves_the_preference(make_client, database):
     client = await make_client()
     await plan_and_close(
         client,
@@ -275,7 +290,7 @@ async def test_format_issue_moves_the_preference(make_client, pool):
         format_issue="want_list",
     )
     count = await pref_count(
-        pool,
+        database,
         await client.user_id(),
         PLAN["request_type"],
         vocab.Dimension.FORMAT,
@@ -284,7 +299,7 @@ async def test_format_issue_moves_the_preference(make_client, pool):
     assert count >= prefs.EXPLICIT
 
 
-async def test_preference_button_moves_the_preference(make_client, pool):
+async def test_preference_button_moves_the_preference(make_client, database):
     client = await make_client()
     b = None
     while b is None:  # Until a button with a preference signal is shown.
@@ -311,7 +326,7 @@ async def test_preference_button_moves_the_preference(make_client, pool):
     )
     dimension, value = bandits.EFFECTS[b["id"]].preference
     count = await pref_count(
-        pool, await client.user_id(), prefs.USER_SCOPE, dimension, value
+        database, await client.user_id(), prefs.USER_SCOPE, dimension, value
     )
     assert count >= prefs.EXPLICIT
 
@@ -332,17 +347,17 @@ async def test_buttons_and_labels_come_in_the_turns_language(make_client):
 
 async def test_ambiguous_requests_can_get_a_question(make_client):
     client = await make_client()
-    instructions = {
-        (await client.call("plan_reply", **PLAN, ambiguous=True))["data"][
-            "instruction"
-        ].removesuffix(" " + WIDGET_SENTENCE)
-        for _ in range(30)
-    }
+    instructions = set()
+    for _ in range(30):
+        plan = await client.call("plan_reply", **PLAN, ambiguous=True)
+        instructions.add(
+            plan["data"]["instruction"].removesuffix(" " + WIDGET_SENTENCE)
+        )
     assert i18n.prompts()["clarify"] in instructions
     assert len(instructions) > 1
 
 
-async def test_mobile_report_moves_the_length_cell(make_client, pool):
+async def test_mobile_report_moves_the_length_cell(make_client, database):
     client = await make_client()
     plan = (await client.call("plan_reply", **PLAN))["data"]
     await client.call(
@@ -356,14 +371,15 @@ async def test_mobile_report_moves_the_length_cell(make_client, pool):
             "plan_reply", **PLAN, conversation_id=plan["conversation_id"]
         )
     )["data"]
-    found = await fetchrow(
-        pool, "SELECT style FROM turns WHERE id = %s", turn_number(nxt)
+    style = await scalar(
+        database,
+        sa.select(models.Turn.style).where(models.Turn.id == turn_number(nxt)),
     )
-    assert found["style"]["cell"] == "explanation@mobile"
+    assert style["cell"] == "explanation@mobile"
 
 
 async def test_profile_page_lists_and_applies_corrections(
-    http, make_client, pool
+    http, make_client, database
 ):
     client = await make_client()
     await plan_and_close(client)
@@ -378,7 +394,7 @@ async def test_profile_page_lists_and_applies_corrections(
     )
     assert corrected.status_code == 303
     count = await pref_count(
-        pool,
+        database,
         await client.user_id(),
         prefs.USER_SCOPE,
         vocab.Dimension.FORMAT,
@@ -400,7 +416,7 @@ async def test_profile_page_lists_and_applies_corrections(
     assert (await http.get("/me/not-a-key")).status_code == 404
 
 
-async def test_replay_rebuilds_the_online_state(http, make_client, pool):
+async def test_replay_rebuilds_the_online_state(http, make_client, database):
     client = await make_client()
     for _ in range(3):
         plan = (await client.call("plan_reply", **PLAN))["data"]
@@ -422,38 +438,35 @@ async def test_replay_rebuilds_the_online_state(http, make_client, pool):
         content="scope=*&dimension=tone&value=direct",
         headers=FORM,
     )
-
-    async def snapshot() -> dict:
-        return {
-            t: sorted(map(str, await fetch(pool, f"SELECT * FROM {t}")))
-            for t in nightly.DERIVED
-        }
-
-    online = await snapshot()
-    async with pool.connection() as conn:
-        p = await params_lib.load_params(conn)
-        assert await nightly.replay(conn, p) == 9
-    assert await snapshot() == online
+    online = await snapshot(database)
+    async with database() as session, session.begin():
+        p = await params_lib.load_params(session)
+        assert await nightly.replay(session, p) == 9
+    assert await snapshot(database) == online
 
 
-async def test_nightly_job_runs(make_client, pool):
+async def test_nightly_job_runs(make_client, database):
     await plan_and_close(await make_client())
-    async with pool.connection() as conn:
-        assert await nightly.run(conn) == 1
-        assert await db.fetchrow(
-            conn, "SELECT value FROM hyperparams WHERE name = 'mu0'"
-        )
+    async with database() as session, session.begin():
+        assert await nightly.run(session) == 1
+    mu0 = await scalar(
+        database,
+        sa.select(models.Hyperparam.value).where(
+            models.Hyperparam.name == "mu0"
+        ),
+    )
+    assert mu0 is not None
 
 
 async def test_policy_swap_through_configuration(
-    make_client, pool, monkeypatch
+    make_client, database, monkeypatch
 ):
     with_settings(monkeypatch, policy="fixed-v1")
     client = await make_client()
     plan = (await client.call("plan_reply", **PLAN))["data"]
     assert plan["target_words"] == 160  # 0.8 x 200.
-    found = await fetchrow(pool, "SELECT model_version FROM turns")
-    assert found["model_version"] == "fixed-v1"
+    versions = await rows(database, sa.select(models.Turn.model_version))
+    assert versions == ["fixed-v1"]
 
 
 async def test_metrics_and_gold_labels(http, make_client):
@@ -476,14 +489,13 @@ async def test_dashboard(http, make_client):
     assert (await http.get("/admin/api/overview")).status_code == 401
     overview = (await http.get("/admin/api/overview", headers=AUTH)).json()
     assert overview["counts"]["turns"] == 2
+    conversation = plan["conversation_id"].removeprefix(
+        service.CONVERSATION_PREFIX
+    )
     turns = (
         await http.get(
             "/admin/api/turns",
-            params={
-                "conversation": plan["conversation_id"].removeprefix(
-                    service.CONVERSATION_PREFIX
-                )
-            },
+            params={"conversation": conversation},
             headers=AUTH,
         )
     ).json()
@@ -519,10 +531,15 @@ async def test_tools_listed_to_the_model(make_client):
         assert tools[app_only]["_meta"]["ui"]["visibility"] == ["app"]
 
 
-async def test_arm_check_matches_the_vocabulary(pool):
-    found = await fetchrow(
-        pool,
-        "SELECT pg_get_constraintdef(oid) AS check FROM pg_constraint "
-        "WHERE conname = 'conversations_grp_check'",
-    )
-    assert all(f"'{arm}'" in found["check"] for arm in vocab.Arm)
+async def test_schema_matches_the_models(database):
+    """The migrations produce exactly the models' schema (no drift)."""
+    del database
+
+    def diff(connection):
+        context = migration.MigrationContext.configure(
+            connection, opts={"compare_type": True}
+        )
+        return autogenerate.compare_metadata(context, models.Base.metadata)
+
+    async with db.engine.connect() as connection:
+        assert await connection.run_sync(diff) == []

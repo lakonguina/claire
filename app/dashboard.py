@@ -1,14 +1,18 @@
 """Admin dashboard: the page at /admin and its JSON API (SPEC 11)."""
 
+import datetime
 import math
 import pathlib
 
 import fastapi
 from fastapi import responses
+import sqlalchemy as sa
+from sqlalchemy.ext import asyncio as sa_asyncio
 
 from app import config
 from app import db
 from app import engine
+from app import models
 from app import nightly
 from app import params as params_lib
 from app import vocab
@@ -19,43 +23,18 @@ from app.model import stats
 
 PAGE = (pathlib.Path(__file__).resolve().parent / "dashboard.html").read_text()
 MAX_TURNS = 500
-LEARNED_TABLES = (
-    "hyperparams",
-    "family_params",
-    "sensor_noise",
-    "annotator_confusion",
-    "self_report_reliability",
-    "host_family_prior",
-    "topic_clusters",
-)
-TURN_COLUMNS = """
-    t.id, t.created_at, t.user_id, t.conversation_id, t.turn_index, c.host,
-    c.grp, t.reply_mode, t.request_type, t.topic, t.language, t.needed_words,
-    t.target_words, t.requested_words, t.model_version, t.transport_session,
-    t.style, r.reply_words_exact,
-    extract(epoch FROM r.created_at - t.created_at)::float8 AS writing_seconds,
-    o.observed AS verdict, o.user_quote, o.format_issue, k.button AS clicked,
-    i.reaction_probs,
-    (SELECT array_agg(b.button ORDER BY b.position) FROM buttons_shown b
-     WHERE b.turn_id = t.id) AS buttons
-    FROM turns t JOIN conversations c ON c.id = t.conversation_id
-    LEFT JOIN LATERAL (SELECT * FROM replies WHERE turn_id = t.id
-        ORDER BY created_at LIMIT 1) r ON true
-    LEFT JOIN LATERAL (SELECT * FROM outcomes WHERE turn_id = t.id
-        AND source = %s ORDER BY created_at LIMIT 1) o ON true
-    LEFT JOIN LATERAL (SELECT * FROM clicks WHERE turn_id = t.id
-        ORDER BY created_at LIMIT 1) k ON true
-    LEFT JOIN turn_inference i ON i.turn_id = t.id"""
-FILTERS = {
-    "user": "t.user_id = %s",
-    "conversation": "t.conversation_id = %s",
-    "host": "c.host = %s",
-    "mode": "t.reply_mode = %s",
-    "group": "c.grp = %s",
-    "q": "t.topic ILIKE '%%' || %s || '%%'",
-    "before": "t.id < %s",
-}
+DAY = datetime.timedelta(hours=24)
 BEARER = "Bearer "
+FILTERS = {
+    "user": lambda v: models.Turn.user_id == int(v),
+    "conversation": lambda v: models.Turn.conversation_id == int(v),
+    "host": lambda v: models.Conversation.host == v,
+    "mode": lambda v: models.Turn.reply_mode == v,
+    "group": lambda v: models.Conversation.grp == v,
+    "q": models.Turn.topic.icontains,
+    "before": lambda v: models.Turn.id < int(v),
+}
+Session = sa_asyncio.AsyncSession
 
 
 def admin(request: fastapi.Request) -> None:
@@ -79,234 +58,348 @@ async def dashboard_page() -> str:
     return PAGE  # Holds no data: the API below needs the admin token.
 
 
-def _inferred(row: dict) -> dict:
-    probs = row.pop("reaction_probs", None) or {}
-    row["inferred"] = max(probs, key=probs.get, default=None)
-    row["inferred_p"] = max(probs.values(), default=None)
-    return row
+def _row(obj) -> dict:
+    """Returns a model instance as a dict of its columns."""
+    return {c.key: getattr(obj, c.key) for c in sa.inspect(obj).mapper.columns}
+
+
+async def _count(session: Session, statement) -> int:
+    return await session.scalar(
+        sa.select(sa.func.count()).select_from(statement.subquery())
+    )
 
 
 @api.get("/overview")
 async def overview() -> dict:
     settings = config.settings
-    async with db.pool.connection() as conn:
-        counts = await db.fetchrow(
-            conn,
-            """SELECT (SELECT count(*) FROM users) AS users,
-               (SELECT count(*) FROM conversations) AS conversations,
-               (SELECT count(*) FROM conversations WHERE grp <> %s)
-                   AS held_back_conversations,
-               (SELECT count(*) FROM turns) AS turns,
-               (SELECT count(*) FROM turns
-                WHERE created_at > now() - interval '24 hours') AS turns_24h,
-               (SELECT count(*) FROM turns WHERE reply_mode = %s)
-                   AS widget_turns,
-               (SELECT count(DISTINCT r.turn_id) FROM replies r
-                JOIN turns t ON t.id = r.turn_id WHERE t.reply_mode = %s)
-                   AS widget_turns_with_reply,
-               (SELECT count(DISTINCT turn_id) FROM buttons_shown)
-                   AS turns_with_buttons,
-               (SELECT count(DISTINCT turn_id) FROM clicks) AS turns_with_click,
-               (SELECT count(*) FROM turn_inference) AS finalized_turns,
-               (SELECT count(*) FROM gold_labels) AS gold_labels,
-               (SELECT count(*) FROM topic_clusters) AS topic_clusters,
-               (SELECT max(updated_at) FROM hyperparams) AS last_nightly""",
-            vocab.Arm.TREATMENT,
-            vocab.ReplyMode.WIDGET,
-            vocab.ReplyMode.WIDGET,
+    t, c = models.Turn, models.Conversation
+    async with db.session() as session:
+        now = await session.scalar(sa.select(sa.func.now()))
+        widget = sa.select(t.id).where(t.reply_mode == vocab.ReplyMode.WIDGET)
+        counts = {
+            "users": await _count(session, sa.select(models.User.id)),
+            "conversations": await _count(session, sa.select(c.id)),
+            "held_back_conversations": await _count(
+                session, sa.select(c.id).where(c.grp != vocab.Arm.TREATMENT)
+            ),
+            "turns": await _count(session, sa.select(t.id)),
+            "turns_24h": await _count(
+                session, sa.select(t.id).where(t.created_at > now - DAY)
+            ),
+            "widget_turns": await _count(session, widget),
+            "widget_turns_with_reply": await _count(
+                session,
+                sa.select(models.Reply.turn_id)
+                .distinct()
+                .where(models.Reply.turn_id.in_(widget)),
+            ),
+            "turns_with_buttons": await _count(
+                session, sa.select(models.ButtonShown.turn_id).distinct()
+            ),
+            "turns_with_click": await _count(
+                session, sa.select(models.Click.turn_id).distinct()
+            ),
+            "finalized_turns": await _count(
+                session, sa.select(models.TurnInference.turn_id)
+            ),
+            "gold_labels": await _count(
+                session, sa.select(models.GoldLabel.id)
+            ),
+            "topic_clusters": await _count(
+                session, sa.select(models.TopicCluster.id)
+            ),
+            "last_nightly": await session.scalar(
+                sa.select(sa.func.max(models.Hyperparam.updated_at))
+            ),
+        }
+        hosts = (
+            await session.execute(
+                sa.select(
+                    c.host,
+                    c.protocol_version,
+                    c.ui_supported,
+                    sa.func.count().label("conversations"),
+                    sa.func.max(c.created_at).label("last_seen"),
+                )
+                .group_by(c.host, c.protocol_version, c.ui_supported)
+                .order_by(sa.desc("last_seen"))
+            )
+        ).mappings()
+        tools = (
+            await session.execute(
+                sa.select(
+                    models.ToolCall.tool, sa.func.count().label("calls_24h")
+                )
+                .where(models.ToolCall.created_at > now - DAY)
+                .group_by(models.ToolCall.tool)
+                .order_by(models.ToolCall.tool)
+            )
+        ).mappings()
+        clusters = await session.scalars(
+            sa.select(models.TopicCluster).order_by(models.TopicCluster.id)
         )
-        hosts = await db.fetch(
-            conn,
-            "SELECT host, protocol_version, ui_supported, "
-            "count(*) AS conversations, max(created_at) AS last_seen "
-            "FROM conversations GROUP BY 1, 2, 3 ORDER BY last_seen DESC",
-        )
-        tools = await db.fetch(
-            conn,
-            "SELECT tool, count(*) AS calls_24h FROM tool_calls "
-            "WHERE created_at > now() - interval '24 hours' "
-            "GROUP BY tool ORDER BY tool",
-        )
-        clusters = await db.fetch(
-            conn,
-            "SELECT id, medoid_topic, size FROM topic_clusters ORDER BY id",
-        )
-    return {
-        "counts": counts,
-        "hosts": hosts,
-        "tool_calls": tools,
-        "topic_clusters": clusters,
-        "settings": {
-            "policy": settings.policy,
-            "control_unit": settings.control_unit,
-            "arm_shares": settings.arm_shares,
-            "q": settings.q,
-            "cache_ttl_ms": settings.cache_ttl_ms,
-            "shadow_policies": settings.shadow_policies,
-        },
-    }
+        return {
+            "counts": counts,
+            "hosts": [dict(r) for r in hosts],
+            "tool_calls": [dict(r) for r in tools],
+            "topic_clusters": [
+                {"id": k.id, "medoid_topic": k.medoid_topic, "size": k.size}
+                for k in clusters
+            ],
+            "settings": {
+                "policy": settings.policy,
+                "control_unit": settings.control_unit,
+                "arm_shares": settings.arm_shares,
+                "q": settings.q,
+                "cache_ttl_ms": settings.cache_ttl_ms,
+                "shadow_policies": settings.shadow_policies,
+            },
+        }
+
+
+async def _first(session: Session, model, turn_ids: list[int], *where) -> dict:
+    out = {}
+    for event in await session.scalars(
+        sa.select(model)
+        .where(model.turn_id.in_(turn_ids), *where)
+        .order_by(model.created_at)
+    ):
+        out.setdefault(event.turn_id, event)
+    return out
 
 
 @api.get("/turns")
 async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
-    where, args = [], []
-    for key, clause in FILTERS.items():
-        if value := request.query_params.get(key):
-            where.append(clause)
-            args.append(value)
-    condition = f"WHERE {" AND ".join(where)}" if where else ""
-    sql = f"SELECT {TURN_COLUMNS} {condition} ORDER BY t.id DESC LIMIT %s"
-    async with db.pool.connection() as conn:
-        rows = await db.fetch(
-            conn, sql, vocab.Source.ASSISTANT, *args, min(limit, MAX_TURNS)
+    where = [
+        build(value)
+        for key, build in FILTERS.items()
+        if (value := request.query_params.get(key))
+    ]
+    async with db.session() as session:
+        rows = (
+            await session.execute(
+                sa.select(models.Turn, models.Conversation)
+                .join(
+                    models.Conversation,
+                    models.Conversation.id == models.Turn.conversation_id,
+                )
+                .where(*where)
+                .order_by(models.Turn.id.desc())
+                .limit(min(limit, MAX_TURNS))
+            )
+        ).all()
+        ids = [turn.id for turn, _ in rows]
+        replies = await _first(session, models.Reply, ids)
+        verdicts = await _first(
+            session,
+            models.Outcome,
+            ids,
+            models.Outcome.source == vocab.Source.ASSISTANT,
         )
-    return [_inferred(r) for r in rows]
+        clicks = await _first(session, models.Click, ids)
+        inferences = {
+            i.turn_id: i
+            for i in await session.scalars(
+                sa.select(models.TurnInference).where(
+                    models.TurnInference.turn_id.in_(ids)
+                )
+            )
+        }
+        buttons = {}
+        for b in await session.scalars(
+            sa.select(models.ButtonShown)
+            .where(models.ButtonShown.turn_id.in_(ids))
+            .order_by(models.ButtonShown.position)
+        ):
+            buttons.setdefault(b.turn_id, []).append(b.button)
+    out = []
+    for turn, conv in rows:
+        reply, verdict = replies.get(turn.id), verdicts.get(turn.id)
+        click, inference = clicks.get(turn.id), inferences.get(turn.id)
+        probs = inference.reaction_probs if inference else {}
+        out.append(
+            {
+                **_row(turn),
+                "host": conv.host,
+                "grp": conv.grp,
+                "reply_words_exact": reply.reply_words_exact if reply else None,
+                "writing_seconds": (
+                    (reply.created_at - turn.created_at).total_seconds()
+                    if reply
+                    else None
+                ),
+                "verdict": verdict.observed if verdict else None,
+                "user_quote": verdict.user_quote if verdict else None,
+                "format_issue": verdict.format_issue if verdict else None,
+                "clicked": click.button if click else None,
+                "buttons": buttons.get(turn.id),
+                "inferred": max(probs, key=probs.get, default=None),
+                "inferred_p": max(probs.values(), default=None),
+            }
+        )
+    return out
 
 
 @api.get("/turns/{turn_id}")
 async def turn_detail(turn_id: int) -> dict:
-    async with db.pool.connection() as conn:
-        turn = await db.fetchrow(
-            conn, "SELECT * FROM turns WHERE id = %s", turn_id
-        )
+    async with db.session() as session:
+        turn = await session.get(models.Turn, turn_id)
         if not turn:
             raise fastapi.HTTPException(status_code=404)
 
-        async def events(table: str, order: str = "created_at") -> list[dict]:
-            return await db.fetch(
-                conn,
-                f"SELECT * FROM {table} WHERE turn_id = %s ORDER BY {order}",
-                turn_id,
+        async def events(model, order=None) -> list[dict]:
+            rows = await session.scalars(
+                sa.select(model)
+                .where(model.turn_id == turn_id)
+                .order_by(order if order is not None else model.id)
             )
+            return [_row(r) for r in rows]
 
-        conversation_id = turn["conversation_id"]
+        state = await session.get(
+            models.ConversationState, turn.conversation_id
+        )
+        inference = await session.get(models.TurnInference, turn_id)
+        next_turn = await session.scalar(
+            sa.select(models.Turn).where(
+                models.Turn.conversation_id == turn.conversation_id,
+                models.Turn.turn_index == turn.turn_index + 1,
+            )
+        )
         return {
-            "turn": turn,
-            "conversation": await db.fetchrow(
-                conn,
-                "SELECT * FROM conversations WHERE id = %s",
-                conversation_id,
+            "turn": _row(turn),
+            "conversation": _row(
+                await session.get(models.Conversation, turn.conversation_id)
             ),
-            "conversation_state": await db.fetchrow(
-                conn,
-                "SELECT * FROM conversation_state WHERE conversation_id = %s",
-                conversation_id,
+            "conversation_state": _row(state) if state else None,
+            "next_turn": (
+                {"id": next_turn.id, "created_at": next_turn.created_at}
+                if next_turn
+                else None
             ),
-            "next_turn": await db.fetchrow(
-                conn,
-                "SELECT id, created_at FROM turns "
-                "WHERE conversation_id = %s AND turn_index = %s",
-                conversation_id,
-                turn["turn_index"] + 1,
+            "replies": await events(models.Reply),
+            "outcomes": await events(models.Outcome),
+            "buttons_shown": await events(
+                models.ButtonShown, models.ButtonShown.position
             ),
-            "replies": await events("replies"),
-            "outcomes": await events("outcomes"),
-            "buttons_shown": await events("buttons_shown", "position"),
-            "clicks": await events("clicks"),
-            "context": await events("turn_context"),
-            "gold_labels": await events("gold_labels"),
-            "shadow_decisions": await events(
-                "shadow_decisions", "model_version"
-            ),
-            "inference": await db.fetchrow(
-                conn, "SELECT * FROM turn_inference WHERE turn_id = %s", turn_id
-            ),
+            "clicks": await events(models.Click),
+            "context": await events(models.TurnContext),
+            "gold_labels": await events(models.GoldLabel),
+            "shadow_decisions": await events(models.ShadowDecision),
+            "inference": _row(inference) if inference else None,
         }
 
 
 @api.get("/users")
 async def users() -> list[dict]:
-    async with db.pool.connection() as conn:
-        rows = await db.fetch(
-            conn,
-            """SELECT u.id, u.created_at, count(DISTINCT c.id) AS conversations,
-               count(t.id) AS turns, max(t.created_at) AS last_seen,
-               a.grid AS alpha, ur.rho_mean
-               FROM users u LEFT JOIN conversations c ON c.user_id = u.id
-               LEFT JOIN turns t ON t.conversation_id = c.id
-               LEFT JOIN alpha_posteriors a ON a.user_id = u.id
-               LEFT JOIN user_reading ur ON ur.user_id = u.id
-               GROUP BY u.id, a.grid, ur.rho_mean
-               ORDER BY last_seen DESC NULLS LAST""",
-        )
-    for r in rows:
-        grid, rho = r.pop("alpha"), r.pop("rho_mean")
-        r["alpha_ratio"] = (
-            math.exp(stats.grid_mean_var(grid)[0]) if grid else None
-        )
-        r["reading_wps"] = math.exp(rho) if rho is not None else None
-    return rows
+    u, c, t = models.User, models.Conversation, models.Turn
+    async with db.session() as session:
+        rows = (
+            await session.execute(
+                sa.select(
+                    u.id,
+                    u.created_at,
+                    sa.func.count(sa.distinct(c.id)).label("conversations"),
+                    sa.func.count(t.id).label("turns"),
+                    sa.func.max(t.created_at).label("last_seen"),
+                )
+                .outerjoin(c, c.user_id == u.id)
+                .outerjoin(t, t.conversation_id == c.id)
+                .group_by(u.id)
+                .order_by(sa.desc("last_seen").nulls_last())
+            )
+        ).mappings()
+        alphas = {
+            a.user_id: a.grid
+            for a in await session.scalars(sa.select(models.AlphaPosterior))
+        }
+        speeds = {
+            r.user_id: r.rho_mean
+            for r in await session.scalars(sa.select(models.UserReading))
+        }
+    return [
+        {
+            **r,
+            "alpha_ratio": (
+                math.exp(stats.grid_mean_var(alphas[r["id"]])[0])
+                if r["id"] in alphas
+                else None
+            ),
+            "reading_wps": (
+                math.exp(speeds[r["id"]]) if r["id"] in speeds else None
+            ),
+        }
+        for r in rows
+    ]
 
 
 @api.get("/users/{user_id}")
 async def user_detail(user_id: int) -> dict:
-    async with db.pool.connection() as conn:
-        thetas = await db.fetch(
-            conn,
-            "SELECT request_type AS cell, grid FROM theta_posteriors "
-            "WHERE user_id = %s ORDER BY request_type",
-            user_id,
-        )
-        scopes = [
-            r["scope"]
-            for r in await db.fetch(
-                conn,
-                "SELECT DISTINCT scope FROM pref_counts WHERE user_id = %s "
-                "ORDER BY scope",
-                user_id,
+    pc = models.PrefCount
+    async with db.session() as session:
+        thetas = list(
+            await session.scalars(
+                sa.select(models.ThetaPosterior)
+                .where(models.ThetaPosterior.user_id == user_id)
+                .order_by(models.ThetaPosterior.request_type)
             )
-        ]
-        dimensions = await db.fetch(
-            conn,
-            "SELECT DISTINCT scope, dimension FROM pref_counts "
-            "WHERE user_id = %s ORDER BY scope, dimension",
-            user_id,
         )
-        counts = await engine.pref_counts(conn, user_id, scopes)
-        reading = await engine.user_reading(conn, user_id)
+        dimensions = (
+            await session.execute(
+                sa.select(pc.scope, pc.dimension)
+                .distinct()
+                .where(pc.user_id == user_id)
+                .order_by(pc.scope, pc.dimension)
+            )
+        ).all()
+        counts = await engine.pref_counts(
+            session, user_id, {scope for scope, _ in dimensions}
+        )
+        reading = await engine.user_reading(session, user_id)
     preferences = []
-    for row in dimensions:
-        belief = prefs.posterior(counts[row["scope"]], row["dimension"])
+    for scope, dimension in dimensions:
+        belief = prefs.posterior(counts[scope], dimension)
         total = sum(belief.values())
         preferences.append(
             {
-                **row,
+                "scope": scope,
+                "dimension": dimension,
                 "means": {v: a / total for v, a in belief.items()},
                 "evidence": total - prefs.STRENGTH,
             }
         )
     lengths = []
-    for row in thetas:
-        mean, var = stats.grid_mean_var(row["grid"])
+    for cell in thetas:
+        mean, var = stats.grid_mean_var(cell.grid)
         lengths.append(
-            {"cell": row["cell"], "ratio": math.exp(mean), "sd": math.sqrt(var)}
+            {
+                "cell": cell.request_type,
+                "ratio": math.exp(mean),
+                "sd": math.sqrt(var),
+            }
         )
     return {
         "lengths": lengths,
         "preferences": preferences,
         "reading": {
-            "wps": math.exp(reading["rho_mean"]),
-            "rho_sd": math.sqrt(reading["rho_var"]),
+            "wps": math.exp(reading.rho_mean),
+            "rho_sd": math.sqrt(reading.rho_var),
             "mixture": dict(
-                zip(reading_lib.COMPONENTS, stats.normalize(reading["mixture"]))
+                zip(reading_lib.COMPONENTS, stats.normalize(reading.mixture))
             ),
             "reaction_prior": dict(
-                zip(
-                    reaction.OUTCOMES,
-                    stats.normalize(reading["reaction_prior"]),
-                )
+                zip(reaction.OUTCOMES, stats.normalize(reading.reaction_prior))
             ),
         },
     }
 
 
 @api.get("/model")
-async def model() -> dict:
-    async with db.pool.connection() as conn:
-        p = await params_lib.load_params(conn)
+async def learned_model() -> dict:
+    async with db.session() as session:
+        p = await params_lib.load_params(session)
         learned = {
-            t: bool(await db.fetchrow(conn, f"SELECT 1 FROM {t} LIMIT 1"))
-            for t in LEARNED_TABLES
+            m.__tablename__: await _count(session, sa.select(m)) > 0
+            for m in (*models.LEARNED, models.TopicCluster)
         }
     h = p.hyper
     return {
@@ -334,8 +427,6 @@ async def model() -> dict:
 
 @api.post("/nightly")
 async def run_nightly() -> dict:
-    async with db.pool.connection() as conn, conn.transaction():
-        await db.execute(
-            conn, f"LOCK TABLE {", ".join(nightly.DERIVED)} IN EXCLUSIVE MODE"
-        )
-        return {"replayed_turns": await nightly.run(conn)}
+    async with db.session() as session, session.begin():
+        await nightly.lock_derived(session)
+        return {"replayed_turns": await nightly.run(session)}
