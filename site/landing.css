@@ -3,23 +3,23 @@
 
 @source "../app/landing.html";
 
-/* Claire palette on the shadcn tokens. */
+/* Claire palette on the shadcn tokens, as in the dashboard. */
 :root {
-  --background: #fbfcfe;
-  --foreground: #0f172a;
-  --card: #f1f5f9;
-  --card-foreground: #0f172a;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --primary: #2563eb;
+  --background: #fdfcf6;
+  --foreground: #191711;
+  --card: #f4f2e8;
+  --card-foreground: #191711;
+  --muted: #f4f2e8;
+  --muted-foreground: #716d64;
+  --border: #dfdad1;
+  --input: #dfdad1;
+  --primary: #bc0fbc;
   --primary-foreground: #ffffff;
-  --secondary: #e8eef7;
-  --secondary-foreground: #0f172a;
-  --accent: #dbeafe;
-  --accent-foreground: #1e40af;
-  --ring: #2563eb;
+  --secondary: #ebe7dc;
+  --secondary-foreground: #191711;
+  --accent: rgba(188, 15, 188, 0.1);
+  --accent-foreground: #9a0e98;
+  --ring: #bc0fbc;
   /* The chat windows of the demo, in Claude's own colours. */
   --chat: #faf9f5;
   --chat-bubble: #f0eee6;
@@ -29,21 +29,21 @@
 }
 
 .dark {
-  --background: #020817;
-  --foreground: #f8fafc;
-  --card: #0b1224;
-  --card-foreground: #f8fafc;
-  --muted: #0b1224;
-  --muted-foreground: #94a3b8;
-  --border: #1e293b;
-  --input: #1e293b;
-  --primary: #3b82f6;
+  --background: #12010d;
+  --foreground: #fdfcf6;
+  --card: #1d0214;
+  --card-foreground: #fdfcf6;
+  --muted: #1d0214;
+  --muted-foreground: #c29aae;
+  --border: #3e042b;
+  --input: #3e042b;
+  --primary: #e520e9;
   --primary-foreground: #ffffff;
-  --secondary: #111a2e;
-  --secondary-foreground: #f8fafc;
-  --accent: #1e293b;
-  --accent-foreground: #bfdbfe;
-  --ring: #3b82f6;
+  --secondary: #2a0920;
+  --secondary-foreground: #fdfcf6;
+  --accent: rgba(229, 32, 233, 0.14);
+  --accent-foreground: #f637fe;
+  --ring: #e520e9;
   --chat: #262624;
   --chat-bubble: #141413;
   --chat-ink: #faf9f5;

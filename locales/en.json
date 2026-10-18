@@ -184,8 +184,10 @@
     },
     "errors": {
       "handle": "Unknown or invalid turn_id / conversation_id.",
-      "show_reply": "Invalid show_reply call."
-    }
+      "show_reply": "Invalid show_reply call.",
+      "shown": "This reply is already shown to the user: one show_reply per turn. Do not call it again and write nothing else."
+    },
+    "shown": "The user now sees your reply. Do not call show_reply again and write nothing else."
   },
   "dashboard": {
     "title": "Claire Admin",

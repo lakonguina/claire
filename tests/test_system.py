@@ -121,7 +121,9 @@ async def test_full_turn_sequence_and_no_trace_of_text(
         turn_id=plan["turn_id"],
         text=f"# Answer\n\n{MARKER} is three words long.",
     )
-    assert shown["content"] == [{"type": "text", "text": "ok"}]
+    assert shown["content"] == [
+        {"type": "text", "text": mcp_server.TOOLS["shown"]}
+    ]
     content = shown["structuredContent"]
     assert content["profile_url"].endswith(await client.profile_key())
     b = content["buttons"][0]
@@ -172,6 +174,24 @@ async def test_show_reply_errors_hide_the_text(make_client, caplog):
         result = await client.call("show_reply", **args)
         assert result["isError"] and MARKER not in str(result)
     assert MARKER not in caplog.text
+
+
+async def test_one_show_reply_per_turn(make_client, database):
+    client = await make_client()
+    plan = (await client.call("plan_reply", **PLAN))["data"]
+    await client.call("show_reply", turn_id=plan["turn_id"], text="one two")
+    again = await client.call(
+        "show_reply", turn_id=plan["turn_id"], text="one two three"
+    )
+    assert again["isError"]
+    assert again["content"][0]["text"] == mcp_server.TOOLS["errors"]["shown"]
+    words = await scalar(
+        database,
+        sa.select(sa.func.array_agg(models.Reply.reply_words_exact)).where(
+            models.Reply.turn_id == turn_number(plan)
+        ),
+    )
+    assert words == [2]
 
 
 async def test_mode_selection_in_both_protocol_eras(make_client, database):

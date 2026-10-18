@@ -40,6 +40,10 @@ class HandleError(Exception):
     """A handle that is malformed or belongs to another user."""
 
 
+class ReplyShownError(Exception):
+    """The turn's reply is already shown: one show_reply per turn."""
+
+
 @dataclasses.dataclass(frozen=True)
 class Caller:
     """Who calls a tool, and through which host."""
@@ -469,12 +473,18 @@ async def show_reply(
 
     Raises:
         HandleError: On an invalid reply or turn.
+        ReplyShownError: When the turn already has its reply.
     """
     if not isinstance(reply, str):
         raise HandleError
     words = text.count_words(reply)
     async with db.session() as session, session.begin():
         turn, _ = await _owned_turn(session, caller, turn_handle)
+        # _owned_turn holds the user's lock, so two calls cannot both pass.
+        if await session.scalar(
+            sa.select(sa.exists().where(models.Reply.turn_id == turn.id))
+        ):
+            raise ReplyShownError
         _log_call(session, caller, "show_reply")
         session.add(models.Reply(turn_id=turn.id, reply_words_exact=words))
         user = await session.get(models.User, caller.user_id)

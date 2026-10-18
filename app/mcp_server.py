@@ -36,6 +36,8 @@ CACHEABLE = ("tools/list", "resources/list", "resources/read")
 TOOLS = i18n.catalog(i18n.FALLBACK)["tools"]
 FIELDS = TOOLS["plan_reply"]["fields"]
 OK = [mcp_types.TextContent(type="text", text="ok")]
+# Without it the model may think nothing appeared and repeat the reply.
+SHOWN = [mcp_types.TextContent(type="text", text=TOOLS["shown"])]
 
 
 def _field(name: str, **kwargs: Any) -> pydantic.fields.FieldInfo:
@@ -67,9 +69,10 @@ class ClaireServer(mcpserver.MCPServer):
         try:
             return await super().call_tool(name, arguments, context)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            log.info(
-                "show_reply failed: %s", type(exc.__cause__ or exc).__name__
-            )
+            cause = exc.__cause__ or exc
+            log.info("show_reply failed: %s", type(cause).__name__)
+            if isinstance(cause, service.ReplyShownError):
+                raise exceptions.ToolError(TOOLS["errors"]["shown"]) from None
             raise exceptions.ToolError(TOOLS["errors"]["show_reply"]) from None
 
 
@@ -137,7 +140,7 @@ async def show_reply(
     data = await _handled(service.show_reply)(
         caller(ctx), turn_id, text, suggestions
     )
-    return mcp_types.CallToolResult(content=OK, structured_content=data)
+    return mcp_types.CallToolResult(content=SHOWN, structured_content=data)
 
 
 @apps.tool(

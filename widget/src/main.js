@@ -182,7 +182,12 @@ app.ontoolinput = ({arguments: args}) => {
   render();
 };
 app.ontoolresult = (result) => {
-  if (result.isError) return;
+  if (result.isError) {
+    // A refused call (a repeat, or an unknown turn) must not show its text.
+    text = '';
+    render();
+    return;
+  }
   const data = result.structuredContent ?? {};
   turnId = data.turn_id ?? turnId;
   // Only a turn the server accepted: the model may have invented the input's.
