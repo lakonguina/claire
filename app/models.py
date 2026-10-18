@@ -81,6 +81,12 @@ class FloatArray(sa.TypeDecorator):
     def process_result_value(self, value, dialect):
         return None if value is None else np.asarray(value, dtype=float)
 
+    def compare_values(self, x, y):
+        # The ARRAY default `x == y` broadcasts numpy arrays elementwise.
+        if x is None or y is None:
+            return x is y
+        return np.array_equal(x, y)
+
 
 class Base(orm.DeclarativeBase):
     """Declarative base, with Postgres-style constraint names."""
