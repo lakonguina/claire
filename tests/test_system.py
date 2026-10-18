@@ -209,6 +209,32 @@ async def test_foreign_handles_are_rejected(make_client):
     )["isError"]
 
 
+async def test_a_conversation_stays_in_its_host(http, make_client, database):
+    web = await make_client(apps=True)
+    plan = (await web.call("plan_reply", **PLAN))["data"]
+    code = conftest.McpClient(http, web.access, apps=False, host="claude-code")
+    carried = (
+        await code.call(
+            "plan_reply", **PLAN, conversation_id=plan["conversation_id"]
+        )
+    )["data"]
+    assert carried["conversation_id"] != plan["conversation_id"]
+    resumed = (
+        await web.call(
+            "plan_reply", **PLAN, conversation_id=plan["conversation_id"]
+        )
+    )["data"]
+    assert resumed["conversation_id"] == plan["conversation_id"]
+    async with database() as session:
+        turns = [
+            await session.get(models.Turn, turn_number(p))
+            for p in (plan, carried, resumed)
+        ]
+        conv = await session.get(models.Conversation, turns[1].conversation_id)
+    assert (conv.host, conv.ui_supported) == ("claude-code", False)
+    assert [t.turn_index for t in turns] == [1, 1, 2]
+
+
 async def test_connector_urls_are_gone(http):
     assert (await http.post("/mcp/not-a-token", json={})).status_code == 404
 
@@ -499,7 +525,7 @@ async def test_metrics_and_gold_labels(http, make_client):
 
 async def test_dashboard(http, make_client):
     plan, _ = await plan_and_close(await make_client())
-    assert "Lingua Franca Admin" in (await http.get("/admin")).text
+    assert "Claire Admin" in (await http.get("/admin")).text
     french = i18n.catalog("fr")["dashboard"]["tabs"]["model"]
     page = await http.get("/admin", headers={"accept-language": "fr-FR,en"})
     assert french in page.text and 'lang="fr"' in page.text
@@ -768,6 +794,6 @@ async def test_every_widget_address_serves_the_current_widget(make_client):
     tools = (await client.rpc("tools/list"))["result"]["tools"]
     show = next(t for t in tools if t["name"] == "show_reply")
     assert show["_meta"]["ui"]["resourceUri"] == mcp_server.UI_URI
-    for uri in (mcp_server.UI_URI, "ui://lingua-franca/reply.html"):
+    for uri in (mcp_server.UI_URI, "ui://claire/reply.html"):
         read = await client.rpc("resources/read", {"uri": uri})
         assert read["result"]["contents"][0]["text"] == mcp_server.WIDGET_HTML

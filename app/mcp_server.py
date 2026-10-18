@@ -24,12 +24,12 @@ WIDGET = pathlib.Path(__file__).resolve().parent / "static" / "index.html"
 WIDGET_HTML = WIDGET.read_text() if WIDGET.exists() else ""
 # The widget's address holds its fingerprint: a new widget is a new address,
 # which hosts must fetch instead of serving their cached copy.
-UI_PREFIX = "ui://lingua-franca/"
+UI_PREFIX = "ui://claire/"
 UI_URI = (
     f"{UI_PREFIX}reply-"
     f"{hashlib.sha256(WIDGET_HTML.encode()).hexdigest()[:12]}.html"
 )
-TOKEN_HEADER = "x-lf-token-user"
+TOKEN_HEADER = "x-claire-token-user"
 SESSION_HEADER = "mcp-session-id"
 UNKNOWN_HOST = "unknown"
 CACHEABLE = ("tools/list", "resources/list", "resources/read")
@@ -42,7 +42,7 @@ def _field(name: str, **kwargs: Any) -> pydantic.fields.FieldInfo:
     return pydantic.Field(description=FIELDS[name], **kwargs)
 
 
-class LinguaFrancaServer(mcpserver.MCPServer):
+class ClaireServer(mcpserver.MCPServer):
     """MCPServer that hides reply text in errors and outlives cached widgets.
 
     Hosts cache tool definitions: a host may still ask for the widget at an
@@ -85,6 +85,14 @@ def caller(ctx: mcpserver.Context) -> service.Caller:
     ui = config.settings.host_ui_override.get(
         host, mcp_apps.client_supports_apps(ctx)
     )
+    if not ui:
+        capabilities = client.capabilities if client else None
+        log.info(
+            "No MCP Apps for %s %s: extensions=%s",
+            host,
+            client.client_info.version if client and client.client_info else "",
+            capabilities.extensions if capabilities else None,
+        )
     return service.Caller(
         int(headers[TOKEN_HEADER]),
         host,
@@ -169,8 +177,8 @@ apps.add_html_resource(
     prefers_border=False,
 )
 
-mcp = LinguaFrancaServer(
-    "lingua-franca",
+mcp = ClaireServer(
+    "claire",
     version="2.0.0",
     instructions=TOOLS["server"],
     extensions=[apps],

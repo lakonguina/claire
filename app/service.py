@@ -124,7 +124,10 @@ async def _conversation(
         )
         if not conv or conv.user_id != caller.user_id:
             raise HandleError
-        return conv
+        # A conversation lives in one host: an id carried over from another
+        # (e.g. the web app's, reused in Claude Code) starts a new one there.
+        if conv.host == caller.host:
+            return conv
     conv = models.Conversation(
         user_id=caller.user_id,
         grp=_arm(caller.user_id),

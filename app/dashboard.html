@@ -136,7 +136,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; 
 </head>
 <body>
 <header>
-  <div class="brand"><i></i>lingua franca <span>/ admin</span></div>
+  <div class="brand"><i></i>claire <span>/ admin</span></div>
   <nav id="tabs">
     {% for view, name in texts.dashboard.tabs.items() %}
     <button data-view="{{ view }}"{% if loop.first %} aria-current="page"{% endif %}>{{ name }}</button>
@@ -151,7 +151,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; 
 <div id="tipbox" role="tooltip" hidden></div>
 <div id="token" class="token" hidden>
   <form>
-    <div class="brand"><i></i>lingua franca <span>/ admin</span></div>
+    <div class="brand"><i></i>claire <span>/ admin</span></div>
     <label class="muted" for="token-input">{{ texts.dashboard.ui.token }}</label>
     <input id="token-input" type="password" autocomplete="current-password" required>
     <button class="btn primary">{{ texts.dashboard.ui.open }}</button>
@@ -172,7 +172,7 @@ const state = { view: "live", filters: {}, selected: null, live: true, timer: nu
 const $ = (sel) => document.querySelector(sel);
 
 let token = "";
-try { token = sessionStorage.getItem("lf-admin-token") || ""; } catch {}
+try { token = sessionStorage.getItem("claire-admin-token") || ""; } catch {}
 
 /* ---------- Texts and numbers ---------- */
 
@@ -248,7 +248,7 @@ function askToken(failed) {
 $("#token form").addEventListener("submit", (event) => {
   event.preventDefault();
   token = $("#token-input").value.trim();
-  try { sessionStorage.setItem("lf-admin-token", token); } catch {}
+  try { sessionStorage.setItem("claire-admin-token", token); } catch {}
   $("#token").hidden = true;
   render();
 });

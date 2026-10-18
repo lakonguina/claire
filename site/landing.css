@@ -3,7 +3,7 @@
 
 @source "../app/landing.html";
 
-/* Lingua Franca palette on the shadcn tokens. */
+/* Claire palette on the shadcn tokens. */
 :root {
   --background: #fbfcfe;
   --foreground: #0f172a;

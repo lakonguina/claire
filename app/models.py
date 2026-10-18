@@ -1,7 +1,8 @@
 """The database schema as typed SQLAlchemy models (SPEC 9).
 
-Events are append-only (a trigger rejects UPDATE, DELETE and TRUNCATE; see the
-initial migration). Derived tables are rebuilt nightly by replay.
+Events are append-only: the application never updates nor deletes them, but
+the owner may correct them by hand. Derived tables are rebuilt nightly by
+replay.
 
 Columns holding a vocabulary that evolves (buttons, platforms)
 are plain text: history keeps retired values, and the enums validate new

@@ -129,7 +129,7 @@ mcp_app = mcp_server.mcp.streamable_http_app(
     ),
 )
 api = fastapi.FastAPI(
-    title="Lingua Franca",
+    title="Claire",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,

@@ -54,8 +54,8 @@
     "nothing": "Rien d'appris pour l'instant : continue à discuter."
   },
   "consent": {
-    "title": "Connecter Lingua Franca à {app} ?",
-    "intro": "Lingua Franca apprend comment tu aimes tes réponses (longueur, format, ton) et aide ton IA à répondre comme ça.",
+    "title": "Connecter Claire à {app} ?",
+    "intro": "Claire apprend comment tu aimes tes réponses (longueur, format, ton) et aide ton IA à répondre comme ça.",
     "anonymous": "Pas de compte, pas d'email : cette connexion est ton profil. Supprime le connecteur pour repartir de zéro.",
     "privacy": "Le texte des réponses n'est jamais stocké.",
     "allow": "Continuer",
@@ -71,7 +71,7 @@
   },
   "lengths": {"short": "Courte", "medium": "Moyenne", "detailed": "Détaillée"},
   "dashboard": {
-    "title": "Lingua Franca Admin",
+    "title": "Claire Admin",
     "tabs": {
       "live": "En direct",
       "users": "Utilisateurs",
@@ -182,7 +182,7 @@
       "reading": "lecture"
     },
     "terms": {
-      "turns": {"name": "Réponses", "help": "Chaque réponse d'IA passée par Lingua Franca."},
+      "turns": {"name": "Réponses", "help": "Chaque réponse d'IA passée par Claire."},
       "conversations": {"name": "Conversations", "help": "Discussions avec une IA. Une conversation contient plusieurs réponses."},
       "users": {"name": "Personnes", "help": "Personnes qui ont un lien de connecteur."},
       "widget_mode": {"name": "Affichées dans le widget", "help": "Part des réponses affichées dans notre encadré, avec ses boutons, plutôt qu'en texte simple dans le chat. Dépend de l'appli."},
@@ -199,7 +199,7 @@
       "settings": {"name": "Réglages", "help": "Configuration du serveur, lue dans le fichier .env."},
       "policy": {"name": "méthode de décision", "help": "bayes : apprend la bonne longueur pour chaque personne. ratio : toujours une part fixe d'une réponse complète."},
       "control_unit": {"name": "unité de comparaison", "help": "Si c'est une personne entière ou une seule conversation qu'on place dans un groupe de comparaison."},
-      "arm_shares": {"name": "groupes de comparaison", "help": "Part des conversations qui reçoivent des réponses normales ou « sois concis », pour mesurer ce que Lingua Franca fait économiser. Désactivé par défaut."},
+      "arm_shares": {"name": "groupes de comparaison", "help": "Part des conversations qui reçoivent des réponses normales ou « sois concis », pour mesurer ce que Claire fait économiser. Désactivé par défaut."},
       "q": {"name": "marge de sécurité", "help": "0,8 = viser assez long pour satisfaire la personne 80 % du temps. Plus haut = réponses plus longues, plus sûres."},
       "cache_ttl_ms": {"name": "cache de la liste d'outils (ms)", "help": "Combien de temps les applis peuvent garder notre liste d'outils sans la redemander."},
       "shadow_policies": {"name": "méthodes testées en coulisse", "help": "D'autres méthodes de décision calculées à chaque réponse mais jamais appliquées, pour les comparer."},
@@ -287,7 +287,7 @@
       "repair_rate": {"name": "réponses à corriger", "help": "Part des réponses suivies de « trop long », « trop court », « mal compris » ou « mauvais format »."},
       "missing_info_rate": {"name": "réponses incomplètes", "help": "Part des réponses après lesquelles la personne a dû demander ce qui manquait."},
       "tool_words": {"name": "coût des outils par réponse (mots)", "help": "Mots dépensés dans nos propres outils pour chaque réponse."},
-      "saving": {"name": "Économie vs {arm}", "help": "Mots lus par pas en avant économisés par rapport à ce groupe, mesuré par tirage au sort. Positif = Lingua Franca fait mieux."},
+      "saving": {"name": "Économie vs {arm}", "help": "Mots lus par pas en avant économisés par rapport à ce groupe, mesuré par tirage au sort. Positif = Claire fait mieux."},
       "saving_row": {"name": "mots économisés par pas"},
       "ci95": {"name": "intervalle de confiance à 95 %"},
       "tool_coverage": {"name": "Utilisation des outils", "help": "Si l'IA utilise nos outils comme prévu."},
@@ -309,8 +309,8 @@
     }
   },
   "landing": {
-    "meta_title": "Lingua Franca : Claude, sous stéroïdes",
-    "description": "Des réponses plus courtes, taillées pour toi : Lingua Franca apprend ce que tu préfères et le dicte à Claude avant chaque réponse.",
+    "meta_title": "Claire : Claude, sous stéroïdes",
+    "description": "Des réponses plus courtes, taillées pour toi : Claire apprend ce que tu préfères et le dicte à Claude avant chaque réponse.",
     "nav_cta": "Installer",
     "callout": "Tu utilises Claude tous les jours ?",
     "rants": [
@@ -322,21 +322,21 @@
     ],
     "title_a": "Claude, sous stéroïdes.",
     "title_b": "Des réponses plus courtes, taillées pour toi.",
-    "subtitle": "Lingua Franca apprend comment tu aimes qu'on te réponde, et le dicte à Claude avant chaque réponse. Tu n'as plus rien à lui répéter.",
+    "subtitle": "Claire apprend comment tu aimes qu'on te réponde, et le dicte à Claude avant chaque réponse. Tu n'as plus rien à lui répéter.",
     "cta": "Je veux Claude sous stéroïdes",
     "cta_note": "2 minutes · Sans compte · Sans email",
     "problem": {
       "title": "Le problème n'est pas Claude. C'est qu'il oublie.",
       "old_label": "Aujourd'hui",
       "old": "Tu répètes « plus court » dans chaque conversation. Ça pollue son contexte, et demain il a tout oublié.",
-      "new_label": "Avec Lingua Franca",
+      "new_label": "Avec Claire",
       "new": "Tu réagis d'un clic. Il retient, et le rappelle à Claude avant chaque réponse, dans toutes tes conversations."
     },
     "demo": {
       "title": "Même question. Regarde.",
       "question": "C'est quoi un index en SQL ?",
-      "before": "Sans Lingua Franca",
-      "after": "Avec Lingua Franca",
+      "before": "Sans Claire",
+      "after": "Avec Claire",
       "words": "{count} mots",
       "saved": "de mots en moins",
       "saved_note": "L'essentiel, sans le blabla.",

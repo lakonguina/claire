@@ -11,7 +11,9 @@ import os
 import secrets
 from urllib import parse
 
-os.environ.setdefault("DATABASE_URL", "postgresql://lf:lf@localhost:55432/lf")
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql://claire:claire@localhost:55432/claire"
+)
 os.environ.setdefault("ADMIN_TOKEN", "admin-secret")
 
 # pylint: disable=wrong-import-position
@@ -256,10 +258,7 @@ async def database(server):
     del server
     tables = ", ".join(t.name for t in models.Base.metadata.sorted_tables)
     async with db.engine.begin() as conn:
-        # Bypasses the append-only triggers, for tests only.
-        await conn.execute(sa.text("SET session_replication_role = replica"))
         await conn.execute(sa.text(f"TRUNCATE {tables} RESTART IDENTITY"))
-        await conn.execute(sa.text("SET session_replication_role = DEFAULT"))
     params_lib.cache.invalidate()
     return db.session
 

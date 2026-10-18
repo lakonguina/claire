@@ -13,7 +13,7 @@ from app import vocab
 
 ASSETS = pathlib.Path(__file__).resolve().parent / "assets"
 SCREEN_SUFFIXES = (".webp", ".png", ".jpg")
-CONNECTOR_NAME = "Lingua Franca"
+CONNECTOR_NAME = "Claire"
 # Where each step happens in Claude; a step without a link happens on its own.
 LINKS = {
     vocab.SetupStep.INSTRUCTION: "https://claude.ai/new#settings/account",

@@ -1,4 +1,4 @@
-# Lingua Franca
+# Claire
 
 MCP server that makes chat assistants give shorter, better-targeted replies and learns each user's preferences. See `SPEC.md`.
 
@@ -27,7 +27,7 @@ Texts live in `locales/<language>.json` (English is complete and is the fallback
 
 ```sh
 uv venv --python 3.12 .venv && uv pip install -p .venv -r requirements-dev.txt
-docker run -d --name lf-test-pg -e POSTGRES_USER=lf -e POSTGRES_PASSWORD=lf -e POSTGRES_DB=lf -p 55432:5432 pgvector/pgvector:pg17
+docker run -d --name claire-test-pg -e POSTGRES_USER=claire -e POSTGRES_PASSWORD=claire -e POSTGRES_DB=claire -p 55432:5432 pgvector/pgvector:pg17
 .venv/bin/python -m pytest
 .venv/bin/pyink app tests migrations && .venv/bin/pylint --rcfile=.pylintrc app tests migrations
 .venv/bin/alembic revision --autogenerate -m "what changed"   # after editing app/models.py

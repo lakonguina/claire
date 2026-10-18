@@ -16,7 +16,7 @@ class Settings(pydantic_settings.BaseSettings):
 
     model_config = pydantic_settings.SettingsConfigDict(frozen=True)
 
-    database_url: str = "postgresql://lf:lf@localhost:5432/lf"
+    database_url: str = "postgresql://claire:claire@localhost:5432/claire"
     admin_token: str = ""
     public_url: str = "http://localhost:8000"
     policy: str = "bayes-v1"

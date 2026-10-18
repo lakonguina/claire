@@ -1,8 +1,8 @@
-# Lingua Franca — the communication layer between each person and any AI (MVP)
+# Claire — the communication layer between each person and any AI (MVP)
 
 ## 1. Purpose
 
-Lingua Franca is **the communication layer between each person and any AI**: every assistant (Claude, ChatGPT, …, on web, desktop and mobile) talks to the user the way that user wants, in length, format, level and tone, from the first message and on every platform. It learns each user's preferences from their reactions and carries one profile across all of them.
+Claire is **the communication layer between each person and any AI**: every assistant (Claude, ChatGPT, …, on web, desktop and mobile) talks to the user the way that user wants, in length, format, level and tone, from the first message and on every platform. It learns each user's preferences from their reactions and carries one profile across all of them.
 
 Length is one dimension among others. Guiding principle: Grice's maxim of quantity — say everything that is needed, and nothing more — extended to manner: say it in the form this person takes in best.
 
@@ -198,7 +198,7 @@ The same user may run many conversations in parallel, switch models (Opus, Sonne
 No account, no email, no password: the least friction possible, like a search engine used without signing in.
 
 1. The person adds `https://<host>/mcp` to their AI app. The server answers `401` with `WWW-Authenticate: Bearer resource_metadata=…`, and the app discovers the rest: protected-resource metadata (RFC 9728), authorization-server metadata (RFC 8414) and dynamic client registration (RFC 7591).
-2. The app opens our consent page, in the browser's language: "Connect Lingua Franca to Claude?" with **Continue** and Cancel. Continue creates a new anonymous user and a grant (one connector), and returns an authorization code (PKCE S256 required).
+2. The app opens our consent page, in the browser's language: "Connect Claire to Claude?" with **Continue** and Cancel. Continue creates a new anonymous user and a grant (one connector), and returns an authorization code (PKCE S256 required).
 3. The app exchanges it for an access token (1 hour) and a refresh token (90 days, rotated on every use), and sends the access token with every MCP request.
 
 The MCP SDK's authorization-server handlers run the protocol; the server provides only the storage (section 9) and the consent page. Every credential is single-purpose and stored hashed. A code or refresh token presented a second time revokes its whole grant (RFC 9700); so does revocation (RFC 7009). A token is only accepted for the `/mcp` resource (RFC 8707).
@@ -259,7 +259,7 @@ Buttons and form preferences follow the same path: Beta and Dirichlet counts per
 The `plan_reply` contract never changes; only the decision logic behind it does. Build it so that a switch is a configuration change, not a rewrite:
 
 - **One policy interface.** Every model implements `decide(context) -> (decision, propensity)` and `update(outcome)`. The active policy and its version are chosen by configuration (an environment variable). Rolling back means pointing the variable at the previous policy.
-- **Raw payloads, append-only.** Store the full raw JSON of every tool call (`raw_payload jsonb`) next to the parsed columns, and never update or delete events. A future model can then re-extract any field, even one the current schema ignores.
+- **Raw payloads, append-only.** Store the full raw JSON of every tool call (`raw_payload jsonb`) next to the parsed columns, and the application never updates or deletes events (the owner may still correct them by hand, then rerun the nightly replay). A future model can then re-extract any field, even one the current schema ignores.
 - **Versions on every row.** Every turn and outcome carries `model_version` (which policy decided) and `schema_version` (which payload format was received).
 - **Shadow mode.** Any number of candidate policies can run next to the active one. They receive the same context, and their decisions and propensities are logged in `shadow_decisions`, but never applied. This shows how a candidate would behave on live traffic before it touches a single reply.
 - **Replay evaluation.** A script replays the logged events through a candidate policy and computes the doubly robust estimate of words per step forward and repair rate, with confidence intervals. A candidate is promoted only if it beats the active policy in replay, then in an A/B test on 10 % of conversations.
@@ -439,7 +439,7 @@ Domains are not a fixed list: they are learned from the topics themselves.
 
 The schema is the SQLAlchemy models (section 3); Alembic migrations, generated from them, are applied at start. Every event table has a surrogate `id`. Columns holding a vocabulary that evolves (buttons, platforms, observed outcomes) are plain text, so history keeps retired values while the enums validate new writes; stable vocabularies (arms, reply modes, outcome sources) are CHECK-constrained from their enums.
 
-**Events** (append-only: no `UPDATE` or `DELETE`):
+**Events** (append-only: the application issues no `UPDATE` or `DELETE`; manual corrections are allowed):
 
 - `users(id, profile_key, created_at)`
 

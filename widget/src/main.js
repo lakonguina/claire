@@ -18,7 +18,7 @@ const replyEl = document.getElementById('reply');
 const buttonsEl = document.getElementById('buttons');
 const copyReplyEl = document.getElementById('copy-reply');
 const profileEl = document.getElementById('profile');
-const app = new App({name: 'lingua-franca', version: '2.0.0'});
+const app = new App({name: 'claire', version: '2.0.0'});
 
 let text = '';
 let turnId = null;
@@ -180,12 +180,13 @@ app.ontoolinput = ({arguments: args}) => {
   text = typeof args?.text === 'string' ? args.text : '';
   turnId = args?.turn_id ?? null;
   render();
-  reportContext();
 };
 app.ontoolresult = (result) => {
   if (result.isError) return;
   const data = result.structuredContent ?? {};
   turnId = data.turn_id ?? turnId;
+  // Only a turn the server accepted: the model may have invented the input's.
+  reportContext();
   renderButtons(data.buttons ?? []);
   if (data.labels) decorate(data.labels, data.profile_url ?? null);
 };

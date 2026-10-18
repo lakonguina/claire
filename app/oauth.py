@@ -332,7 +332,7 @@ def routes() -> list:
         *auth_routes.create_protected_resource_routes(
             SETTINGS.resource_server_url,
             [issuer],
-            resource_name="Lingua Franca",
+            resource_name="Claire",
         ),
     ]
 
