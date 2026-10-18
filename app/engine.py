@@ -11,6 +11,7 @@ import dataclasses
 import datetime
 import math
 
+import numpy as np
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects import postgresql
@@ -65,34 +66,55 @@ async def user_reading(session: Session, user_id: int) -> models.UserReading:
     )
 
 
-async def grids(
-    session: Session, user_id: int, cell: str, p: params_lib.Params
-) -> tuple[models.ThetaPosterior, models.AlphaPosterior]:
-    """Returns the cell's theta posterior and the user's alpha posterior."""
-    alpha = await session.get(models.AlphaPosterior, user_id)
-    if alpha is None:
-        alpha = models.AlphaPosterior(
-            user_id=user_id, grid=theta.alpha_prior(p.hyper)
-        )
-    cell_theta = await session.get(models.ThetaPosterior, (user_id, cell))
-    if cell_theta is None:
-        cell_theta = models.ThetaPosterior(
+def belief_of(row: models.LengthPosterior | None) -> theta.Belief:
+    """Returns the belief a stored length posterior holds."""
+    if row is None:
+        return theta.Belief.empty()
+    size = len(row.features)
+    return theta.Belief(
+        list(row.features), row.mean, np.reshape(row.cov, (size, size))
+    )
+
+
+async def length_belief(session: Session, user_id: int) -> theta.Belief:
+    """Returns the user's belief about their preferred length (SPEC 6.5)."""
+    return belief_of(await session.get(models.LengthPosterior, user_id))
+
+
+async def save_belief(
+    session: Session, user_id: int, belief: theta.Belief
+) -> None:
+    await session.merge(
+        models.LengthPosterior(
             user_id=user_id,
-            request_type=cell,
-            grid=theta.new_cell(alpha.grid, cell, p.hyper),
+            features=belief.names,
+            mean=belief.mean,
+            cov=belief.cov.ravel(),
         )
-    return cell_theta, alpha
+    )
+
+
+async def request_features(
+    session: Session, turn: models.Turn, embedding
+) -> dict[str, float]:
+    """Returns a turn's length features from its topic and platform."""
+    domains = (
+        await topics.memberships(session, embedding)
+        if embedding is not None
+        else {}
+    )
+    return theta.features(domains, style_of(turn)["mobile"])
 
 
 async def pref_counts(
     session: Session, user_id: int, scopes: Iterable[str]
 ) -> dict[str, prefs.Counts]:
-    """Returns, for each scope, the counts of its cell, user and population.
+    """Returns, for each scope, its counts, the user's and the population's.
 
     Args:
         session: The session.
         user_id: The user.
-        scopes: The cell scopes needed.
+        scopes: The scopes needed (topic domains).
 
     Returns:
         Scope -> counts keyed by (level, dimension, value).
@@ -121,7 +143,7 @@ async def pref_counts(
                 counts[("population", *key)] = r.count
                 continue
             if r.scope == scope:
-                counts[("cell", *key)] = r.count
+                counts[("scope", *key)] = r.count
             if r.scope == prefs.USER_SCOPE:
                 counts[("user", *key)] = r.count
     return out
@@ -133,7 +155,7 @@ async def add_prefs(
     scope: str,
     counts: dict[tuple[str, str], float],
 ) -> None:
-    """Adds counts to a cell, its user level and the population."""
+    """Adds counts to a scope, its user level and the population."""
     levels = {
         (user_id, scope),
         (user_id, prefs.USER_SCOPE),
@@ -238,6 +260,11 @@ def first(events: list, at: datetime.datetime | None = None, **match):
     )
 
 
+def last(events: list, at: datetime.datetime | None = None, **match):
+    """Returns the last event, recorded up to `at`, matching every field."""
+    return first(events[::-1], at, **match)
+
+
 @dataclasses.dataclass
 class _TurnEvents:
     """One turn and its events recorded up to the moment it was closed."""
@@ -247,6 +274,10 @@ class _TurnEvents:
     verdict: models.Outcome | None
     click: models.Click | None
     domain: str
+    features: dict[str, float]
+    # The button clicked on the previous turn, which this turn answers, and
+    # that turn's domain: this turn's reaction tells whether it helped.
+    answered: tuple[str, str] | None
 
 
 async def _turn_events(
@@ -255,23 +286,57 @@ async def _turn_events(
     turn = await session.scalar(
         with_events(sa.select(models.Turn).where(models.Turn.id == turn_id))
     )
+    # Domains are recomputed, so replays follow the latest clusters.
+    embedding = turn.embeddings[0].embedding if turn.embeddings else None
     return _TurnEvents(
         turn=turn,
         reply=first(turn.replies, at),
         verdict=first(turn.outcomes, at, source=vocab.Source.ASSISTANT),
-        click=first(turn.clicks, at),
+        click=last(turn.clicks, at),  # A second click corrects the first.
         domain=(
-            await topics.domain_of(session, turn.embeddings[0].embedding)
-            if turn.embeddings
+            await topics.domain_of(session, embedding)
+            if embedding is not None
             else topics.ANY_DOMAIN
         ),
+        features=await request_features(session, turn, embedding),
+        answered=await _answered_click(session, turn),
     )
+
+
+async def _answered_click(
+    session: Session, turn: models.Turn
+) -> tuple[str, str] | None:
+    previous = await session.scalar(
+        with_events(
+            sa.select(models.Turn).where(
+                models.Turn.conversation_id == turn.conversation_id,
+                models.Turn.turn_index == turn.turn_index - 1,
+            )
+        )
+    )
+    click = last(previous.clicks, turn.created_at) if previous else None
+    if click is None:
+        return None
+    scope = (
+        await topics.domain_of(session, previous.embeddings[0].embedding)
+        if previous.embeddings
+        else topics.ANY_DOMAIN
+    )
+    return click.button, scope
 
 
 def style_of(turn: models.Turn) -> dict:
     """Returns the decisions logged on a turn (SPEC 5.5)."""
     style = turn.style if isinstance(turn.style, dict) else {}
-    return {"form": {}, "clarify": None, "cell": turn.request_type, **style}
+    legacy_cell = style.get("scope", "")  # "<type>@mobile" before SPEC 6.5.
+    return {
+        "form": {},
+        "clarify": None,
+        "mobile": legacy_cell.endswith("@" + theta.MOBILE),
+        "domain": topics.ANY_DOMAIN,
+        "buttons": [],
+        **style,
+    }
 
 
 async def finalize_turn(
@@ -358,28 +423,30 @@ async def finalize_turn(
     ur.reaction_prior = [
         c + q for c, q in zip(ur.reaction_prior, outcome_probs)
     ]
-    cell_theta, alpha = await grids(session, turn.user_id, style["cell"], p)
-    cell_theta.grid, alpha.grid = theta.update(
-        cell_theta.grid,
-        alpha.grid,
-        style["cell"],
+    belief = await length_belief(session, turn.user_id)
+    theta_mean, _ = belief.predict(ev.features, p.prior)
+    theta.update(
+        belief,
+        ev.features,
         log_len - math.log(turn.needed_words),
         len_var,
         p.families.bias(conv.family_probs),
         outcome_probs,
-        p.hyper,
+        p.prior,
     )
+    await save_belief(session, turn.user_id, belief)
 
     # Form preferences (7), buttons (8) and clarification (4.1).
     await _learn_preferences(
         session, ev, style, dict(zip(reaction.OUTCOMES, outcome_probs))
     )
-    session.add_all([conv, ur, cell_theta, alpha])
+    session.add_all([conv, ur])
     await session.merge(
         models.TurnInference(
             turn_id=turn_id,
             length_mean=log_len,
             length_var=len_var,
+            theta_mean=theta_mean,
             reaction_probs=dict(zip(reaction.OUTCOMES, outcome_probs)),
             reading_probs={
                 **dict(zip(reading.COMPONENTS, resp)),
@@ -400,7 +467,7 @@ async def _learn_preferences(
         explicit.append(effect.preference)
     elif not click and verdict and verdict.format_issue:
         explicit.append(vocab.FORMAT_ISSUES[verdict.format_issue])
-    by_scope = collections.defaultdict(dict)
+    by_scope = collections.defaultdict(lambda: collections.defaultdict(float))
     signals = prefs.signals(
         style["form"],
         explicit,
@@ -408,20 +475,23 @@ async def _learn_preferences(
         probs[vocab.Outcome.WRONG_FORMAT],
     )
     for (dimension, value), count in signals.items():
-        scope = prefs.scope_of(dimension, turn.request_type, ev.domain)
-        by_scope[scope][(dimension, value)] = count
+        by_scope[ev.domain][(dimension, value)] += count
+    moved_on = probs[vocab.Outcome.MOVED_ON]
+    # A button helped when clicked and the reply it asked for was fine, which
+    # the next turn tells; a button not clicked did not help (SPEC 8).
     for shown in ev.turn.buttons_shown:
-        clicked = bool(click) and click.button == shown.button
-        dimension = prefs.arm(vocab.ArmKind.BUTTON, shown.button)
-        value = vocab.PrefValue.YES if clicked else vocab.PrefValue.NO
-        by_scope[turn.request_type][(dimension, value)] = 1.0
+        if not click or click.position != shown.position:
+            dimension = prefs.arm(vocab.ArmKind.BUTTON, shown.button)
+            by_scope[ev.domain][(dimension, vocab.PrefValue.NO)] += 1.0
+    if ev.answered:
+        button, scope = ev.answered
+        dimension = prefs.arm(vocab.ArmKind.BUTTON, button)
+        by_scope[scope][(dimension, vocab.PrefValue.YES)] += moved_on
+        by_scope[scope][(dimension, vocab.PrefValue.NO)] += 1 - moved_on
     if style["clarify"]:
         dimension = prefs.arm(vocab.ArmKind.CLARIFY, style["clarify"])
-        moved_on = probs[vocab.Outcome.MOVED_ON]
-        by_scope[turn.request_type][(dimension, vocab.PrefValue.YES)] = moved_on
-        by_scope[turn.request_type][(dimension, vocab.PrefValue.NO)] = (
-            1 - moved_on
-        )
+        by_scope[ev.domain][(dimension, vocab.PrefValue.YES)] += moved_on
+        by_scope[ev.domain][(dimension, vocab.PrefValue.NO)] += 1 - moved_on
     for scope, counts in by_scope.items():
         await add_prefs(session, turn.user_id, scope, counts)
 
@@ -431,9 +501,10 @@ async def apply_edit(
 ) -> None:
     """Applies a profile-page correction (SPEC 4.6), a very strong signal."""
     if edit.dimension == vocab.LENGTH:
-        cell_theta, _ = await grids(session, edit.user_id, edit.scope, p)
-        cell_theta.grid = theta.edit(cell_theta.grid, edit.value)
-        session.add(cell_theta)
+        belief = await length_belief(session, edit.user_id)
+        x = theta.edit_features(edit.scope, topics.DOMAIN_PREFIX)
+        theta.edit(belief, x, edit.value, p.prior)
+        await save_belief(session, edit.user_id, belief)
         await session.flush()
         return
     await add_prefs(

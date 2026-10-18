@@ -1,8 +1,7 @@
-"""FastAPI app: MCP at /mcp/<token>, profile page, admin and metrics."""
+"""FastAPI app: MCP at /mcp (OAuth), pages, admin and metrics."""
 
 import contextlib
 import logging
-import re
 from urllib import parse
 
 import fastapi
@@ -16,6 +15,7 @@ from app import db
 from app import mcp_server
 from app import metrics
 from app import models
+from app import oauth
 from app import profile
 from app import service
 from app import vocab
@@ -25,62 +25,57 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 log = logging.getLogger("access")
-REDACT = re.compile(r"^/mcp/[^/]+")
-REDACTED = "/mcp/<redacted>"
+BEARER = "Bearer "
+MCP = oauth.MCP_PATH
 LOCAL_HOSTS = ["localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*", "app:*"]
 
 
-async def _send_text(send, status: int, body: bytes) -> None:
+async def _unauthorized(send, invalid: bool) -> None:
+    """Answers 401 with the challenge that starts the OAuth flow."""
+    challenge = oauth.challenge(invalid).encode()
     await send(
         {
             "type": "http.response.start",
-            "status": status,
-            "headers": [(b"content-type", b"text/plain")],
+            "status": 401,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"www-authenticate", challenge),
+            ],
         }
     )
-    await send({"type": "http.response.body", "body": body})
+    await send({"type": "http.response.body", "body": b"Unauthorized"})
 
 
 class McpAuth:
-    """Resolves /mcp/<token> to a user and serves the MCP app.
+    """Serves /mcp to the user behind an OAuth access token (SPEC 4.7).
 
-    The user id travels in a header that only this wrapper sets: any copy
-    sent by the client is dropped.
+    Every other path goes to the API. The user id travels in a header that
+    only this wrapper sets: any copy sent by the client is dropped.
     """
 
-    def __init__(self, inner):
-        self.app = inner
-        self.users: dict[str, int] = {}
+    def __init__(self, mcp, other):
+        self.mcp, self.other = mcp, other
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            return await self.app(scope, receive, send)
-        root = scope.get("root_path", "")
-        token = scope["path"].removeprefix(root).strip("/").split("/")[0]
-        user_id = self.users.get(token) or (
-            await service.user_for_token(token) if token else None
+        if scope["type"] != "http" or scope["path"].rstrip("/") != MCP:
+            return await self.other(scope, receive, send)
+        bearer = dict(scope["headers"]).get(b"authorization", b"").decode()
+        access = (
+            bearer.removeprefix(BEARER) if bearer.startswith(BEARER) else ""
         )
+        user_id = await oauth.user_for_access_token(access) if access else None
         if user_id is None:
-            log.info(
-                "%s %s rejected: unknown connector token",
-                scope["method"],
-                REDACTED,
-            )
-            return await _send_text(send, 404, b"Not found")
-        self.users[token] = user_id
+            return await _unauthorized(send, invalid=bool(access))
         header = mcp_server.TOKEN_HEADER.encode()
         headers = [(k, v) for k, v in scope["headers"] if k.lower() != header]
         headers.append((header, str(user_id).encode()))
-        path = root + "/"
-        await self.app(
-            dict(scope, path=path, raw_path=path.encode(), headers=headers),
-            receive,
-            send,
+        await self.mcp(
+            dict(scope, path="/", raw_path=b"/", headers=headers), receive, send
         )
 
 
 class AccessLog:
-    """Access log with the token redacted and no query string."""
+    """Access log without the query string, which may carry a credential."""
 
     def __init__(self, inner):
         self.app = inner
@@ -99,7 +94,7 @@ class AccessLog:
         log.info(
             "%s %s %s",
             scope["method"],
-            REDACT.sub(REDACTED, scope["path"]),
+            scope["path"],
             status.get("code"),
         )
 
@@ -138,8 +133,9 @@ api = fastapi.FastAPI(
 api.include_router(dashboard.page)
 api.include_router(dashboard.api)
 api.include_router(profile.router)
-api.mount("/mcp", McpAuth(mcp_app))
-app = AccessLog(api)
+api.include_router(oauth.router)
+api.router.routes.extend(oauth.routes())
+app = AccessLog(McpAuth(mcp_app, api))
 admin = [fastapi.Depends(dashboard.admin)]
 
 

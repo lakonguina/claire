@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ language }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lingua Franca Admin</title>
+<title>{{ texts.dashboard.title }}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap">
 <style>
@@ -60,6 +60,7 @@ h2 { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacin
 .kpi b { display: block; font: 500 22px/1.2 var(--mono); letter-spacing: -.02em; }
 .kpi small { color: var(--muted); font-size: 12px; }
 .panels { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-bottom: 16px; }
+.wide { grid-column: 1 / -1; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
 
 table { width: 100%; border-collapse: collapse; }
@@ -90,9 +91,9 @@ tr.mono td, .heat td { white-space: nowrap; }
 .chip.clicked { background: var(--c, var(--accent)); color: #12010d; }
 
 .drawer { position: fixed; top: 52px; right: 0; bottom: 0; width: min(620px, 100%); background: var(--panel);
-  border-left: 1px solid var(--line-strong); overflow-y: auto; transform: translateX(100%); transition: transform .18s ease;
-  z-index: 4; padding: 18px; box-shadow: -20px 0 40px rgba(0, 0, 0, .35); }
-.drawer.open { transform: none; }
+  border-left: 1px solid var(--line-strong); overflow-y: auto; transform: translateX(100%); transition: transform .18s ease, visibility .18s;
+  z-index: 4; padding: 18px; visibility: hidden; }
+.drawer.open { transform: none; visibility: visible; box-shadow: -20px 0 40px rgba(0, 0, 0, .35); }
 .drawer section { margin-bottom: 20px; }
 .drawer header { position: static; height: auto; padding: 0 0 14px; border: 0; background: none; align-items: flex-start; gap: 12px; }
 .close { margin-left: auto; }
@@ -122,37 +123,50 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; 
   .brand span, .live small, #updated { display: none; }
   main { padding: 16px; }
 }
+.lead { margin: -4px 0 12px; color: var(--muted); font-size: 12.5px; max-width: 70ch; }
+.sym { margin-left: 5px; font: 11px var(--mono); color: var(--faint); text-transform: none; letter-spacing: 0; }
+.tip { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px; border-radius: 50%;
+  border: 1px solid var(--line-strong); color: var(--muted); font: 600 10px/1 var(--sans); cursor: help;
+  vertical-align: 1px; text-transform: none; letter-spacing: 0; }
+.tip:hover, .tip:focus { border-color: var(--accent); color: var(--accent-ink); outline: none; }
+#tipbox { position: fixed; z-index: 20; max-width: min(300px, calc(100vw - 32px)); padding: 8px 10px; background: var(--panel-2);
+  border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12.5px; line-height: 1.45; pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
 </style>
 </head>
 <body>
 <header>
   <div class="brand"><i></i>lingua franca <span>/ admin</span></div>
   <nav id="tabs">
-    <button data-view="live" aria-current="page">Live</button>
-    <button data-view="users">Users</button>
-    <button data-view="model">Model</button>
-    <button data-view="metrics">Metrics</button>
+    {% for view, name in texts.dashboard.tabs.items() %}
+    <button data-view="{{ view }}"{% if loop.first %} aria-current="page"{% endif %}>{{ name }}</button>
+    {% endfor %}
   </nav>
   <div class="spacer"></div>
   <span id="updated" class="mono faint"></span>
-  <button id="live" class="live mono" aria-pressed="true"><i></i><small>Live</small></button>
+  <button id="live" class="live mono" aria-pressed="true"><i></i><small>{{ texts.dashboard.ui.live }}</small></button>
 </header>
 <main id="view"></main>
 <aside id="drawer" class="drawer" aria-hidden="true"></aside>
+<div id="tipbox" role="tooltip" hidden></div>
 <div id="token" class="token" hidden>
   <form>
     <div class="brand"><i></i>lingua franca <span>/ admin</span></div>
-    <label class="muted" for="token-input">Admin token (<span class="mono">ADMIN_TOKEN</span>)</label>
+    <label class="muted" for="token-input">{{ texts.dashboard.ui.token }}</label>
     <input id="token-input" type="password" autocomplete="current-password" required>
-    <button class="btn primary">Open dashboard</button>
-    <p id="token-error" class="error" hidden>Invalid token.</p>
+    <button class="btn primary">{{ texts.dashboard.ui.open }}</button>
+    <p id="token-error" class="error" hidden>{{ texts.dashboard.ui.invalid }}</p>
   </form>
 </div>
 <script>
+const TEXTS = {{ texts | tojson }};
+const D = TEXTS.dashboard;
+const LANG = document.documentElement.lang;
 const OUTCOME_COLORS = {
   moved_on: "var(--aqua)", too_long: "var(--accent-ink)", too_short: "var(--info)", missing_info: "var(--warn)",
   misunderstood: "var(--err)", wrong_format: "var(--violet)", no_signal: "var(--faint)",
 };
+const READING_COLORS = { read: "var(--aqua)", skim: "var(--warn)", away: "var(--faint)" };
 const OUTCOMES = Object.keys(OUTCOME_COLORS).filter((o) => o !== "no_signal");
 const state = { view: "live", filters: {}, selected: null, live: true, timer: null };
 const $ = (sel) => document.querySelector(sel);
@@ -160,16 +174,60 @@ const $ = (sel) => document.querySelector(sel);
 let token = "";
 try { token = sessionStorage.getItem("lf-admin-token") || ""; } catch {}
 
+/* ---------- Texts and numbers ---------- */
+
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const num = (v, d = 0) => (v === null || v === undefined ? "—" : Number(v).toFixed(d));
-const pct = (v) => (v === null || v === undefined || Number.isNaN(v) ? "—" : `${(100 * v).toFixed(0)}%`);
+const fill = (text, vars = {}) => String(text).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
+const ui = (key, vars) => fill(D.ui[key] ?? key, vars);
+const named = (group, key) => D[group]?.[key] ?? key;
+const tip = (help) => (help ? `<span class="tip" tabindex="0" data-tip="${esc(help)}" aria-label="${esc(ui("help"))}">?</span>` : "");
+// A term's plain name, its notation for ML readers, and its explanation on demand.
+function term(key, vars) {
+  const t = D.terms[key] || { name: key };
+  return `${esc(fill(t.name, vars))}${t.symbol ? `<span class="sym">${esc(t.symbol)}</span>` : ""}${tip(t.help && fill(t.help, vars))}`;
+}
+// A panel title, with its explanation written out below it.
+function head(key, vars, extra = "") {
+  const t = D.terms[key] || { name: key };
+  return `<h2>${esc(fill(t.name, vars))}${t.symbol ? `<span class="sym">${esc(t.symbol)}</span>` : ""} ${extra}</h2>${t.help ? `<p class="lead">${esc(fill(t.help, vars))}</p>` : ""}`;
+}
+
+const missing = (v) => v === null || v === undefined || Number.isNaN(v);
+const num = (v, d = 0) => (missing(v) ? "—" : Number(v).toLocaleString(LANG, { minimumFractionDigits: d, maximumFractionDigits: d }));
+const pct = (v) => (missing(v) ? "—" : Number(v).toLocaleString(LANG, { style: "percent" }));
+const times = (v) => (missing(v) ? "—" : `×${num(v, 2)}`);
+const factor = (logSd) => (missing(logSd) ? "—" : times(Math.exp(logSd)));  // A spread on the log scale.
+const plusMinus = (logSd) => (missing(logSd) ? "—" : `±${pct(Math.exp(logSd) - 1)}`);
 const ratio = (a, b) => (b ? a / b : null);
-const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "—");
-const datetime = (iso) => (iso ? new Date(iso).toLocaleString([], { hour12: false }) : "—");
-const secs = (v) => (v === null || v === undefined ? "—" : v < 60 ? `${Number(v).toFixed(1)}s` : `${(v / 60).toFixed(1)}m`);
+const time = (iso) => (iso ? new Date(iso).toLocaleTimeString(LANG, { hour12: false }) : "—");
+const datetime = (iso) => (iso ? new Date(iso).toLocaleString(LANG, { hour12: false }) : "—");
+const secs = (v) => (missing(v) ? "—" : v < 60 ? `${num(v, 1)} s` : v < 3600 ? `${num(v / 60, 1)} min` : `${num(v / 3600, 1)} h`);
+const words = (v) => ui("words", { n: num(v) });
+
 const chip = (label, color, extra = "") => `<span class="chip ${extra}" style="--c:${color}">${esc(label)}</span>`;
-const outcomeChip = (o, extra) => (o ? chip(o, OUTCOME_COLORS[o] || "var(--faint)", extra) : '<span class="faint">—</span>');
-const kv = (rows) => `<table class="kv">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="mono">${v}</td></tr>`).join("")}</table>`;
+const outcomeChip = (o, extra) => (o ? chip(named("outcomes", o), OUTCOME_COLORS[o] || "var(--faint)", extra) : '<span class="faint">—</span>');
+const buttonName = (b) => TEXTS.buttons[b]?.label ?? b;
+const kv = (rows) => `<table class="kv">${rows.map(([k, v]) => `<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join("")}</table>`;
+const table = (columns, body) => `<table><tr>${columns.map((c) => `<th>${term(c)}</th>`).join("")}</tr>${body}</table>`;
+const empty = (key, columns = 1) => `<tr><td colspan="${columns}" class="faint">${esc(ui(key))}</td></tr>`;
+
+// A scope: "*" (in general), "topic:<id>" (a topic domain) or "mobile" (on a phone).
+function scopeName(scope) {
+  if (scope === "*" || scope === "topic:any") return ui("general");
+  if (scope === "mobile") return `${ui("general")} · ${ui("mobile")}`;
+  return scope.startsWith("topic:") ? ui("domain", { n: scope.slice(6) }) : scope;
+}
+
+function preference(dimension, value) {
+  const [kind, arm] = dimension.split(":");
+  if (kind === "button") return [ui("button_pref", { name: buttonName(arm) }), ui(value)];
+  if (kind === "clarify") return [`${ui("clarify_pref")} · ${named("clarify", arm)}`, ui(value)];
+  if (dimension === "length") return [TEXTS.dimensions.length?.name ?? dimension, TEXTS.lengths[value] ?? value];
+  const d = TEXTS.dimensions[dimension];
+  return [d?.name ?? dimension, d?.values[value] ?? value];
+}
+
+/* ---------- Plumbing ---------- */
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { ...(options.headers || {}), authorization: `Bearer ${token}` } });
@@ -195,11 +253,28 @@ $("#token form").addEventListener("submit", (event) => {
   render();
 });
 
-function probBars(probs, colors = OUTCOME_COLORS) {
-  if (!probs) return '<p class="faint">Not finalized yet: closes when the next plan_reply arrives.</p>';
-  return `<div class="prob">${Object.entries(probs).filter(([k]) => k !== "seconds").map(([k, v]) =>
-    `<span>${esc(k)}</span><div class="track"><div class="fill" style="width:${100 * v}%;background:${colors[k] || "var(--accent)"}"></div></div><span>${pct(v)}</span>`).join("")}</div>`;
+// One floating tooltip, so that scrolling panels never clip it.
+function showTip(event) {
+  const target = event.target.closest?.(".tip");
+  const box = $("#tipbox");
+  if (!target) return void (box.hidden = true);
+  box.textContent = target.dataset.tip;
+  box.hidden = false;
+  const r = target.getBoundingClientRect();
+  const left = Math.min(Math.max(16, r.left + r.width / 2 - box.offsetWidth / 2), innerWidth - box.offsetWidth - 16);
+  const below = r.bottom + 6 + box.offsetHeight < innerHeight;
+  box.style.left = `${left}px`;
+  box.style.top = `${below ? r.bottom + 6 : r.top - 6 - box.offsetHeight}px`;
 }
+for (const type of ["mouseover", "focusin"]) document.addEventListener(type, showTip);
+document.addEventListener("scroll", () => { $("#tipbox").hidden = true; }, true);
+
+function probBars(probs, colors = OUTCOME_COLORS, group = "outcomes") {
+  if (!probs) return `<p class="faint">${esc(ui("not_finalized"))}</p>`;
+  return `<div class="prob">${Object.entries(probs).filter(([k]) => k !== "seconds").map(([k, v]) =>
+    `<span>${esc(named(group, k))}</span><div class="track"><div class="fill" style="width:${100 * v}%;background:${colors[k] || "var(--accent)"}"></div></div><span>${pct(v)}</span>`).join("")}</div>`;
+}
+const caption = (key) => `<p class="lead" style="margin:12px 0 6px">${esc(ui(key))}</p>`;
 
 /* ---------- Live ---------- */
 
@@ -207,42 +282,50 @@ async function renderLive() {
   const [overview, turns] = await Promise.all([api("/admin/api/overview"), api(`/admin/api/turns?${new URLSearchParams(state.filters)}`)]);
   const c = overview.counts;
   const kpis = [
-    [c.turns, "turns", `${c.turns_24h} in 24 h`],
-    [c.conversations, "conversations", `${pct(ratio(c.held_back_conversations, c.conversations))} in comparison arms`],
+    [c.turns, "turns", ui("in_24h", { n: c.turns_24h })],
+    [c.conversations, "conversations", c.held_back_conversations ? ui("in_arms", { p: pct(ratio(c.held_back_conversations, c.conversations)) }) : ""],
     [c.users, "users", ""],
-    [pct(ratio(c.widget_turns, c.turns)), "widget mode", `${c.widget_turns} turns`],
-    [pct(ratio(c.widget_turns_with_reply, c.widget_turns)), "show_reply coverage", "of widget turns"],
-    [pct(ratio(c.turns_with_click, c.turns_with_buttons)), "click rate", `${c.turns_with_click} / ${c.turns_with_buttons} turns`],
-    [c.finalized_turns, "finalized turns", `${c.gold_labels} gold labels`],
-    [c.last_nightly ? time(c.last_nightly) : "never", "last nightly", c.last_nightly ? new Date(c.last_nightly).toLocaleDateString() : ""],
+    [pct(ratio(c.widget_turns, c.turns)), "widget_mode", ui("turns_n", { n: c.widget_turns })],
+    [pct(ratio(c.widget_turns_with_reply, c.widget_turns)), "show_reply_coverage", ui("of_widget")],
+    [pct(ratio(c.turns_with_click, c.turns_with_buttons)), "click_rate", ui("clicks_of", { a: c.turns_with_click, b: c.turns_with_buttons })],
+    [c.finalized_turns, "finalized", ui("gold_n", { n: c.gold_labels })],
+    [c.last_nightly ? time(c.last_nightly) : ui("never"), "last_nightly", c.last_nightly ? new Date(c.last_nightly).toLocaleDateString(LANG) : ""],
   ];
+  const settings = overview.settings;
   $("#view").innerHTML = `
-    <div class="grid kpis">${kpis.map(([v, label, sub]) => `<div class="kpi"><small>${esc(label)}</small><b>${esc(v)}</b><small class="faint">${esc(sub)}</small></div>`).join("")}</div>
+    <div class="grid kpis">${kpis.map(([v, key, sub]) => `<div class="kpi"><small>${term(key)}</small><b>${esc(v)}</b><small class="faint">${esc(sub)}</small></div>`).join("")}</div>
     <div class="grid panels">
-      <div class="panel"><h2>Hosts</h2><div class="scroll"><table>
-        <tr><th>host</th><th>protocol</th><th>apps</th><th>conv.</th><th>last</th></tr>
-        ${overview.hosts.map((h) => `<tr class="mono"><td>${esc(h.host)}</td><td>${esc(h.protocol_version || "—")}</td><td>${h.ui_supported ? chip("yes", "var(--aqua)") : chip("no", "var(--err)")}</td><td>${h.conversations}</td><td>${time(h.last_seen)}</td></tr>`).join("")}
-      </table></div></div>
-      <div class="panel"><h2>Topic domains · ${c.topic_clusters}</h2>${overview.topic_clusters.length
-        ? kv(overview.topic_clusters.map((k) => [`topic:${k.id} · ${k.size}`, `“${esc(k.medoid_topic)}”`]))
-        : '<p class="faint">Learned by the nightly job from 20 topics on: one domain until then.</p>'}</div>
-      <div class="panel"><h2>Tool calls · 24 h</h2>${kv(overview.tool_calls.map((t) => [t.tool, t.calls_24h]))}</div>
-      <div class="panel"><h2>Settings</h2>${kv(Object.entries(overview.settings).map(([k, v]) => [k, esc(Array.isArray(v) ? v.join(", ") || "—" : v)]))}</div>
+      <div class="panel">${head("hosts")}<div class="scroll">${table(["hosts", "protocol", "apps", "conversations", "last"],
+        overview.hosts.map((h) => `<tr class="mono"><td>${esc(h.host)}</td><td>${esc(h.protocol_version || "—")}</td><td>${h.ui_supported ? chip(ui("yes"), "var(--aqua)") : chip(ui("no"), "var(--err)")}</td><td>${h.conversations}</td><td>${time(h.last_seen)}</td></tr>`).join(""))}</div></div>
+      <div class="panel">${head("topic_domains", {}, `· ${c.topic_clusters}`)}${overview.topic_clusters.length
+        ? kv(overview.topic_clusters.map((k) => [`${esc(ui("domain", { n: k.id }))} · ${k.size}`, `“${esc(k.medoid_topic)}”`]))
+        : `<p class="faint">${esc(ui("domains_until"))}</p>`}</div>
+      <div class="panel scroll">${head("questions")}${overview.questions.length ? table(["question", "language", "asked_by", "follows"],
+        overview.questions.map((q) => `<tr><td>${esc(q.text)}${q.users < overview.min_users ? "" : ` ${chip("✓", "var(--aqua)")}`}</td><td class="mono">${esc(q.language)}</td><td class="mono">${q.users}</td><td class="mono">${q.follows}</td></tr>`).join(""))
+        : `<p class="faint">${esc(ui("questions_until"))}</p>`}</div>
+      <div class="panel">${head("tool_calls")}${kv(overview.tool_calls.map((t) => [esc(t.tool), t.calls_24h]))}</div>
+      <div class="panel">${head("settings")}${kv([
+        [term("policy"), esc(settings.policy)],
+        [term("q"), num(settings.q, 2)],
+        [term("arm_shares"), Object.entries(settings.arm_shares).map(([arm, share]) => `${esc(named("groups", arm))} ${pct(share)}`).join(" · ")],
+        [term("control_unit"), esc(settings.control_unit)],
+        [term("shadow_policies"), esc(settings.shadow_policies.join(", ") || "—")],
+        [term("cache_ttl_ms"), num(settings.cache_ttl_ms)],
+      ])}</div>
     </div>
-    <h2>Turns</h2>
+    ${head("turns_table")}
     <form class="filters" id="filters">
-      <input name="q" placeholder="topic contains…" value="${esc(state.filters.q)}">
-      <input name="user" placeholder="user id" size="8" value="${esc(state.filters.user)}">
-      <input name="conversation" placeholder="conversation id" size="12" value="${esc(state.filters.conversation)}">
-      <input name="host" placeholder="host" size="14" value="${esc(state.filters.host)}">
-      <select name="mode"><option value="">any mode</option>${["widget", "fallback"].map((m) => `<option ${state.filters.mode === m ? "selected" : ""}>${m}</option>`).join("")}</select>
-      <select name="group"><option value="">any group</option>${["treatment", "control"].map((g) => `<option ${state.filters.group === g ? "selected" : ""}>${g}</option>`).join("")}</select>
-      <button class="btn">Filter</button><button class="btn" type="reset">Clear</button>
+      <input name="q" placeholder="${esc(ui("topic_contains"))}" value="${esc(state.filters.q)}">
+      <input name="user" placeholder="${esc(ui("user_id"))}" size="8" value="${esc(state.filters.user)}">
+      <input name="conversation" placeholder="${esc(ui("conversation_id"))}" size="12" value="${esc(state.filters.conversation)}">
+      <input name="host" placeholder="${esc(ui("host"))}" size="14" value="${esc(state.filters.host)}">
+      <select name="mode"><option value="">${esc(ui("any_mode"))}</option>${Object.entries(D.modes).map(([m, name]) => `<option value="${m}" ${state.filters.mode === m ? "selected" : ""}>${esc(name)}</option>`).join("")}</select>
+      <select name="group"><option value="">${esc(ui("any_group"))}</option>${Object.entries(D.groups).map(([g, name]) => `<option value="${g}" ${state.filters.group === g ? "selected" : ""}>${esc(name)}</option>`).join("")}</select>
+      <button class="btn">${esc(ui("filter"))}</button><button class="btn" type="reset">${esc(ui("clear"))}</button>
     </form>
     <div class="panel scroll" style="padding:0">${turns.length ? `<table class="rows">
-      <tr><th>time</th><th>turn</th><th>user · conv</th><th>host</th><th>mode</th><th>type</th><th>topic</th>
-          <th title="needed → target → requested → exact">words</th><th>verdict</th><th>inferred</th><th>buttons</th><th>write</th></tr>
-      ${turns.map(turnRow).join("")}</table>` : '<div class="empty">No turns match.</div>'}</div>`;
+      <tr>${["time", "turn", "user_conv", "hosts", "mode", "topic", "words", "verdict", "inferred", "buttons", "write"].map((k) => `<th>${term(k)}</th>`).join("")}</tr>
+      ${turns.map(turnRow).join("")}</table>` : `<div class="empty">${esc(ui("no_turns"))}</div>`}</div>`;
   const form = $("#filters");
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -254,17 +337,16 @@ async function renderLive() {
 }
 
 function turnRow(t) {
-  const buttons = (t.buttons || []).map((b) => chip(b, "var(--accent)", b === t.clicked ? "clicked" : "")).join(" ");
-  const words = [t.needed_words, t.target_words, t.requested_words, t.reply_words_exact].map((w) => w ?? "—").join(" → ");
+  const buttons = t.buttons.map((b) => chip(b.label || buttonName(b.id), b.label ? "var(--violet)" : "var(--accent)", b.position === t.clicked ? "clicked" : "")).join(" ");
+  const flow = [t.needed_words, t.target_words, t.requested_words, t.reply_words_exact].map((w) => w ?? "—").join(" → ");
   return `<tr data-id="${t.id}" class="${state.selected === t.id ? "selected" : ""}" style="--bar:${OUTCOME_COLORS[t.inferred] || "transparent"}">
     <td class="mono muted">${time(t.created_at)}</td>
     <td class="mono">t_${t.id}<span class="faint"> #${t.turn_index}</span></td>
     <td class="mono">u${t.user_id} · c_${t.conversation_id}</td>
     <td class="mono">${esc(t.host)}</td>
-    <td>${chip(t.reply_mode, t.reply_mode === "widget" ? "var(--aqua)" : "var(--warn)")} ${t.grp !== "treatment" ? chip(t.grp, "var(--faint)") : ""}</td>
-    <td class="mono">${esc(t.request_type)}</td>
+    <td>${chip(named("modes", t.reply_mode), t.reply_mode === "widget" ? "var(--aqua)" : "var(--warn)")} ${t.grp !== "treatment" ? chip(named("groups", t.grp), "var(--faint)") : ""}</td>
     <td class="topic" title="${esc(t.topic)}">${esc(t.topic)} <span class="faint mono">${esc(t.language)}</span></td>
-    <td class="mono">${words}</td>
+    <td class="mono">${flow}</td>
     <td>${outcomeChip(t.verdict)}${t.user_quote ? `<div class="faint">“${esc(t.user_quote)}”</div>` : ""}</td>
     <td>${outcomeChip(t.inferred)} <span class="mono faint">${t.inferred_p ? pct(t.inferred_p) : ""}</span></td>
     <td>${buttons || '<span class="faint">—</span>'}</td>
@@ -281,11 +363,11 @@ async function openTurn(id) {
   const start = new Date(t.created_at).getTime();
   const at = (iso) => (iso ? (new Date(iso).getTime() - start) / 1000 : null);
   const reply = d.replies[0];
-  const click = d.clicks[0];
+  const click = d.clicks.at(-1);  // The last click is the reaction.
   const end = at(d.next_turn?.created_at) ?? Math.max(at(reply?.created_at) ?? 0, at(click?.created_at) ?? 0, 1);
   const span = Math.max(end, 0.001);
-  const bar = (label, from, to, color) => from === null || to === null ? "" :
-    `<span>${label}</span><div class="track"><div class="bar" style="left:${100 * from / span}%;width:${Math.max(100 * (to - from) / span, 0.4)}%;background:${color}"></div></div><span>${secs(to - from)}</span>`;
+  const bar = (key, from, to, color) => from === null || to === null ? "" :
+    `<span>${esc(named("timeline", key))}</span><div class="track"><div class="bar" style="left:${100 * from / span}%;width:${Math.max(100 * (to - from) / span, 0.4)}%;background:${color}"></div></div><span>${secs(to - from)}</span>`;
   const inf = d.inference;
   const cs = d.conversation_state;
   const verdict = d.outcomes.find((o) => o.source === "assistant");
@@ -295,48 +377,48 @@ async function openTurn(id) {
   const drawer = $("#drawer");
   drawer.innerHTML = `
     <header>
-      <div><div class="mono muted">t_${t.id} · turn #${t.turn_index} · c_${t.conversation_id} · u${t.user_id}</div>
+      <div><div class="mono muted">t_${t.id} · #${t.turn_index} · c_${t.conversation_id} · u${t.user_id}</div>
       <div style="font-size:16px;font-weight:600;margin-top:4px">${esc(t.topic)}</div></div>
-      <button class="btn close" id="close">Close</button>
+      <button class="btn close" id="close">${esc(ui("close"))}</button>
     </header>
-    <section><h2>Timeline</h2><div class="wf">
+    <section>${head("timeline")}<div class="wf">
       ${bar("plan_reply", 0, 0.001 * span, "var(--accent)")}
       ${bar("writing", 0, at(reply?.created_at), "var(--violet)")}
       ${click ? bar("click", at(click.created_at), at(click.created_at) + 0.004 * span, "var(--aqua)") : ""}
       ${bar("reading", at(reply?.created_at) ?? 0, at(d.next_turn?.created_at), "var(--info)")}
-    </div>${d.next_turn ? "" : '<p class="faint">Open turn: no next plan_reply yet.</p>'}</section>
-    <section><h2>Decision</h2>${kv([
-      ["needed → target → requested → exact", `${t.needed_words} → ${t.target_words ?? "—"} → ${t.requested_words ?? "—"} → ${reply?.reply_words_exact ?? "—"}`],
-      ["policy", esc(t.model_version)],
-      ["θ̃ sample (ratio)", t.theta_sample === null ? "—" : num(Math.exp(t.theta_sample), 3)],
-      ["posterior mean ratio ± sd (log)", t.post_mean === null ? "—" : `${num(Math.exp(t.post_mean), 3)} ± ${num(t.post_sd, 3)}`],
-      ["b̃ sample", num(t.b_sample, 3)],
-      ["propensity", num(t.propensity, 3)],
-      ["form drawn", form.map(([k, v]) => chip(`${k}: ${v}`, "var(--violet)")).join(" ") || "auto"],
-      ["clarification", esc(style.clarify || "—")],
-      ["length cell · domain", `${esc(style.cell || t.request_type)} · ${esc(style.domain || "—")}`],
-      ["language", esc(t.language)],
-      ...d.shadow_decisions.map((s) => [`shadow ${s.model_version}`, `${s.target_words} (p=${num(s.propensity, 2)})`]),
+    </div>${d.next_turn ? "" : `<p class="faint">${esc(ui("open_turn"))}</p>`}</section>
+    <section>${head("decision")}${kv([
+      [term("words"), `${t.needed_words} → ${t.target_words ?? "—"} → ${t.requested_words ?? "—"} → ${reply?.reply_words_exact ?? "—"}`],
+      [term("policy"), esc(t.model_version)],
+      [term("theta_sample"), t.theta_sample === null ? "—" : esc(ui("of_complete", { p: pct(Math.exp(t.theta_sample)) }))],
+      [term("post_mean"), t.post_mean === null ? "—" : `${esc(ui("of_complete", { p: pct(Math.exp(t.post_mean)) }))} <span class="faint">${factor(t.post_sd)}</span>`],
+      [term("b_sample"), factor(t.b_sample)],
+      [term("propensity"), pct(t.propensity)],
+      [term("form"), form.map(([k, v]) => chip(preference(k, v).join(" : "), "var(--violet)")).join(" ") || "auto"],
+      [term("clarify"), style.clarify ? esc(named("clarify", style.clarify)) : "—"],
+      [term("cell"), `${esc(scopeName(style.domain || "*"))}${style.mobile ? ` · ${esc(ui("mobile"))}` : ""}`],
+      [term("language"), esc(t.language)],
+      ...d.shadow_decisions.map((s) => [term("shadow", { name: s.model_version }), `${words(s.target_words)} <span class="faint">(${pct(s.propensity)})</span>`]),
     ])}</section>
-    <section><h2>Reaction</h2>${kv([
-      ["assistant verdict", `${outcomeChip(verdict?.observed)} ${verdict?.format_issue ? chip(verdict.format_issue, "var(--violet)") : ""} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${click ? ' <span class="faint">(ignored: clicked)</span>' : ""}`],
-      ["buttons", d.buttons_shown.map((b) => chip(`${b.position}:${b.button}`, "var(--accent)", click?.button === b.button ? "clicked" : "")).join(" ") || "—"],
-      ["gold label", gold ? outcomeChip(gold.outcome) : "—"],
-    ])}<div style="margin-top:10px">${probBars(inf?.reaction_probs)}</div></section>
-    <section><h2>Gold label</h2><div class="gold">${OUTCOMES.map((o) => `<button class="chip" style="--c:${OUTCOME_COLORS[o]}" data-gold="${o}">${o}</button>`).join("")}</div></section>
-    <section><h2>Length &amp; reading</h2>${kv([
-      ["fused length", inf ? `${num(Math.exp(inf.length_mean))} words (log var ${num(inf.length_var, 4)})` : "—"],
-      ["reading time", inf ? secs(inf.reading_probs.seconds) : "—"],
-    ])}<div style="margin-top:10px">${inf ? probBars(inf.reading_probs, { read: "var(--aqua)", skim: "var(--warn)", away: "var(--faint)" }) : ""}</div></section>
-    <section><h2>Conversation</h2>${kv([
-      ["host · protocol", `${esc(d.conversation.host)} · ${esc(d.conversation.protocol_version || "—")}`],
-      ["group · apps", `${esc(d.conversation.grp)} · ${d.conversation.ui_supported ? "yes" : "no"}`],
-      ["platform · locale", esc(d.contexts.map((x) => `${x.platform || "?"} · ${x.locale || "?"}`).join(", ") || "—")],
-      ["compliance (written / requested)", cs ? `${num(Math.exp(cs.kappa_mean), 3)} ± ${num(Math.sqrt(cs.kappa_var), 3)}` : "—"],
-      ["writing speed", cs ? `${num(Math.exp(cs.speed_mean), 1)} words/s` : "—"],
-    ])}<div style="margin-top:10px">${cs ? probBars(cs.family_probs, {}) : ""}</div>
-      <p><a href="#" id="filter-conv">Show this conversation</a> · <a href="#" id="filter-user">Show this user</a></p></section>
-    <section><h2>Raw payload</h2><pre>${esc(JSON.stringify(t.raw_payload, null, 2))}</pre></section>`;
+    <section>${head("reaction")}${kv([
+      [term("assistant_verdict"), `${outcomeChip(verdict?.observed)} ${verdict?.format_issue ? chip(named("format_issues", verdict.format_issue), "var(--violet)") : ""} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${click ? ` <span class="faint">${esc(ui("ignored_clicked"))}</span>` : ""}`],
+      [term("buttons_shown"), d.buttons_shown.map((b) => chip(`${b.position + 1} · ${b.label || buttonName(b.button)}`, b.label ? "var(--violet)" : "var(--accent)", d.clicks.some((c) => c.position === b.position) ? "clicked" : "")).join(" ") || "—"],
+      [term("gold_label"), gold ? outcomeChip(gold.outcome) : "—"],
+    ])}${inf ? caption("reaction_shares") : ""}${probBars(inf?.reaction_probs)}</section>
+    <section>${head("gold")}<div class="gold">${OUTCOMES.map((o) => `<button class="chip" style="--c:${OUTCOME_COLORS[o]}" data-gold="${o}">${esc(named("outcomes", o))}</button>`).join("")}</div></section>
+    <section>${head("length_reading")}${kv([
+      [term("fused_length"), inf ? `${words(Math.exp(inf.length_mean))} <span class="faint">${plusMinus(Math.sqrt(inf.length_var))}</span>` : "—"],
+      [term("reading_time"), inf ? secs(inf.reading_probs.seconds) : "—"],
+    ])}${inf ? caption("reading_shares") + probBars(inf.reading_probs, READING_COLORS, "reading") : ""}</section>
+    <section>${head("conversation")}${kv([
+      [term("host_protocol"), `${esc(d.conversation.host)} · ${esc(d.conversation.protocol_version || "—")}`],
+      [term("group_apps"), `${esc(named("groups", d.conversation.grp))} · ${esc(ui(d.conversation.ui_supported ? "yes" : "no"))}`],
+      [term("platform_locale"), esc(d.contexts.map((x) => `${x.platform || "?"} · ${x.locale || "?"}`).join(", ") || "—")],
+      [term("compliance"), cs ? `${pct(Math.exp(cs.kappa_mean))} <span class="faint">${factor(Math.sqrt(cs.kappa_var))}</span>` : "—"],
+      [term("writing_speed"), cs ? esc(ui("wps", { n: num(Math.exp(cs.speed_mean)) })) : "—"],
+    ])}${cs ? caption("class_shares") + probBars(cs.family_probs, {}) : ""}
+      <p><a href="#" id="filter-conv">${esc(ui("show_conversation"))}</a> · <a href="#" id="filter-user">${esc(ui("show_user"))}</a></p></section>
+    <section>${head("raw")}<pre>${esc(JSON.stringify(t.raw_payload, null, 2))}</pre></section>`;
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
   $("#close").onclick = closeTurn;
@@ -359,10 +441,10 @@ function closeTurn() {
 
 async function renderUsers() {
   const users = await api("/admin/api/users");
-  $("#view").innerHTML = `<h2>Users</h2><div class="panel scroll" style="padding:0"><table class="rows">
-    <tr><th>user</th><th>created</th><th>conversations</th><th>turns</th><th>last seen</th><th>α ratio</th><th>reading</th></tr>
+  $("#view").innerHTML = `${head("users_table")}<div class="panel scroll" style="padding:0"><table class="rows">
+    <tr>${["user", "created", "conversations", "turns", "last_seen", "alpha", "reading_speed"].map((k) => `<th>${term(k)}</th>`).join("")}</tr>
     ${users.map((u) => `<tr data-user="${u.id}" class="mono"><td>u${u.id}</td><td>${datetime(u.created_at)}</td><td>${u.conversations}</td><td>${u.turns}</td>
-      <td>${datetime(u.last_seen)}</td><td>${num(u.alpha_ratio, 3)}</td><td>${u.reading_wps ? `${num(u.reading_wps, 1)} w/s` : "—"}</td></tr>`).join("")}
+      <td>${datetime(u.last_seen)}</td><td>${pct(u.length_ratio)}</td><td>${u.reading_wps ? esc(ui("wps", { n: num(u.reading_wps, 1) })) : "—"}</td></tr>`).join("")}
   </table></div><div id="user-detail" style="margin-top:16px"></div>`;
   for (const row of document.querySelectorAll("[data-user]")) row.addEventListener("click", () => renderUser(Number(row.dataset.user)));
 }
@@ -372,27 +454,33 @@ async function renderUser(id) {
   const lo = Math.log(0.1), hi = Math.log(2);
   const x = (r) => (100 * (Math.log(r) - lo)) / (hi - lo);
   $("#user-detail").innerHTML = `<div class="grid panels">
-    <div class="panel"><h2>u${id} · length per cell (ratio of needed words)</h2><table>
-      <tr><th>cell</th><th>ratio</th><th>0.1 ←→ 2.0</th></tr>
-      ${d.lengths.map((t) => `<tr><td class="mono">${esc(t.cell)}</td><td class="mono">${num(t.ratio, 3)} <span class="faint">±${num(t.sd, 2)}</span></td>
-        <td><div class="ratio"><div class="band" style="left:${x(t.ratio * Math.exp(-t.sd))}%;width:${x(t.ratio * Math.exp(t.sd)) - x(t.ratio * Math.exp(-t.sd))}%"></div><div class="dot" style="left:${x(t.ratio)}%"></div></div></td></tr>`).join("") || '<tr><td colspan="3" class="faint">No finalized turn yet.</td></tr>'}
+    <div class="panel scroll">${head("user_lengths")}<table>
+      <tr><th>${term("scope")}</th><th>${term("share")}</th><th class="faint" style="white-space:normal">${esc(ui("scale"))}</th></tr>
+      ${d.lengths.map((t) => `<tr><td>${esc(scopeName(t.scope))}</td><td class="mono">${pct(t.ratio)} <span class="faint">${factor(t.sd)}</span></td>
+        <td><div class="ratio"><div class="band" style="left:${x(t.ratio * Math.exp(-t.sd))}%;width:${x(t.ratio * Math.exp(t.sd)) - x(t.ratio * Math.exp(-t.sd))}%"></div><div class="dot" style="left:${x(t.ratio)}%"></div></div></td></tr>`).join("") || empty("no_finalized", 3)}
     </table></div>
-    <div class="panel"><h2>Reading</h2>${kv([["speed", `${num(d.reading.wps, 1)} words/s ± ${num(d.reading.rho_sd, 2)} (log)`]])}
-      <div style="margin-top:10px">${probBars(d.reading.mixture, { read: "var(--aqua)", skim: "var(--warn)", away: "var(--faint)" })}</div>
-      <h2 style="margin-top:16px">Reaction prior</h2>${probBars(d.reading.reaction_prior)}</div>
-    <div class="panel scroll"><h2>Preferences, buttons &amp; clarification</h2><table>
-      <tr><th>scope</th><th>dimension</th><th>posterior means</th><th>evidence</th></tr>
-      ${d.preferences.map((p) => `<tr class="mono"><td>${esc(p.scope)}</td><td>${esc(p.dimension)}</td>
-        <td>${Object.entries(p.means).map(([v, m]) => `${esc(v)} ${pct(m)}`).join(" · ")}</td><td>${num(p.evidence, 1)}</td></tr>`).join("") || '<tr><td colspan="4" class="faint">None yet.</td></tr>'}
-    </table></div></div>`;
+    <div class="panel">${head("user_reading")}${kv([[term("reading_speed"), `${esc(ui("wps", { n: num(d.reading.wps, 1) }))} <span class="faint">${factor(d.reading.rho_sd)}</span>`]])}
+      ${caption("reading_shares")}${probBars(d.reading.mixture, READING_COLORS, "reading")}
+      <div style="margin-top:16px">${head("reaction_prior")}</div>${probBars(d.reading.reaction_prior)}</div>
+    <div class="panel scroll wide">${head("preferences")}${table(["scope", "dimension", "means", "evidence"],
+      d.preferences.map((p) => `<tr><td>${esc(scopeName(p.scope))}</td><td>${esc(preference(p.dimension, "")[0])}</td>
+        <td class="mono">${Object.entries(p.means).map(([v, m]) => `${esc(preference(p.dimension, v)[1])} ${pct(m)}`).join(" · ")}</td><td class="mono">${num(p.evidence, 1)}</td></tr>`).join("") || empty("none_yet", 4))}
+    </div></div>`;
 }
 
 /* ---------- Model ---------- */
 
-function heatmap(rows) {
+// What an annotator reports: an outcome, a reading, "no_click" or "<position>:<outcome>".
+function observation(o) {
+  const [position, outcome] = o.split(":");
+  if (outcome) return ui("click_at", { n: Number(position) + 1, outcome: named("outcomes", outcome) });
+  return D.outcomes[o] ?? D.reading[o] ?? ui(o);
+}
+
+function heatmap(rows, group = "outcomes") {
   const observed = [...new Set(Object.values(rows).flatMap((r) => Object.keys(r)))];
-  return `<div class="scroll"><table class="heat"><tr><th>true ↓ / observed →</th>${observed.map((o) => `<th>${esc(o)}</th>`).join("")}</tr>
-    ${Object.entries(rows).map(([y, r]) => `<tr><th>${esc(y)}</th>${observed.map((o) => {
+  return `<div class="scroll"><table class="heat"><tr><th class="faint">${esc(ui("real_reported"))}</th>${observed.map((o) => `<th>${esc(observation(o))}</th>`).join("")}</tr>
+    ${Object.entries(rows).map(([y, r]) => `<tr><th>${esc(named(group, y))}</th>${observed.map((o) => {
       const p = r[o] ?? 0;
       return `<td style="background:color-mix(in srgb, var(--accent) ${Math.round(100 * p)}%, transparent)">${p >= 0.005 ? num(p, 2) : ""}</td>`;
     }).join("")}</tr>`).join("")}</table></div>`;
@@ -400,41 +488,49 @@ function heatmap(rows) {
 
 async function renderModel() {
   const m = await api("/admin/api/model");
+  const h = m.hyper;
   const families = Object.keys(m.confusions.assistant || {});
-  const learned = (t) => (m.learned[t] ? chip("learned", "var(--aqua)") : chip("defaults", "var(--faint)"));
+  const learned = (t) => (m.learned[t] ? chip(ui("learned"), "var(--aqua)") : chip(ui("defaults"), "var(--faint)"));
   $("#view").innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <button class="btn primary" id="nightly">Run nightly now</button><span id="nightly-status" class="muted mono"></span></div>
+    <div class="panel" style="margin-bottom:16px">${head("nightly")}
+      <div style="display:flex;align-items:center;gap:12px"><button class="btn primary" id="nightly">${esc(ui("run_nightly"))}</button><span id="nightly-status" class="muted mono"></span></div></div>
     <div class="grid panels">
-      <div class="panel"><h2>Hyperparameters ${learned("hyperparams")}</h2>${kv([
-        ["μ₀ (population ratio)", num(m.hyper.mu0_ratio, 3)], ["σ_α", num(m.hyper.sigma_alpha, 3)], ["σ_γ", num(m.hyper.sigma_gamma, 3)],
-        ["σ_η", num(m.hyper.sigma_eta, 3)], ["τ", num(m.hyper.tau, 3)], ["overhead", secs(m.hyper.overhead_s)],
-        ...Object.entries(m.hyper.gamma).map(([t, g]) => [`γ ${t} (ratio)`, num(g, 3)]),
+      <div class="panel">${head("hyper", {}, learned("hyperparams"))}${kv([
+        ...h.prior.flatMap((f) => f.feature === "bias"
+          ? [[term("mu0"), esc(ui("of_complete", { p: pct(f.ratio) }))], [term("sigma_alpha"), factor(f.sd)]]
+          : [[f.feature === "mobile" ? term("mobile_effect") : term("gamma", { type: m.domains[f.feature] ?? scopeName(f.feature) }),
+              `${times(f.ratio)} <span class="faint">${factor(f.sd)}</span>`]]),
+        [term("sigma_eta"), factor(h.default_sd)],
+        [term("tau"), factor(h.tau)],
+        [term("overhead"), secs(h.overhead_s)],
       ])}</div>
-      <div class="panel"><h2>Sensor noise σ ${learned("sensor_noise")}</h2>${kv(Object.entries(m.noise).map(([k, v]) => [k, num(v, 3)]))}
-        <h2 style="margin-top:16px">Reading mixture</h2>${kv(Object.entries(m.reading).map(([k, v]) => [k, num(v, 3)]))}</div>
-      <div class="panel scroll"><h2>Behaviour classes ${learned("family_params")}</h2><table>
-        <tr><th>class</th><th>speed</th><th>b</th><th>w</th><th>κ</th></tr>
-        ${Object.entries(m.family).map(([f, v]) => `<tr class="mono"><td>${esc(f)}</td><td>${num(v.speed_wps, 0)} w/s</td><td>${num(v.b, 3)}</td><td>${num(v.w, 3)}</td><td>${num(v.kappa, 3)}</td></tr>`).join("")}
-      </table></div>
+      <div class="panel">${head("noise", {}, learned("sensor_noise"))}${kv(Object.entries(m.noise).map(([k, v]) => [term(k), plusMinus(v)]))}
+        <div style="margin-top:16px">${head("reading_mixture")}</div>${kv([
+          [term("s_r"), plusMinus(m.reading.s_r)],
+          [term("mu_away"), secs(Math.exp(m.reading.mu_away))],
+          [term("s_away"), factor(m.reading.s_away)],
+        ])}</div>
+      <div class="panel scroll">${head("classes", {}, learned("family_params"))}${table(["class", "speed", "b", "w", "kappa"],
+        Object.entries(m.family).map(([f, v]) => `<tr class="mono"><td>${esc(f)}</td><td>${esc(ui("wps", { n: num(v.speed_wps) }))}</td><td>${factor(v.b)}</td><td>${factor(Math.sqrt(v.w))}</td><td>${pct(Math.exp(v.kappa))}</td></tr>`).join("") || empty("classes_until", 5))}
+      </div>
     </div>
-    <div class="panel" style="margin-bottom:16px"><h2>Assistant verdict confusion ${learned("annotator_confusion")}
-      <select id="family" style="margin-left:8px">${families.map((f) => `<option>${esc(f)}</option>`).join("")}</select></h2><div id="assistant-heat"></div></div>
+    <div class="panel" style="margin-bottom:16px">${head("assistant_confusion", {}, learned("annotator_confusion"))}
+      <p><label class="muted">${term("class")} <select id="family" style="margin-left:6px">${families.map((f) => `<option>${esc(f)}</option>`).join("")}</select></label></p><div id="assistant-heat"></div></div>
     <div class="grid panels">
-      <div class="panel"><h2>Button annotator</h2>${heatmap(m.confusions.button.all)}</div>
-      <div class="panel"><h2>Reading annotator</h2>${heatmap(m.confusions.reading.all)}</div>
-      <div class="panel"><h2>Host → family prior ${learned("host_family_prior")}</h2>${Object.keys(m.host_prior).length ? heatmap(m.host_prior) : '<p class="faint">Uniform until learned (the nightly job needs 20 conversations per host).</p>'}</div>
+      <div class="panel">${head("button_confusion")}${heatmap(m.confusions.button.all)}</div>
+      <div class="panel">${head("reading_confusion")}${heatmap(m.confusions.reading.all)}</div>
+      <div class="panel">${head("host_prior", {}, learned("host_family_prior"))}${Object.keys(m.host_prior).length ? heatmap(m.host_prior, "hosts") : `<p class="faint">${esc(ui("host_prior_until"))}</p>`}</div>
     </div>`;
   const showFamily = () => { $("#assistant-heat").innerHTML = heatmap(m.confusions.assistant[$("#family").value]); };
   $("#family").onchange = showFamily;
   showFamily();
   $("#nightly").onclick = async () => {
-    $("#nightly-status").textContent = "running…";
+    $("#nightly-status").textContent = ui("running");
     try {
       const r = await api("/admin/api/nightly", { method: "POST" });
-      $("#nightly-status").textContent = `done · replayed ${r.replayed_turns} turns`;
+      $("#nightly-status").textContent = ui("done", { n: r.replayed_turns });
       setTimeout(renderModel, 800);
-    } catch (e) { $("#nightly-status").textContent = `failed: ${e.message}`; }
+    } catch (e) { $("#nightly-status").textContent = ui("failed", { error: e.message }); }
   };
 }
 
@@ -442,30 +538,35 @@ async function renderModel() {
 
 async function renderMetrics() {
   const m = await api("/metrics");
-  const ci = (v) => (v ? ` <span class="faint">[${num(v[0], 2)}, ${num(v[1], 2)}]</span>` : "");
+  const ci = (v, format) => (v ? ` <span class="faint">[${format(v[0])} ; ${format(v[1])}]</span>` : "");
+  const figure = (s, key, format) => format(s[key]) + ci(s[`${key}_ci95`], format);
   const summary = (s) => kv([
-    ["turns", s.turns],
-    ["words per step forward", num(s.words_per_step_forward, 1) + ci(s.words_per_step_forward_ci95)],
-    ["repair rate", pct(s.repair_rate) + ci(s.repair_rate_ci95)],
-    ["missing-info rate", pct(s.missing_info_rate) + ci(s.missing_info_rate_ci95)],
-    ["tool words per turn", num(s.tool_words_per_turn, 1) + ci(s.tool_words_per_turn_ci95)],
+    [term("turns"), num(s.turns)],
+    [term("words_per_step"), figure(s, "words_per_step_forward", (v) => num(v, 1))],
+    [term("repair_rate"), figure(s, "repair_rate", pct)],
+    [term("missing_info_rate"), figure(s, "missing_info_rate", pct)],
+    [term("tool_words"), figure(s, "tool_words_per_turn", (v) => num(v, 1))],
   ]);
+  const coverage = m.tool_coverage;
   $("#view").innerHTML = `
     <div class="grid panels">
-      ${Object.entries(m.by_group).map(([g, s]) => `<div class="panel"><h2>${esc(g)} ${chip(s.label, "var(--warn)")}</h2>${summary(s)}</div>`).join("")}
-      ${Object.entries(m.measured).map(([arm, r]) => `<div class="panel"><h2>Saving vs ${esc(arm)} ${chip("measured", "var(--aqua)")}</h2>${r ? kv([
-        ["words per step saved", pct(r.words_per_step_saving)],
-        ["95% CI", r.ci95 ? `${pct(r.ci95[0])} … ${pct(r.ci95[1])}` : "—"],
-      ]) : '<p class="faint">Needs at least 2 clusters in each arm (CONTROL_SHARE / CONCISE_SHARE).</p>'}</div>`).join("")}
-      <div class="panel"><h2>Tool coverage</h2>${kv(Object.entries(m.tool_coverage).map(([k, v]) => [k, typeof v === "number" && v <= 1 && k !== "turns" ? pct(v) : num(v)]))}</div>
+      ${Object.entries(m.by_group || {}).map(([g, s]) => `<div class="panel">${head("by_group", { group: named("groups", g) }, chip(ui(s.label), "var(--warn)"))}${summary(s)}</div>`).join("")}
+      ${Object.entries(m.measured || {}).map(([arm, r]) => `<div class="panel">${head("saving", { arm: named("groups", arm) }, chip(ui("measured"), "var(--aqua)"))}${r ? kv([
+        [term("saving_row"), pct(r.words_per_step_saving)],
+        [term("ci95"), r.ci95 ? `${pct(r.ci95[0])} … ${pct(r.ci95[1])}` : "—"],
+      ]) : `<p class="faint">${esc(ui("needs_clusters"))}</p>`}</div>`).join("")}
+      <div class="panel">${head("tool_coverage")}${kv([
+        [term("turns"), num(coverage.turns)],
+        ...["widget_share", "widget_turns_with_show_reply", "conversation_id_reused"].map((k) => [term(k), pct(coverage[k])]),
+      ])}</div>
     </div>
     <div class="grid panels">
-      <div class="panel scroll"><h2>Clicks</h2><table><tr><th>button</th><th>pos</th><th>shown</th><th>clicked</th><th>rate</th></tr>
-        ${m.clicks.map((c) => `<tr class="mono"><td>${esc(c.button)}</td><td>${c.position}</td><td>${c.shown}</td><td>${c.clicked}</td><td>${pct(c.click_rate)}</td></tr>`).join("")}</table></div>
-      <div class="panel scroll"><h2>Compliance</h2><table><tr><th>family</th><th>host</th><th>written / requested</th></tr>
-        ${m.compliance.map((c) => `<tr class="mono"><td>${esc(c.family)}</td><td>${esc(c.host)}</td><td>${num(c.median_length_over_requested, 2)}</td></tr>`).join("")}</table></div>
+      <div class="panel scroll">${head("clicks")}${table(["button", "position", "shown", "clicked", "rate"],
+        m.clicks.map((c) => `<tr><td>${esc(buttonName(c.button))}</td><td class="mono">${c.position}</td><td class="mono">${c.shown}</td><td class="mono">${c.clicked}</td><td class="mono">${pct(c.click_rate)}</td></tr>`).join("") || empty("none_yet", 5))}</div>
+      <div class="panel scroll">${head("compliance_table")}${table(["class", "hosts", "written_asked"],
+        (m.compliance || []).map((c) => `<tr class="mono"><td>${esc(c.family)}</td><td>${esc(c.host)}</td><td>${num(c.median_length_over_requested, 2)}</td></tr>`).join("") || empty("none_yet", 3))}</div>
     </div>
-    <div class="panel"><h2>Raw /metrics</h2><pre>${esc(JSON.stringify(m, null, 2))}</pre></div>`;
+    <details class="panel"><summary class="muted">${term("raw")}</summary><pre style="margin-top:10px">${esc(JSON.stringify(m, null, 2))}</pre></details>`;
 }
 
 /* ---------- Shell ---------- */
@@ -476,7 +577,7 @@ async function render() {
   if (!token) return askToken(false);
   try {
     await VIEWS[state.view]();
-    $("#updated").textContent = `updated ${new Date().toLocaleTimeString([], { hour12: false })}`;
+    $("#updated").textContent = ui("updated", { time: new Date().toLocaleTimeString(LANG, { hour12: false }) });
   } catch (e) {
     if (e.message !== "unauthorized") $("#view").innerHTML = `<div class="empty error">${esc(e.message)}</div>`;
   }
@@ -495,8 +596,8 @@ $("#live").addEventListener("click", () => {
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTurn(); });
 setInterval(() => {
-  const typing = document.activeElement?.closest?.("#filters");
-  if (state.live && state.view === "live" && !typing && !document.hidden) render();
+  const busy = document.activeElement?.closest?.("#filters, .tip") || !$("#tipbox").hidden;
+  if (state.live && state.view === "live" && !busy && !document.hidden) render();
 }, 5000);
 render();
 </script>

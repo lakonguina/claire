@@ -7,10 +7,9 @@ MCP server that makes chat assistants give shorter, better-targeted replies and 
 ```sh
 cp .env.example .env          # set PUBLIC_URL, ADMIN_TOKEN, POSTGRES_PASSWORD
 docker compose up -d --build
-docker compose exec app python -m app.admin new-user   # prints the connector URL
 ```
 
-The app listens on `127.0.0.1:8000`. Put a TLS reverse proxy in front of it, and make the proxy's access log redact `/mcp/<token>`. Add the printed URL as a custom connector on claude.ai (or ChatGPT), then paste the account instruction from `SPEC.md` section 10.
+The app listens on `127.0.0.1:8000`. Put a TLS reverse proxy in front of it. Anyone adds `$PUBLIC_URL/mcp` as a custom connector on claude.ai (or ChatGPT) and clicks **Continue**: no account, each connector gets its own anonymous profile (OAuth, `SPEC.md` section 4.7). Then paste the account instruction from `SPEC.md` section 10.
 
 Admin endpoints take `Authorization: Bearer $ADMIN_TOKEN` (the dashboard asks for it):
 
@@ -18,7 +17,7 @@ Admin endpoints take `Authorization: Bearer $ADMIN_TOKEN` (the dashboard asks fo
 - `POST /gold_label`: `{"turn_id": "t_31", "outcome": "moved_on"}`
 - `GET /metrics`
 
-Each user also has a profile page, `GET /me/<token hash>`, linked from the widget: what was learned about them, which they can correct.
+Each user also has a profile page, `GET /me/<profile key>`, linked from the widget: what was learned about them, which they can correct.
 
 The `nightly` service runs `python -m app.nightly` once a day: it refits the noise models, the hyperparameters and the topic clusters, then rebuilds all derived state by replaying the events.
 

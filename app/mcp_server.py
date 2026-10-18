@@ -2,6 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 import functools
+import hashlib
 import logging
 import pathlib
 from typing import Annotated, Any
@@ -19,8 +20,15 @@ from app import service
 from app import vocab
 
 log = logging.getLogger(__name__)
-UI_URI = "ui://lingua-franca/reply.html"
 WIDGET = pathlib.Path(__file__).resolve().parent / "static" / "index.html"
+WIDGET_HTML = WIDGET.read_text() if WIDGET.exists() else ""
+# The widget's address holds its fingerprint: a new widget is a new address,
+# which hosts must fetch instead of serving their cached copy.
+UI_PREFIX = "ui://lingua-franca/"
+UI_URI = (
+    f"{UI_PREFIX}reply-"
+    f"{hashlib.sha256(WIDGET_HTML.encode()).hexdigest()[:12]}.html"
+)
 TOKEN_HEADER = "x-lf-token-user"
 SESSION_HEADER = "mcp-session-id"
 UNKNOWN_HOST = "unknown"
@@ -35,7 +43,18 @@ def _field(name: str, **kwargs: Any) -> pydantic.fields.FieldInfo:
 
 
 class LinguaFrancaServer(mcpserver.MCPServer):
-    """MCPServer whose show_reply errors never carry the reply text."""
+    """MCPServer that hides reply text in errors and outlives cached widgets.
+
+    Hosts cache tool definitions: a host may still ask for the widget at an
+    older address, which serves the current widget (SPEC 3).
+    """
+
+    async def read_resource(
+        self, uri: Any, context: mcpserver.Context | None = None
+    ):
+        if str(uri).startswith(UI_PREFIX):
+            uri = UI_URI
+        return await super().read_resource(uri, context)
 
     async def call_tool(
         self,
@@ -95,9 +114,21 @@ apps = mcp_apps.Apps()
 
 @apps.tool(resource_uri=UI_URI, description=TOOLS["show_reply"]["description"])
 async def show_reply(
-    ctx: mcpserver.Context, turn_id: str, text: str
+    ctx: mcpserver.Context,
+    turn_id: str,
+    text: str,
+    # A field is never renamed nor removed: hosts keep old schemas (SPEC 3).
+    # No max_length: an extra label must not lose the reply.
+    suggestions: Annotated[
+        list[str] | None,
+        pydantic.Field(
+            description=TOOLS["show_reply"]["fields"]["suggestions"]
+        ),
+    ] = None,
 ) -> mcp_types.CallToolResult:
-    data = await _handled(service.show_reply)(caller(ctx), turn_id, text)
+    data = await _handled(service.show_reply)(
+        caller(ctx), turn_id, text, suggestions
+    )
     return mcp_types.CallToolResult(content=OK, structured_content=data)
 
 
@@ -132,7 +163,7 @@ async def report_context(
 
 apps.add_html_resource(
     UI_URI,
-    WIDGET.read_text() if WIDGET.exists() else "",
+    WIDGET_HTML,
     name="reply",
     permissions=mcp_apps.ResourcePermissions(clipboard_write={}),
     prefers_border=False,
@@ -141,6 +172,7 @@ apps.add_html_resource(
 mcp = LinguaFrancaServer(
     "lingua-franca",
     version="2.0.0",
+    instructions=TOOLS["server"],
     extensions=[apps],
     cache_hints={
         m: caching.CacheHint(config.settings.cache_ttl_ms, "private")
@@ -154,7 +186,6 @@ mcp = LinguaFrancaServer(
 )
 async def plan_reply(
     ctx: mcpserver.Context,
-    request_type: Annotated[vocab.RequestType, _field("request_type")],
     topic: Annotated[str, _field("topic")],
     language: Annotated[str, _field("language", pattern=r"^[a-z]{2}$")],
     needed_words: Annotated[int, _field("needed_words")],

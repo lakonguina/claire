@@ -9,9 +9,15 @@ import json
 import pathlib
 import re
 
+import jinja2
+
 LOCALES = pathlib.Path(__file__).resolve().parent.parent / "locales"
 FALLBACK = "en"
 LANGUAGE = re.compile(r"[a-z]{2}")
+TEMPLATES = jinja2.Environment(  # The localized HTML pages.
+    loader=jinja2.FileSystemLoader(pathlib.Path(__file__).resolve().parent),
+    autoescape=True,
+)
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -47,3 +53,11 @@ def catalog(language: str | None) -> dict:
 def prompts() -> dict:
     """Returns the model-facing prompt texts."""
     return catalog(FALLBACK)["prompts"]
+
+
+def preferred(accept_language: str | None) -> str:
+    """Returns the first language of an Accept-Language header we have."""
+    first = (accept_language or "").split(",")[0].split(";")[0]
+    language = first.split("-")[0].strip().lower()
+    known = LANGUAGE.fullmatch(language) and (LOCALES / f"{language}.json")
+    return language if known and known.exists() else FALLBACK

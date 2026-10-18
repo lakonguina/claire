@@ -4,8 +4,12 @@
 # pylint: disable=redefined-outer-name
 
 import asyncio
+import base64
+import hashlib
 import json
 import os
+import secrets
+from urllib import parse
 
 os.environ.setdefault("DATABASE_URL", "postgresql://lf:lf@localhost:55432/lf")
 os.environ.setdefault("ADMIN_TOKEN", "admin-secret")
@@ -20,8 +24,8 @@ from app import db
 from app import main
 from app import mcp_server
 from app import models
+from app import oauth
 from app import params as params_lib
-from app import service
 
 # pylint: enable=wrong-import-position
 
@@ -33,6 +37,11 @@ MODERN = "2026-07-28"
 LEGACY = "2025-11-25"
 META = "io.modelcontextprotocol/"
 ACCEPT = "application/json, text/event-stream"
+CALLBACK = "https://claude.ai/api/mcp/auth_callback"
+FORM = {"content-type": "application/x-www-form-urlencoded"}
+STATE = "s1"
+# Requests whose target travels in the mcp-name header (2026-07-28).
+NAMED = {"tools/call": "name", "resources/read": "uri"}
 
 
 class McpClient:
@@ -41,25 +50,33 @@ class McpClient:
     def __init__(
         self,
         http: httpx.AsyncClient,
-        token: str,
+        access: str,
         apps: bool,
         version: str = MODERN,
         host: str = "claude-ai",
     ):
-        self.http, self.token, self.version = http, token, version
-        self.url = f"/mcp/{token}"
+        """Calls /mcp with an OAuth access token."""
+        self.http, self.access, self.version = http, access, version
+        self.url = oauth.MCP_PATH
+        self.auth = {"authorization": f"Bearer {access}"}
         self.caps = APPS_CAPS if apps else {}
         self.info = {"name": host, "version": "1"}
         self.session: str | None = None
         self.next_id = 0
 
     async def user_id(self) -> int:
-        return await service.user_for_token(self.token)
+        return await oauth.user_for_access_token(self.access)
+
+    async def profile_key(self) -> str:
+        async with db.session() as session:
+            user = await session.get(models.User, await self.user_id())
+        return user.profile_key
 
     async def rpc(self, method: str, params: dict | None = None) -> dict:
         """Sends one request and returns its JSON-RPC response."""
         params = dict(params or {})
         headers = {
+            **self.auth,
             "accept": ACCEPT,
             "mcp-protocol-version": self.version,
             "mcp-method": method,
@@ -74,8 +91,8 @@ class McpClient:
             await self._initialize()
         if self.session:
             headers["mcp-session-id"] = self.session
-        if method == "tools/call":
-            headers["mcp-name"] = params["name"]
+        if method in NAMED:
+            headers["mcp-name"] = params[NAMED[method]]
         self.next_id += 1
         response = await self.http.post(
             self.url,
@@ -91,7 +108,7 @@ class McpClient:
         return response.json()
 
     async def _initialize(self) -> None:
-        headers = {"accept": ACCEPT}
+        headers = {**self.auth, "accept": ACCEPT}
         response = await self.http.post(
             self.url,
             headers=headers,
@@ -123,6 +140,92 @@ class McpClient:
         if not result.get("isError") and name == "plan_reply":
             result["data"] = json.loads(result["content"][0]["text"])
         return result
+
+
+async def register(http: httpx.AsyncClient) -> str:
+    """Registers an app as Claude does; returns its client id."""
+    response = await http.post(
+        "/register",
+        json={
+            "client_name": "Claude",
+            "redirect_uris": [CALLBACK],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["client_id"]
+
+
+def query(location: str) -> dict:
+    return dict(parse.parse_qsl(parse.urlparse(location).query))
+
+
+async def consent_url(http: httpx.AsyncClient, client_id: str, challenge: str):
+    """Starts an authorization; returns the local URL of the consent page."""
+    response = await http.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": CALLBACK,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": STATE,
+            "resource": oauth.RESOURCE,
+        },
+    )
+    assert response.status_code == 302, response.text
+    url = parse.urlparse(response.headers["location"])
+    return f"{url.path}?{url.query}"
+
+
+async def authorize(http: httpx.AsyncClient) -> tuple[str, str, str]:
+    """Connects a new app up to its code, clicking Continue.
+
+    Returns:
+        The client id, the authorization code and the PKCE verifier.
+    """
+    client_id = await register(http)
+    verifier = secrets.token_urlsafe(48)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    consent = await consent_url(http, client_id, challenge)
+    allowed = await http.post(
+        oauth.CONSENT_PATH,
+        content=parse.urlencode(
+            {"request": query(consent)["request"], "action": oauth.ALLOW}
+        ),
+        headers=FORM,
+    )
+    assert allowed.status_code == 303
+    back = query(allowed.headers["location"])
+    assert back["state"] == STATE
+    return client_id, back["code"], verifier
+
+
+async def token(http: httpx.AsyncClient, client_id: str, **form):
+    """Calls the token endpoint; returns the status and the JSON body."""
+    response = await http.post(
+        "/token",
+        content=parse.urlencode({"client_id": client_id, **form}),
+        headers=FORM,
+    )
+    return response.status_code, response.json()
+
+
+async def redeem(http, client_id: str, code: str, verifier: str):
+    """Exchanges an authorization code for tokens."""
+    return await token(
+        http,
+        client_id,
+        grant_type="authorization_code",
+        code=code,
+        redirect_uri=CALLBACK,
+        code_verifier=verifier,
+        resource=oauth.RESOURCE,
+    )
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -173,14 +276,12 @@ async def http(database):
 
 @pytest.fixture
 def make_client(http):
-    """Returns a factory of MCP clients, each with a new user."""
+    """Returns a factory of MCP clients, each a new connector and user."""
 
     async def make(
         apps: bool = True, version: str = MODERN, host: str = "claude-ai"
     ) -> McpClient:
-        token = os.urandom(8).hex()
-        async with db.session() as session, session.begin():
-            session.add(models.User(token_hash=service.token_hash(token)))
-        return McpClient(http, token, apps, version, host)
+        _, tokens = await redeem(http, *await authorize(http))
+        return McpClient(http, tokens["access_token"], apps, version, host)
 
     return make

@@ -19,7 +19,7 @@ EDIT = 10.0  # Count added by a correction on the profile page.
 BINARY = (vocab.PrefValue.YES, vocab.PrefValue.NO)
 AUTO_PRIOR, OTHER_PRIOR = 4.0, 0.25
 
-# (level, dimension, value) -> count; level is "cell", "user" or "population".
+# (level, dimension, value) -> count; level is "scope", "user" or "population".
 Counts = dict[tuple[str, str, str], float]
 
 
@@ -47,11 +47,6 @@ def arm(kind: vocab.ArmKind, name: str) -> str:
     return f"{kind}:{name}"
 
 
-def scope_of(dimension: str, request_type: str, domain: str) -> str:
-    """Returns the scope a dimension is learned in."""
-    return domain if dimension in vocab.DOMAIN_SCOPED else request_type
-
-
 def _mean(
     counts: Counts, level: str, dimension: str, base: dict[str, float]
 ) -> dict[str, float]:
@@ -68,9 +63,9 @@ def user_mean(counts: Counts, dimension: str) -> dict[str, float]:
 
 
 def posterior(counts: Counts, dimension: str) -> dict[str, float]:
-    """Returns the Dirichlet parameters of the cell, shrunk toward the user."""
+    """Returns the Dirichlet parameters of the scope, shrunk toward the user."""
     return {
-        v: counts.get(("cell", dimension, v), 0.0) + STRENGTH * p
+        v: counts.get(("scope", dimension, v), 0.0) + STRENGTH * p
         for v, p in user_mean(counts, dimension).items()
     }
 

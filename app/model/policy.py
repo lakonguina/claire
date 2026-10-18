@@ -15,7 +15,8 @@ class Context:
 
     Attributes:
         needed_words: The assistant's estimate of a complete answer.
-        theta: The cell's grid posterior.
+        theta_mean: The mean of the preferred log ratio for this request.
+        theta_var: Its variance.
         b_mean: The assistant bias b(c).
         b_var: The variance of b(c).
         kappa_mean: The conversation's log compliance.
@@ -24,7 +25,8 @@ class Context:
     """
 
     needed_words: int
-    theta: list[float]
+    theta_mean: float
+    theta_var: float
     b_mean: float
     b_var: float
     kappa_mean: float
@@ -69,7 +71,7 @@ class BayesPolicy:
         self.rng = rng or random.Random()
 
     def _draw(self, ctx: Context) -> tuple[float, float, float]:
-        theta = stats.grid_sample(ctx.theta, self.rng)
+        theta = self.rng.gauss(ctx.theta_mean, math.sqrt(ctx.theta_var))
         b = (
             self.rng.gauss(ctx.b_mean, math.sqrt(ctx.b_var))
             if ctx.b_var > 0
@@ -86,14 +88,13 @@ class BayesPolicy:
             round_words(self._draw(ctx)[2]) == rounded
             for _ in range(PROPENSITY_SAMPLES)
         )
-        mean, var = stats.grid_mean_var(ctx.theta)
         decision = Decision(
             rounded,
             requested_from_target(target, ctx.kappa_mean),
             theta,
             b,
-            mean,
-            math.sqrt(var),
+            ctx.theta_mean,
+            math.sqrt(ctx.theta_var),
         )
         return decision, same / PROPENSITY_SAMPLES
 

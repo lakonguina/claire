@@ -3,7 +3,7 @@
 Events are append-only (a trigger rejects UPDATE, DELETE and TRUNCATE; see the
 initial migration). Derived tables are rebuilt nightly by replay.
 
-Columns holding a vocabulary that evolves (buttons, request types, platforms)
+Columns holding a vocabulary that evolves (buttons, platforms)
 are plain text: history keeps retired values, and the enums validate new
 writes. Stable vocabularies (arms, reply modes, sources) are CHECK-constrained.
 """
@@ -96,6 +96,7 @@ class Base(orm.DeclarativeBase):
         str: sa.Text,
         Json: postgresql.JSONB,
         Grid: FloatArray,
+        list[str]: postgresql.ARRAY(sa.Text),
         datetime.datetime: sa.DateTime(timezone=True),
     }
 
@@ -126,12 +127,61 @@ def _events(model: str) -> orm.Relationship:
 
 
 class User(Base):
-    """A person, known only by the hash of their connector token."""
+    """A person, anonymous: known only by their connector (SPEC 4.7).
+
+    An app reaches the user through an OAuth grant. The profile page is at
+    the secret profile_key.
+    """
 
     __tablename__ = "users"
     id: orm.Mapped[Serial]
-    token_hash: orm.Mapped[str] = orm.mapped_column(unique=True)
+    profile_key: orm.Mapped[str] = orm.mapped_column(unique=True)
     created_at: orm.Mapped[Created]
+
+
+class OAuthClient(Base):
+    """An AI app registered by OAuth dynamic client registration."""
+
+    __tablename__ = "oauth_clients"
+    client_id: orm.Mapped[TextKey]
+    info: orm.Mapped[Json]  # The RFC 7591 client information, as sent.
+    created_at: orm.Mapped[Created]
+
+
+class OAuthGrant(Base):
+    """One connector: an app authorized to act as a user, until revoked."""
+
+    __tablename__ = "oauth_grants"
+    id: orm.Mapped[Serial]
+    user_id: orm.Mapped[UserId]
+    client_id: orm.Mapped[str] = orm.mapped_column(
+        sa.ForeignKey("oauth_clients.client_id")
+    )
+    created_at: orm.Mapped[Created]
+    revoked_at: orm.Mapped[datetime.datetime | None]
+
+
+class OAuthCredential(Base):
+    """A pending request, code, access or refresh token, by its hash.
+
+    A grant's credentials all die with it: a code or refresh token used
+    twice revokes the grant (RFC 9700 4.14).
+    """
+
+    __tablename__ = "oauth_credentials"
+    token_hash: orm.Mapped[TextKey]
+    kind: orm.Mapped[vocab.Credential] = orm.mapped_column(
+        _checked(vocab.Credential)
+    )
+    client_id: orm.Mapped[str] = orm.mapped_column(
+        sa.ForeignKey("oauth_clients.client_id")
+    )
+    grant_id: orm.Mapped[int | None] = orm.mapped_column(
+        sa.BigInteger, sa.ForeignKey("oauth_grants.id"), index=True
+    )
+    data: orm.Mapped[Json]  # The SDK model fields not held in columns.
+    expires_at: orm.Mapped[datetime.datetime]
+    used_at: orm.Mapped[datetime.datetime | None]
 
 
 class Conversation(Base):
@@ -167,7 +217,7 @@ class Turn(Base):
     model_version: orm.Mapped[str]
     schema_version: orm.Mapped[int]
     raw_payload: orm.Mapped[Json]
-    request_type: orm.Mapped[str]
+    request_type: orm.Mapped[str | None]  # Retired: past turns only.
     topic: orm.Mapped[str]
     needed_words: orm.Mapped[int]
     language: orm.Mapped[str]
@@ -222,13 +272,20 @@ class Outcome(_TurnEvent):
 
 
 class ButtonShown(_TurnRow):
-    """A button placed under a reply."""
+    """A button placed under a reply.
+
+    A follow-up question (button "related") carries its text, and the id of
+    its question when it is a frequent one rather than written by the
+    assistant (SPEC 4.8).
+    """
 
     __tablename__ = "buttons_shown"
     button: orm.Mapped[str]
     position: orm.Mapped[int]
     shuffled: orm.Mapped[bool]
     thompson_draw: orm.Mapped[float | None]
+    label: orm.Mapped[str | None]
+    question_id: orm.Mapped[int | None] = orm.mapped_column(sa.BigInteger)
 
 
 class Click(_TurnEvent):
@@ -304,6 +361,7 @@ class TurnInference(Base):
     turn_id: orm.Mapped[Key]
     length_mean: orm.Mapped[float]
     length_var: orm.Mapped[float]
+    theta_mean: orm.Mapped[float]  # The predicted preference, before it.
     reaction_probs: orm.Mapped[Json]
     reading_probs: orm.Mapped[Json]
 
@@ -320,21 +378,14 @@ class ConversationState(Base):
     speed_var: orm.Mapped[float]
 
 
-class ThetaPosterior(Base):
-    """The grid posterior of a length cell ("<type>" or "<type>@mobile")."""
+class LengthPosterior(Base):
+    """A user's Gaussian belief over the weights of the length features."""
 
-    __tablename__ = "theta_posteriors"
+    __tablename__ = "length_posteriors"
     user_id: orm.Mapped[Key]
-    request_type: orm.Mapped[TextKey]
-    grid: orm.Mapped[Grid]
-
-
-class AlphaPosterior(Base):
-    """The grid posterior of a user's overall length ratio."""
-
-    __tablename__ = "alpha_posteriors"
-    user_id: orm.Mapped[Key]
-    grid: orm.Mapped[Grid]
+    features: orm.Mapped[list[str]]
+    mean: orm.Mapped[Grid]
+    cov: orm.Mapped[Grid]  # Row-major, len(features) squared.
 
 
 class UserReading(Base):
@@ -370,6 +421,29 @@ class TopicCluster(Base):
     medoid_topic: orm.Mapped[str]
     size: orm.Mapped[int]
     updated_at: orm.Mapped[Created]
+
+
+class Question(Base):
+    """Topics that ask the same thing, in one language (SPEC 4.8)."""
+
+    __tablename__ = "questions"
+    id: orm.Mapped[Key]
+    language: orm.Mapped[str] = orm.mapped_column(index=True)
+    text: orm.Mapped[str]  # The medoid topic.
+    users: orm.Mapped[int]  # Distinct users who asked it.
+    centroid: orm.Mapped[Embedding]
+    updated_at: orm.Mapped[Created]
+
+
+class QuestionFollow(Base):
+    """How often a question came right after another, and its clicks."""
+
+    __tablename__ = "question_follows"
+    question_id: orm.Mapped[Key]
+    next_id: orm.Mapped[Key]
+    users: orm.Mapped[int]  # Distinct users who asked next after question.
+    shown: orm.Mapped[int]  # Times offered as a follow-up of question.
+    clicked: orm.Mapped[int]
 
 
 # Learned global parameters (refit nightly).
@@ -432,8 +506,7 @@ class Hyperparam(Base):
 DERIVED = (
     TurnInference,
     ConversationState,
-    ThetaPosterior,
-    AlphaPosterior,
+    LengthPosterior,
     UserReading,
     PrefCount,
 )

@@ -9,7 +9,7 @@ from app.model import stats
 OUTCOMES = [o for o in vocab.Outcome if o != vocab.Outcome.NO_SIGNAL]
 POOLED = "all"  # The stratum shared by every observation of an annotator.
 NO_INFO = "_none"  # An observation with P = 1 under every true outcome.
-POSITIONS = 3
+POSITIONS = bandits.SHOWN
 # The button annotator observes one joint token per turn:
 # "<position>:<outcome>" for a click, or "no_click".
 BUTTON_OBS = ["no_click"] + [

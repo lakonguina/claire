@@ -4,6 +4,7 @@ import dataclasses
 import hashlib
 import json
 import random
+import secrets
 from typing import Any
 
 import sqlalchemy as sa
@@ -15,6 +16,7 @@ from app import engine
 from app import i18n
 from app import models
 from app import params as params_lib
+from app import questions
 from app import text
 from app import topics
 from app import vocab
@@ -28,7 +30,10 @@ CONVERSATION_PREFIX = "c_"
 TURN_PREFIX = "t_"
 QUOTE_FREE = frozenset({vocab.Outcome.MOVED_ON, vocab.Outcome.NO_SIGNAL})
 MIN_NEEDED, MAX_NEEDED = 5, 2000
+MAX_LABEL_WORDS = 8
+MAX_LABEL_CHARS = 60
 rng = random.Random()
+SECRET_BYTES = 32
 
 
 class HandleError(Exception):
@@ -46,29 +51,29 @@ class Caller:
     transport_session: str | None = None
 
 
+def new_secret() -> str:
+    """Returns a random, unguessable token."""
+    return secrets.token_urlsafe(SECRET_BYTES)
+
+
 def token_hash(token: str) -> str:
-    """Returns the stored hash of a user token."""
+    """Returns the stored hash of a token: tokens are never stored."""
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def new_user() -> models.User:
+    """Returns a new anonymous user, with the secret key of their profile."""
+    return models.User(profile_key=new_secret())
+
+
 def profile_url(key: str) -> str:
-    """Returns the profile page URL of a user's token hash (SPEC 4.6)."""
+    """Returns the profile page URL of a user's profile key (SPEC 4.6)."""
     return f"{config.settings.public_url.rstrip("/")}/me/{key}"
 
 
 def compact(data: dict) -> str:
     """Serializes a tool result without any whitespace (SPEC 3)."""
     return json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-
-
-async def user_for_token(token: str) -> int | None:
-    """Returns the user behind a connector token, or None."""
-    async with db.session() as session:
-        return await session.scalar(
-            sa.select(models.User.id).where(
-                models.User.token_hash == token_hash(token)
-            )
-        )
 
 
 def _parse(handle: Any, prefix: str) -> int:
@@ -132,16 +137,9 @@ async def _conversation(
     return conv
 
 
-def _form(
-    counts: dict[str, prefs.Counts], request_type: str, domain: str
-) -> dict[str, str]:
+def _form(counts: prefs.Counts) -> dict[str, str]:
     """Draws a value for every form dimension (SPEC 7)."""
-    return {
-        d: prefs.thompson(
-            counts[prefs.scope_of(d, request_type, domain)], d, rng
-        )
-        for d in vocab.Dimension
-    }
+    return {d: prefs.thompson(counts, d, rng) for d in vocab.Dimension}
 
 
 def _clarify(counts: prefs.Counts) -> vocab.Clarify:
@@ -175,6 +173,14 @@ def _instruction(arm: str, requested: int | None, style: dict, ui: bool) -> str:
         ]
     if ui:
         parts.append(prompts["widget_mode"])
+    to_write = [b["button"] for b in style["buttons"] if "label" not in b]
+    if to_write:
+        parts.append(
+            prompts["buttons"].format(
+                count=len(to_write),
+                intents="; ".join(prompts["intents"][b] for b in to_write),
+            )
+        )
     return " ".join(parts)
 
 
@@ -222,15 +228,16 @@ async def _close_previous(
     return prev
 
 
-async def _platform(session: Session, conv: models.Conversation) -> str | None:
-    """Returns the conversation's latest platform reported by the widget."""
-    return await session.scalar(
+async def _mobile(session: Session, conv: models.Conversation) -> bool:
+    """Returns whether the widget last reported this conversation on a phone."""
+    platform = await session.scalar(
         sa.select(models.TurnContext.platform)
         .join(models.Turn, models.Turn.id == models.TurnContext.turn_id)
         .where(models.Turn.conversation_id == conv.id)
         .order_by(models.TurnContext.created_at.desc())
         .limit(1)
     )
+    return platform == vocab.Platform.MOBILE
 
 
 async def plan_reply(caller: Caller, args: dict) -> dict:
@@ -246,7 +253,6 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
     settings = config.settings
     embedding = await topics.embed(args["topic"])
     needed = min(max(int(args["needed_words"]), MIN_NEEDED), MAX_NEEDED)
-    request_type = args["request_type"]
     length_policy = policy.POLICIES[settings.policy]
     async with db.session() as session, session.begin():
         await _lock(session, caller)
@@ -256,33 +262,44 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
         conv = await _conversation(session, caller, args)
         prev = await _close_previous(session, conv, args, now, p)
         domain = await topics.domain_of(session, embedding)
-        cell = theta.cell_of(request_type, await _platform(session, conv))
-        cell_theta, _ = await engine.grids(session, caller.user_id, cell, p)
+        mobile = await _mobile(session, conv)
+        x = theta.features(await topics.memberships(session, embedding), mobile)
+        belief = await engine.length_belief(session, caller.user_id)
+        theta_mean, theta_var = belief.predict(x, p.prior)
         state = await engine.conversation_state(session, conv.id, p)
         b_mean, b_var = p.families.bias(state.family_probs)
         ctx = policy.Context(
             needed,
-            cell_theta.grid,
+            theta_mean,
+            theta_var,
             b_mean,
             b_var,
             state.kappa_mean,
-            p.hyper.tau,
+            p.prior.tau,
             settings.q,
         )
         decision, propensity = length_policy(rng).decide(ctx)
-        counts = await engine.pref_counts(
-            session, caller.user_id, {request_type, domain}
-        )
+        counts = (await engine.pref_counts(session, caller.user_id, [domain]))[
+            domain
+        ]
         treated = conv.grp == vocab.Arm.TREATMENT
+        clarify = (
+            _clarify(counts) if treated and args.get("ambiguous") else None
+        )
+        # Buttons go under widget replies of the treatment arm, except when
+        # the reply is a clarifying question.
+        offered = treated and caller.ui and clarify != vocab.Clarify.ASK
+        buttons = (
+            await _plan_buttons(session, counts, embedding, args["language"])
+            if offered
+            else []
+        )
         style = {
-            "form": _form(counts, request_type, domain) if treated else {},
-            "clarify": (
-                _clarify(counts[request_type])
-                if treated and args.get("ambiguous")
-                else None
-            ),
-            "cell": cell,
+            "form": _form(counts) if treated else {},
+            "clarify": clarify,
+            "mobile": mobile,
             "domain": domain,
+            "buttons": buttons,
         }
         turn = models.Turn(
             user_id=caller.user_id,
@@ -296,7 +313,6 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
             model_version=length_policy.version,
             schema_version=config.SCHEMA_VERSION,
             raw_payload=args,
-            request_type=request_type,
             topic=args["topic"],
             needed_words=needed,
             language=args["language"],
@@ -341,10 +357,52 @@ async def plan_reply(caller: Caller, args: dict) -> dict:
     }
 
 
-async def _buttons(
-    session: Session, turn: models.Turn, conv: models.Conversation
+async def _plan_buttons(
+    session: Session, counts: prefs.Counts, embedding, language: str
 ) -> list[dict]:
-    """Chooses and logs a turn's buttons once; later calls get the same."""
+    """Chooses the turn's button intents (SPEC 4.4, 8).
+
+    The next question is a frequent one when people asked one (SPEC 4.8);
+    the assistant writes every other label.
+    """
+    buttons = []
+    for shown in bandits.choose(counts, rng):
+        button = {
+            "button": shown.button,
+            "shuffled": shown.shuffled,
+            "draw": shown.thompson_draw,
+        }
+        if shown.button == vocab.Button.RELATED:
+            frequent = await questions.follow_up(
+                session, embedding, language, rng
+            )
+            if frequent:
+                button |= {
+                    "label": frequent["text"],
+                    "question": frequent["id"],
+                }
+        buttons.append(button)
+    return buttons
+
+
+def _label(value: Any) -> str | None:
+    """Returns an assistant's button label that passes the checks, or None."""
+    if not isinstance(value, str):
+        return None
+    label = " ".join(value.split())
+    valid = 0 < len(label.split()) <= MAX_LABEL_WORDS
+    return label if valid and len(label) <= MAX_LABEL_CHARS else None
+
+
+async def _buttons(
+    session: Session, turn: models.Turn, labels: Any
+) -> list[dict]:
+    """Logs a turn's buttons once, with their labels; later calls get them.
+
+    A label the assistant did not write, or wrote wrong, falls back to the
+    intent's label from the locale catalog; a next question without a label
+    is dropped.
+    """
     shown = list(
         await session.scalars(
             sa.select(models.ButtonShown)
@@ -352,35 +410,56 @@ async def _buttons(
             .order_by(models.ButtonShown.position)
         )
     )
-    if not shown and conv.grp == vocab.Arm.TREATMENT:
-        counts = await engine.pref_counts(
-            session, turn.user_id, [turn.request_type]
-        )
+    if not shown:
+        written = iter(labels if isinstance(labels, list) else [])
+        planned = [
+            (b, b.get("label") or _label(next(written, None)))
+            for b in engine.style_of(turn)["buttons"]
+        ]
         shown = [
             models.ButtonShown(
                 turn_id=turn.id,
-                button=s.button,
-                position=s.position,
-                shuffled=s.shuffled,
-                thompson_draw=s.thompson_draw,
+                button=b["button"],
+                position=position,
+                shuffled=b["shuffled"],
+                thompson_draw=b["draw"],
+                label=label,
+                question_id=b.get("question"),
             )
-            for s in bandits.choose(counts[turn.request_type], rng)
+            for position, (b, label) in enumerate(
+                # A next question has no generic fallback.
+                (b, label)
+                for b, label in planned
+                if label or b["button"] != vocab.Button.RELATED
+            )
         ]
         session.add_all(shown)
     texts = i18n.catalog(turn.language)["buttons"]
     return [
-        {"id": s.button, "position": s.position, **texts[s.button]}
+        {
+            "id": s.button,
+            "position": s.position,
+            **(
+                {"label": s.label, "message": s.label}
+                if s.label
+                else texts[s.button]
+            ),
+        }
         for s in shown
     ]
 
 
-async def show_reply(caller: Caller, turn_handle: Any, reply: Any) -> dict:
+async def show_reply(
+    caller: Caller, turn_handle: Any, reply: Any, labels: Any = None
+) -> dict:
     """Counts a reply's words and returns what the widget needs (SPEC 4.2).
 
     Args:
         caller: Who calls.
         turn_handle: The turn id returned by plan_reply.
         reply: The reply text; counted, never stored.
+        labels: The button labels the assistant wrote, in the order the
+            instruction asked for them (SPEC 4.4).
 
     Returns:
         The widget's structured content.
@@ -392,15 +471,15 @@ async def show_reply(caller: Caller, turn_handle: Any, reply: Any) -> dict:
         raise HandleError
     words = text.count_words(reply)
     async with db.session() as session, session.begin():
-        turn, conv = await _owned_turn(session, caller, turn_handle)
+        turn, _ = await _owned_turn(session, caller, turn_handle)
         _log_call(session, caller, "show_reply")
         session.add(models.Reply(turn_id=turn.id, reply_words_exact=words))
         user = await session.get(models.User, caller.user_id)
         return {
             "turn_id": turn_handle,
-            "buttons": await _buttons(session, turn, conv),
+            "buttons": await _buttons(session, turn, labels),
             "labels": i18n.catalog(turn.language)["widget"],
-            "profile_url": profile_url(user.token_hash),
+            "profile_url": profile_url(user.profile_key),
         }
 
 

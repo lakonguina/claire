@@ -41,18 +41,19 @@ Rules:
 - Widget: built with Vite and `vite-plugin-singlefile` into one self-contained HTML file (all code inlined, no external requests at runtime), using `@modelcontextprotocol/ext-apps` (the official MCP Apps SDK) for the host protocol, `marked` for Markdown and `DOMPurify` for sanitising. The Node build runs in a separate Docker build stage; the running app is Python only.
 - The model-facing tools (`plan_reply`, `show_reply`) are `MCPServer` tools; `show_reply` is bound to the `ui://` reply resource with `Apps.tool(resource_uri=...)`. `record_click` is an app-only tool (`visibility=["app"]`). `gold_label`, health and metrics are plain FastAPI routes, never MCP tools.
 - The owner self-hosts the server. It **must be reachable over public HTTPS**, because Anthropic's servers call it. TLS termination happens outside the app, via a reverse proxy.
-- Auth (MVP): one secret token per user, carried in the connector URL (`/mcp/<token>`). The token identifies the user. No OAuth yet: AI supports authless remote servers, and the user cannot add custom headers to a connector. A small ASGI wrapper around the MCP app moves the token from the path into a request header, which tools read through `ctx.headers`.
+- Auth: **OAuth 2.1 without accounts** (section 4.7). Everyone adds the same URL, `https://<host>/mcp`; the app's OAuth token identifies an anonymous user. There is no other way in: an app without OAuth cannot connect. A small ASGI wrapper resolves the access token to the user and passes the user id to the tools in a request header that only it sets, read through `ctx.headers`.
 - **Both protocol eras.** The server serves MCP `2025-11-25` clients (with the `initialize` handshake and `Mcp-Session-Id` sessions) and `2026-07-28` clients (stateless: protocol version, client capabilities and client info travel in each request's `_meta`, plus `server/discover`). The SDK handles both; application code never depends on either era.
 - **No protocol sessions in application logic.** Nothing is keyed on the MCP session. Cross-call state uses server-minted handles passed as ordinary tool arguments (`conversation_id`, `turn_id`), the pattern of SEP-2567. Every handle received is checked against the user behind the token; a handle that belongs to another user is rejected with a generic error.
 - Host and mode detection happen **on every call**, from whatever the request carries: `ctx.session.client_params.client_info` gives the host (`unknown` when the client sends none, which 2026-07-28 allows); `mcp.server.apps.client_supports_apps(ctx)` gives MCP Apps support (section 4.1).
 - Tool argument validation errors echo the invalid input back to the client. `show_reply` must therefore validate its arguments itself and return a generic error, so the reply text never appears in an error result.
-- Store only the structured fields below. Never store message text, except `topic` and `user_quote`. **The reply text received by `show_reply` is counted and discarded immediately:** never written to the database (including `raw_payload`), logs, error reports or traces. The SDK's OpenTelemetry spans record only the tool name; never add tool arguments as span attributes.
-- **Token hygiene.** The user token sits in the URL path, so the ASGI server's access log is disabled and replaced by one that logs `/mcp/<redacted>`. The reverse proxy must redact the path the same way.
+- Store only the structured fields below. Never store message text, except `topic`, `user_quote` and the button labels the assistant writes (section 4.4). **The reply text received by `show_reply` is counted and discarded immediately:** never written to the database (including `raw_payload`), logs, error reports or traces. The SDK's OpenTelemetry spans record only the tool name; never add tool arguments as span attributes.
+- **Token hygiene.** Tokens are stored only as SHA-256 hashes and travel only in headers and request bodies, never in a path. The ASGI server's access log is replaced by one that omits query strings (the consent page's pending request travels in one).
 - **Logging.** The MCP logging feature is deprecated (2026-07-28); the server logs to stderr only.
 - **Caching and prompt cache.** Tools are listed in a fixed order with stable descriptions. `tools/list`, `resources/list` and `resources/read` results carry a long `ttlMs` (one hour) with `cacheScope: "private"`. Tool results are compact JSON strings (no indentation), never pretty-printed objects.
+- **Compatibility with cached hosts.** Hosts keep tool definitions and the widget for a while. A tool field is never renamed nor removed (only optional fields are added), and the widget's address carries its fingerprint, yet every older address still serves the current widget.
 - **Code style.** Python follows the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html) to the letter: checked by pylint with Google's `pylintrc` and formatted by pyink at 80 columns. Prefer data-driven, generic code over special cases: a new preference dimension, button or language is a data change, not new logic.
 - **Data access.** The schema is defined once, as typed SQLAlchemy models (`app/models.py`); application code queries through the ORM and SQL expression language, never through SQL strings. Alembic migrations are autogenerated from the models and reviewed (the initial one also creates the `vector` extension and the append-only triggers); a test asserts that the migrated schema and the models do not drift. Migrations run at start.
-- **Vocabulary and text.** Every closed set (request types, outcomes, format issues, preference dimensions and values, buttons, arms, platforms, reply modes) is a `StrEnum` in one module; the tool schemas, validation and SQL checks derive from it. Every text a person or the model reads (button labels and messages, widget labels, profile page, instruction fragments) lives in JSON locale catalogs (`locales/<language>.json`, keyed by those enums); English is the fallback and the source of the model-facing instructions. Adding a language is adding a file.
+- **Vocabulary and text.** Every closed set (outcomes, format issues, preference dimensions and values, buttons, arms, platforms, reply modes) is a `StrEnum` in one module; the tool schemas, validation and SQL checks derive from it. Every text a person or the model reads (button labels and messages, widget labels, profile page, instruction fragments) lives in JSON locale catalogs (`locales/<language>.json`, keyed by those enums); English is the fallback and the source of the model-facing instructions. Adding a language is adding a file.
 - Keep the code focused: as few lines as the features allow.
 
 ## 4. Tools
@@ -64,8 +65,7 @@ Input:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `conversation_id` | string, optional | Omit on the first message of a conversation; reuse the value returned by the server afterwards |
-| `request_type` | enum: `fact`, `explanation`, `advice`, `decision`, `code`, `writing`, `plan` | Kind of request |
-| `topic` | string, max 15 words, in the user's language | What the request is about |
+| `topic` | string, max 15 words, in the user's language | The user's request as a short question (it is also how follow-up questions are learned, section 4.8) |
 | `language` | ISO 639-1 code | The language of the user's message |
 | `needed_words` | int | AI's estimate of the words a complete, no-filler answer needs |
 | `last_reply_outcome` | enum (below) | How the user reacted to AI's previous reply in this conversation |
@@ -128,25 +128,25 @@ The randomisation unit is set by `CONTROL_UNIT`:
 
 In both arms, `plan_reply` still records everything and still updates the models, but returns `target_words: null` and the arm's fixed instruction (followed by the widget-mode sentence when it applies), and `show_reply` returns no buttons. These arms are what turn estimated savings into measured savings (section 11).
 
-**Clarification.** When `ambiguous` is true, the server decides between asking and answering with a two-arm Thompson bandit per (user, request type): Beta counts of the reward (the turn's P(`moved_on`)) for each arm. If it picks asking, the instruction becomes "Ask one short question to clarify, nothing else." It learns who likes being asked and who hates it.
+**Clarification.** When `ambiguous` is true, the server decides between asking and answering with a two-arm Thompson bandit per (user, topic domain): Beta counts of the reward (the turn's P(`moved_on`)) for each arm. If it picks asking, the instruction becomes "Ask one short question to clarify, nothing else." It learns who likes being asked and who hates it.
 
 ### 4.2 `show_reply` (MCP tool, widget mode: carries the reply itself)
 
-Input: `turn_id`, `text` (the full reply, in Markdown).
+Input: `turn_id`, `text` (the full reply, in Markdown), and `suggestions` only when the instruction asks for them: the button labels, in the order it gives (section 4.4). `suggestions` has no length limit in the schema, so an extra label never makes the call fail and lose the reply.
 
 Server side:
 
 - count the words of `text` exactly (split on whitespace, ignoring Markdown syntax characters), store the count as `reply_words_exact` on the turn, then **discard the text immediately** (see section 3);
 - record the arrival time: the gap between `plan_reply` and `show_reply` is the writing duration;
-- return a minimal result: `content` is `"ok"` (the only part the model sees), and `structuredContent` carries what the app needs: `{"turn_id", "buttons": [{"id", "label", "message", "position"}], "labels", "profile_url"}`. Button labels and messages, and the widget's own labels, are in the turn's language. Buttons are empty in the comparison arms. `structuredContent` is not added to the model's context, so the buttons cost no model tokens and need no extra round trip.
+- return a minimal result: `content` is `"ok"` (the only part the model sees), and `structuredContent` carries what the app needs: `{"turn_id", "buttons": [{"id", "label", "message", "position"}], "labels", "profile_url"}`. Labels and messages, and the widget's own labels, are in the turn's language. Buttons are empty in the comparison arms. `structuredContent` is not added to the model's context, so the buttons cost no model tokens and need no extra round trip.
 
 The MCP App (implemented following the current MCP Apps extension specification, `2026-01-26`) must:
 
 - render the reply from the complete tool input (`ui/notifications/tool-input`), which hosts must send. When the host also sends partial tool input (`ui/notifications/tool-input-partial`, optional for hosts), render it progressively as it streams; never depend on it;
 - render Markdown properly: headings, lists, emphasis, links, tables, and code blocks with a copy button; plus a "copy reply" button;
-- show the 3 buttons under the reply, in the order chosen by the server (section 8), as soon as the tool result (`ui/notifications/tool-result`) arrives; the reply never waits for them;
+- show the buttons under the reply, all in the same style, follow-up questions first, in the order chosen by the server (sections 4.8 and 8), as soon as the tool result (`ui/notifications/tool-result`) arrives; the reply never waits for them;
 - on `ui/notifications/tool-cancelled`, keep whatever was rendered, show no buttons, and record nothing (a turn without a `show_reply` call simply has no exact length);
-- on click, record the click (call `record_click` through the host's tool-call capability) and wait for it, then send the button's follow-up message into the conversation with `ui/message`;
+- on click, record the click (call `record_click` through the host's tool-call capability) and wait for it, then send the button's message into the conversation with `ui/message`. Every button stays clickable: a person who clicked the wrong one clicks the right one, and the **last click before the turn closes is the reaction** (section 6.4); the clicked button is highlighted;
 - use the host-provided style variables and theme, with no external assets;
 - stay readable on a phone-width screen;
 - show a discreet link to the user's profile page (`profile_url`, opened with `ui/open-link`);
@@ -162,27 +162,28 @@ In `control` conversations, the widget shows the reply without buttons.
 
 ### 4.4 Button catalogue
 
-Labels are short sentences anyone understands, taken from the locale catalog of the turn's language (English and French for now; other languages fall back to English). The follow-up message is sent in the same language.
+A button is an **intent**: the server chooses which ones (section 8), the assistant writes their labels for its reply, worded as the person's next message ("An example with Docker", "Rather the marketing budget?"), and a click sends the label as that message. One label costs a few output words: the instruction asks for them in one short sentence ("In show_reply, pass suggestions: 3 button labels, max 6 words each, in the user's language, worded as the user's next message, for: a concrete example; …"). The server keeps a label of 1 to 8 words and 60 characters; a missing or invalid one falls back to the generic label of the locale catalog below, whose message is then sent. The `related` intent uses a frequent question when people asked one (section 4.8), which costs no model tokens.
 
 | Button id | Label (en / fr) | Follow-up message (en / fr) | Outcome it reports | Preference signal |
 | --- | --- | --- | --- | --- |
-| `shorter` | Make it shorter / Fais plus court | "Shorter, please." / « Plus court, s'il te plaît. » | `too_long` | — |
-| `more_detail` | Tell me more / Développe davantage | "Tell me more." / « Développe davantage. » | `too_short` | — |
-| `one_line` | Sum it up in one line / Résume en une ligne | "Sum it up in one line." / « Résume en une ligne. » | `too_long` | — |
-| `example` | Show me an example / Donne-moi un exemple | "Show me an example." / « Donne-moi un exemple. » | style click | `examples` = `yes` |
-| `simpler` | Explain it more simply / Explique plus simplement | "Explain it more simply." / « Explique plus simplement. » | `wrong_format` | `level` = `simple` |
-| `as_list` | Make it a list / Mets-le en liste | "Make it a list." / « Mets-le en liste. » | `wrong_format` | `format` = `bullets` |
-| `as_prose` | Write it as plain text / Écris-le en texte suivi | "Write it as plain text, no lists." / « Écris-le en texte suivi, sans liste. » | `wrong_format` | `format` = `prose` |
-| `not_this` | Not what I wanted / Ce n'est pas ce que je voulais | "That's not what I wanted. Ask me one short question to understand what I need." / « Ce n'est pas ce que je voulais. Pose-moi une seule question courte pour comprendre ce dont j'ai besoin. » | `misunderstood` | — |
+| `shorter` | Shorter / Plus court | "Make it shorter, please." / « Fais plus court, s'il te plaît. » | `too_long` | — |
+| `more_detail` | More detail / Plus de détails | "Give me more detail." / « Donne-moi plus de détails. » | `too_short` | — |
+| `one_line` | In one sentence / En une phrase | "Sum it up in one sentence." / « Résume ça en une phrase. » | `too_long` | — |
+| `example` | An example / Un exemple | "Give me a concrete example." / « Donne-moi un exemple concret. » | style click | `examples` = `yes` |
+| `simpler` | Simpler / Plus simple | "Explain it more simply." / « Explique-moi ça plus simplement. » | `wrong_format` | `level` = `simple` |
+| `as_list` | As a list / En liste | "Put it as a list." / « Présente ça sous forme de liste. » | `wrong_format` | `format` = `bullets` |
+| `as_prose` | No lists / Sans liste | "Rewrite it in paragraphs, without lists." / « Réécris ça en paragraphes, sans liste. » | `wrong_format` | `format` = `prose` |
+| `not_this` | Not what I wanted / Pas ce que je voulais | "That's not what I wanted. Ask me one short question to understand what I need." / « Ce n'est pas ce que je voulais. Pose-moi une seule question courte pour comprendre ce dont j'ai besoin. » | `misunderstood` | — |
+| `related` | a frequent question (section 4.8) or the assistant's; no generic label: without one, the button is not shown | the label | `moved_on` | — |
 
-A click is one annotator among others (section 6.4), with its own learned reliability, and a preference signal when the table says so.
+Under each reply: 3 buttons, all in the same style, the most useful first (section 8). A click is one annotator among others (section 6.4), with its own learned reliability, and a preference signal when the table says so.
 
 ### 4.5 Several conversations, models and hosts
 
 The same user may run many conversations in parallel, switch models (Opus, Sonnet, Haiku…), and use several hosts (AI, and ChatGPT, which also supports MCP connectors).
 
 - **Parallel conversations:** everything is keyed by `conversation_id`, and durations and reading time are computed per conversation. If the assistant forgets the id, the server starts a new conversation and the previous verdict is lost. That is acceptable, but monitored through tool coverage (section 11).
-- **One user everywhere:** the token identifies the user across hosts, so one profile serves all of them.
+- **One profile per connector:** each connected app gets its own anonymous profile (section 4.7), which starts from the population prior and learns in a few turns. A connector URL pasted in several apps shares one profile.
 - **Host detection at zero token cost:** read the client name (`clientInfo`, from the `initialize` handshake on 2025-11-25 or from the request's `_meta` on 2026-07-28) and store it as `host` on the conversation, or `unknown` if the client sends none. Never ask the assistant for it.
 - **Model identity is never asked.** Models often do not know their exact version, name an older one, or can be made to say anything. What matters is behaviour, which the server measures itself (section 6.3).
 - **Hosts with MCP Apps:** Claude (web and desktop) and ChatGPT both support MCP Apps (official extension support matrix), so widget mode is the normal case on both.
@@ -190,7 +191,32 @@ The same user may run many conversations in parallel, switch models (Opus, Sonne
 
 ### 4.6 Profile page: "What I learned about you"
 
-`GET /me/<key>`, where `key` is the user's `token_hash` (it grants access to this page only, never to the MCP tools). It lists, in plain words and in the user's latest language, what the server believes: "You prefer bulleted lists", "Short replies for factual questions", "Technical level for code". Each line has a control to correct it. A correction is stored as a `profile_edits` event and is a very strong signal: it adds a large count to the chosen preference value (section 7) or a sharp observation to the length grid (section 6.5). The widget links to it discreetly.
+`GET /me/<key>`, where `key` is the user's secret `profile_key` (it grants access to this page only, never to the MCP tools). It lists, in plain words and in the user's latest language, what the server believes: "You prefer bulleted lists", "Short replies on a phone", "Technical level for topics like « fix a python bug »". Each line has a control to correct it. A correction is stored as a `profile_edits` event and is a very strong signal: it adds a large count to the chosen preference value (section 7) or a sharp observation of the preferred length (section 6.5). The widget links to it discreetly.
+
+### 4.7 Connecting without an account (OAuth)
+
+No account, no email, no password: the least friction possible, like a search engine used without signing in.
+
+1. The person adds `https://<host>/mcp` to their AI app. The server answers `401` with `WWW-Authenticate: Bearer resource_metadata=…`, and the app discovers the rest: protected-resource metadata (RFC 9728), authorization-server metadata (RFC 8414) and dynamic client registration (RFC 7591).
+2. The app opens our consent page, in the browser's language: "Connect Lingua Franca to Claude?" with **Continue** and Cancel. Continue creates a new anonymous user and a grant (one connector), and returns an authorization code (PKCE S256 required).
+3. The app exchanges it for an access token (1 hour) and a refresh token (90 days, rotated on every use), and sends the access token with every MCP request.
+
+The MCP SDK's authorization-server handlers run the protocol; the server provides only the storage (section 9) and the consent page. Every credential is single-purpose and stored hashed. A code or refresh token presented a second time revokes its whole grant (RFC 9700); so does revocation (RFC 7009). A token is only accepted for the `/mcp` resource (RFC 8707).
+
+**What the server knows about a person:** an internal number, what it learns from use (section 9), the host, language and device type. Never a name or an email. Removing the connector and adding it again starts a new, empty profile.
+
+Accounts (an email to share one profile across apps and recover it) can come later: they attach to the same users.
+
+### 4.8 Frequent follow-up questions
+
+Like a search engine's "People also ask": the questions that **other people actually asked next** about the same thing, not generic ones.
+
+- **Learned nightly, per language.** Topics closer than 0.3 in cosine distance ask the same question (agglomerative clustering, average linkage, on the topic embeddings of section 7.1). Each question is named by its medoid topic, and its id stays stable across nights (Hungarian matching within a language, refused under 0.7 similarity). Consecutive turns of a conversation give the **follows** between questions, counted in **distinct users**, with how often each follow-up was offered and clicked.
+- **Offered at `plan_reply`**, when the `related` intent is chosen (section 8). The question nearest to the topic (same language, within 0.3) offers its follows. Score = distinct users × a Thompson draw of the click rate, Beta(1 + clicked, 1 + shown − clicked): popularity, adjusted by clicks, with exploration. The best one becomes the button's label, logged in the turn's `style`.
+- **Privacy.** A question is offered only once **5 different people** asked it, and always in its typical wording (the medoid), never as one person wrote it. Only the language of the turn is ever offered.
+- **Cold start.** Without a frequent question, the assistant writes the `related` label like any other (section 4.4); it is shown to that person only.
+- **A click** sends the question as the person's next message. It reports `moved_on` to the button annotator: the reply was enough to go further.
+- Buttons appear only in widget mode, in the treatment arm, and not when the turn asks a clarifying question.
 
 ## 5. Learning approach
 
@@ -206,13 +232,13 @@ Why it is the best fit for this problem:
 
 1. **The feedback is censored, and this model uses it exactly as it is.** "Too long" at 300 words does not mean the ideal is 250; it only means the ideal is *below* 300. "Fine" at 300 means 300 was *enough*. These are bounds, not values. A classifier or a standard regressor treats each signal as a point or a class, which either invents information or throws it away. A censored likelihood keeps exactly what the user told us, nothing more.
 2. **Every user starts with zero data, at every stage of the product.** Even with millions of users, each new user is a cold start. The hierarchical prior gives a sensible default from the population on the first message, and the user's own posterior moves after 3 to 5 reactions. Tree ensembles and neural networks need thousands of events before they say anything useful about one person.
-3. **It explores where it is unsure, and only there.** Thompson sampling draws from the posterior, so it explores a lot on new users and new request types, and almost not at all where it is confident. There is no exploration rate to tune, and it is known to be near-optimal for bandit problems. This matters because every exploration costs the user a slightly worse reply.
+3. **It explores where it is unsure, and only there.** Thompson sampling draws from the posterior, so it explores a lot on new users and new kinds of request, and almost not at all where it is confident. There is no exploration rate to tune, and it is known to be near-optimal for bandit problems. This matters because every exploration costs the user a slightly worse reply.
 4. **It adapts instantly, inside the conversation.** One reaction updates the user's posterior in microseconds. If the user says "shorter" at 11:05, the reply at 11:06 is already shorter. Batch models only adapt at the next retraining.
 5. **The trade-off is explicit and auditable.** "Aim for the shortest length with an 80 % chance of being enough" is one readable parameter, not behaviour buried in weights. You can change the product's philosophy by changing one number.
-6. **It is readable.** For each user and request type, the posterior answers in plain words: "this person needs about 40 % of what AI would write for explanations." This makes debugging and explaining the product easy.
-7. **It is cheap and robust.** Small grids and Gaussian updates, pure Python, no training infrastructure, no GPU.
+6. **It is readable.** For each user, the posterior answers in plain words: "this person needs about 40 % of what AI would write, and less on a phone." This makes debugging and explaining the product easy.
+7. **It is cheap and robust.** Closed-form Gaussian updates over a few dozen weights, no training infrastructure, no GPU.
 
-Known limits, which the next stages solve: it only uses the user, the request type and AI's estimate. It does not share knowledge between *similar* users, only with the population, and it ignores the topic.
+Known limits, which the next stages solve: it uses the user, the topic (through the learned domains), the platform and AI's estimate. It does not share knowledge between *similar* users, only with the population.
 
 ### 5.3 Model roadmap by stage
 
@@ -220,9 +246,9 @@ Each step up keeps the censored likelihood, Thompson sampling, instant per-user 
 
 | Stage | When | Model | What it adds |
 | --- | --- | --- | --- |
-| 1 — MVP | Launch, until ~200 active users or ~20,000 outcomes | Hierarchical Bayesian censored model (this spec) | Works from the first reaction |
-| 2 — Growth | Up to ~5,000 active users | Hierarchical Bayesian censored **regression**: log ratio = features × β + user effect + user × type effect. Features: request type, log of needed words, turn index, topic cluster, rhythm (`user_message_words` and the delay since the previous reply: short, rapid messages suggest a user in a hurry) and platform. β is refit nightly; user effects are updated instantly (Laplace approximation) | Shares knowledge across users through features; uses the topic |
-| 3 — Scale | Beyond that | **Neural-linear Thompson sampling**: a two-tower network (user embedding, context embedding from the topic text and features), trained nightly with the censored loss, with a Bayesian linear head updated instantly per user | Learns which users are alike (collaborative filtering) and the meaning of topics, replacing hard request types with a continuous representation |
+| 1 — MVP | Launch, until ~200 active users or ~20,000 outcomes | Bayesian censored **regression** on learned features (soft topic domains, platform), with a population prior refit nightly and per-user Gaussian updates (this spec) | Works from the first reaction; no hand-made categories |
+| 2 — Growth | Up to ~5,000 active users | The same regression with more features: log of needed words, turn index, rhythm (`user_message_words` and the delay since the previous reply: short, rapid messages suggest a user in a hurry) | Uses how the person is writing, not only what about |
+| 3 — Scale | Beyond that | **Neural-linear Thompson sampling**: a two-tower network (user embedding, context embedding from the topic text and features), trained nightly with the censored loss, with a Bayesian linear head updated instantly per user | Learns which users are alike (collaborative filtering) and a continuous representation of requests |
 
 Stages 2 and 3 will require adding numerical libraries (and an ML framework for stage 3). That decision is taken when the stage starts, not in the MVP.
 
@@ -251,7 +277,7 @@ The `plan_reply` contract never changes; only the decision logic behind it does.
 
 Inference runs in two speeds:
 
-- **Online**, on every event: fast approximate updates (Gaussian updates, small grids).
+- **Online**, on every event: fast approximate updates (closed-form Gaussian updates).
 - **Nightly**, an expectation–maximisation (EM) pass re-estimates every noise model and hyperparameter, then rebuilds all derived state by replaying the append-only events.
 
 Notation: Φ is the standard normal CDF (`math.erf`). All lengths are on the log scale and expressed in "words as the assistant counts them". `needed_words` uses the same unit, so any systematic bias in how an assistant counts words cancels out in the ratio length / needed.
@@ -260,8 +286,7 @@ Notation: Φ is the standard normal CDF (`math.erf`). All lengths are on the log
 
 | Hidden quantity | Level | Meaning |
 | --- | --- | --- |
-| θ(u,t) | user × request type | Mean log of the **minimal sufficient ratio**: length needed / `needed_words` for this user and type |
-| α(u), γ(t) | user; request type | Multilevel decomposition of θ (section 6.5) |
+| θ(u, x) | user × request features | Mean log of the **minimal sufficient ratio**: length needed / `needed_words` for this user and this kind of request (section 6.5) |
 | L | turn | True log length of the reply |
 | y | turn | True user reaction: `moved_on`, `too_long`, `too_short`, `missing_info`, `misunderstood`, `wrong_format` |
 | π(c, f) | conversation | Probability that the assistant in conversation *c* belongs to behaviour class *f* |
@@ -270,7 +295,7 @@ Notation: Φ is the standard normal CDF (`math.erf`). All lengths are on the log
 | ρ(u), mixture weights | user | Reading speed and reading behaviour (section 6.6) |
 | φ(u,s,d) | user × scope × dimension | Distribution of the preferred value of a form dimension (section 7) |
 
-For a given message, the minimal sufficient log ratio is S = θ(u,t) + b(c) + ε, with ε ~ N(0, τ²). τ starts at 0.35 and is refit nightly.
+For a given message, the minimal sufficient log ratio is S = θ(u, x) + b(c) + ε, with ε ~ N(0, τ²). τ starts at 0.35 and is refit nightly.
 
 ### 6.2 Reply length
 
@@ -313,7 +338,7 @@ The true reaction y of each turn is hidden. Several independent annotators obser
 | Annotator | What it reports | Confusion matrix learned per |
 | --- | --- | --- |
 | Assistant verdict (`last_reply_outcome`) | One of the outcome values | Behaviour class (soft-weighted by π; pooled until a class has data) |
-| Button click | The outcome of the clicked button (section 4.4), or "no click" | Button position |
+| Button click | The outcome of the last button clicked before the turn closed (section 4.4), or "no click" | Button position |
 | Reading behaviour | P(skimmed), from section 6.6 | Population |
 
 Online: P(y | everything) ∝ P(y | user) × Π annotators P(observation | y). P(y | user) is a per-user Dirichlet prior over reactions. Store the resulting probability vector on the outcome.
@@ -336,17 +361,16 @@ This also covers invented quotes: an assistant that fabricates or misreads react
 
 There are no hand-set weights: how much a signal counts comes from the annotators' learned reliabilities.
 
-**Multilevel structure for θ.** θ(u,t) = α(u) + γ(t) + η(u,t), with α(u) ~ N(μ₀, σ_α²), γ(t) ~ N(0, σ_γ²) and η(u,t) ~ N(0, σ_η²). Each level is pulled toward the level above in proportion to how little data it has. A request type misclassified by the assistant therefore costs little, because θ for a sparse (user, type) cell stays close to the user's overall α(u).
+**No request categories.** Nothing about a request is decided in advance by hand: its features are learned from the data. A request is described by x = (1, phone, m₁ … m_K): a bias, whether the conversation's latest reported platform is `mobile`, and its **soft membership** in the K learned topic domains (section 7.1), a softmax of the cosine similarities between its topic embedding and the domain centroids (temperature 0.05; memberships under 0.01 are dropped). A topic between two domains belongs to both, so nothing learned has a hard frontier.
 
-Online implementation:
+**Regression.** θ(u, x) = w(u) · x. The user's weights have a Gaussian posterior N(m(u), S(u)), starting from the population prior: bias ~ N(μ₀, σ_α²), phone ~ N(μ_phone, σ_phone²), each domain weight ~ N(μ_d, σ_d²), independent. Requests that share domains share what is learned about them, in proportion to their memberships; a new domain joins the posterior at its prior.
 
-- Grid posterior over θ(u,t): θ ∈ [log 0.1, log 2.0], 81 points.
-- Grid posterior over α(u) on the same range, updated with each observation using the inflated variance σ² + σ_η² + Var γ(t).
-- A new (u,t) cell starts from the prior N(E[α(u)] + γ(t), σ_η² + Var α(u)).
-- **Platform.** On a phone, the same request may need fewer words. When the conversation's latest reported platform is `mobile`, the length cell is (u, t@mobile): its own grid, with the same γ(t), learned per user.
-- **Profile edits.** A length correction on the profile page (short / medium / detailed) multiplies the cell grid by N(θ; log 0.4 / log 0.7 / log 1.0, 0.15²), a sharp observation.
+Online implementation, after every turn, **in closed form** (assumed-density filtering): with θ ~ N(μ, v) predicted for the turn's x, s² = σ² + v and t = (r̂ − b(c) − μ) / s, the likelihood integrates to Z = p_suff Φ(t) + p_insuff (1 − Φ(t)) + p_rest. Its slopes g = ∂ log Z / ∂μ and h = ∂² log Z / ∂μ² give m ← m + S x g and S ← S + (S x)(S x)ᵀ h, the Gaussian closest to the true posterior.
 
-Nightly: re-estimate μ₀ (initially log 0.6, since assistants tend to over-write), σ_α (0.5), σ_γ (0.3), σ_η (0.3), γ(t) and τ by EM, then rebuild all grids by replay.
+- **Profile edits.** A length correction (short / medium / detailed) is the observation θ(u, x) ~ N(log 0.4 / log 0.7 / log 1.0, 0.15²) at the row's features: in general (bias only), on a phone (bias + phone), or for a domain (bias + that domain). An exact Kalman update.
+- The profile page and the dashboard show the preferred length in general and for every feature the user's data has informed (posterior variance under 90 % of the prior's).
+
+Nightly: re-estimate the prior by empirical Bayes, per feature: the mean of the users' posterior means, and their spread plus the mean posterior variance (from 5 users on; initially μ₀ = log 0.6, since assistants tend to over-write, σ_α = 0.5, σ_phone = σ_d = 0.3, τ = 0.35), then rebuild every posterior by replay. Each turn's predicted θ before its update is kept with its inference, and estimates the assistant biases b(f) without letting a turn explain itself (section 6.3).
 
 ### 6.6 Reading behaviour: a mixture per user
 
@@ -361,14 +385,14 @@ Online: compute the posterior responsibility of each component for the turn. P(s
 
 ### 6.7 Decision (Thompson sampling)
 
-1. Sample θ̃ from the θ(u,t) grid and b̃ from N(b(c), Var b(c)).
+1. Sample θ̃ from N(m(u) · x, xᵀ S(u) x), the predicted θ(u, x) of this request, and b̃ from N(b(c), Var b(c)).
 2. r* = exp(θ̃ + b̃ + z_q · τ), with z_q the standard normal quantile of q = 0.8 (configurable): the shortest length with an 80 % chance of being enough. This is where the asymmetry lives: a missing piece of information is worse than a few extra words, so q is set high. Do not change the inference to express it.
 3. `target_words = needed_words × r*`, clamped to [0.5 × needed, 1.5 × needed], minimum 10.
 4. Requested words = `target_words` / exp(E[κ(c)]), then round to the nearest 5, or to the nearest 10 above 50.
 
 Log θ̃, b̃, the posterior mean and standard deviation, `target_words`, requested words and the propensity (section 5.5) for each turn.
 
-5. **Form**, by Thompson sampling too: for each preference dimension, draw from the cell's Dirichlet posterior and take the value with the highest draw (section 7). New users therefore sometimes get another form, which discovers their preference without waiting for a complaint.
+5. **Form**, by Thompson sampling too: for each preference dimension, draw from the topic domain's Dirichlet posterior and take the value with the highest draw (section 7). New users therefore sometimes get another form, which discovers their preference without waiting for a complaint.
 6. **Clarification** when `ambiguous` (section 4.1).
 
 ## 7. Form preferences
@@ -377,13 +401,15 @@ Default instruction for every reply: "No preamble, no recap."
 
 | Dimension | Values (`auto` = no instruction) | Instruction fragments | Scope |
 | --- | --- | --- | --- |
-| `format` | `auto`, `bullets`, `prose`, `table` | "Use a bulleted list." / "Write in prose, no lists." / "Use a table where it fits." | request type |
-| `level` | `auto`, `simple`, `technical` | "Use simple words, no jargon." / "Be technical; skip the basics." | **topic domain** (section 7.1: an expert in code may be a beginner in law) |
-| `examples` | `auto`, `yes` | "Include one short example." | request type |
-| `tone` | `auto`, `direct`, `warm` | "Be direct." / "Be warm and friendly." | request type |
-| `headings` | `auto`, `yes`, `no` | "Use short headings." / "No headings." | request type |
+| `format` | `auto`, `bullets`, `prose`, `table` | "Use a bulleted list." / "Write in prose, no lists." / "Use a table where it fits." | topic domain |
+| `level` | `auto`, `simple`, `technical` | "Use simple words, no jargon." / "Be technical; skip the basics." | topic domain (an expert in code may be a beginner in law) |
+| `examples` | `auto`, `yes` | "Include one short example." | topic domain |
+| `tone` | `auto`, `direct`, `warm` | "Be direct." / "Be warm and friendly." | topic domain |
+| `headings` | `auto`, `yes`, `no` | "Use short headings." / "No headings." | topic domain |
 
-- **Model.** Each dimension is categorical with a Dirichlet posterior (a yes/no dimension is the two-value case, a Beta). Hierarchy as for θ: population → user → user × scope, each level pulled toward the one above with strength 4: α(u,s) = counts(u,s) + 4 · mean(u), mean(u) from counts(u) + 4 · mean(population). The population prior gives `auto` 4 and every other value 0.25: about 11 % of a new user's replies try another form, and one explicit signal makes the requested value win about 90 % of the draws.
+Every scope is a learned topic domain (section 7.1), the nearest one to the topic; before any domain is learned, there is one (`topic:any`).
+
+- **Model.** Each dimension is categorical with a Dirichlet posterior (a yes/no dimension is the two-value case, a Beta). Hierarchy: population → user → user × scope, each level pulled toward the one above with strength 4: α(u,s) = counts(u,s) + 4 · mean(u), mean(u) from counts(u) + 4 · mean(population). The population prior gives `auto` 4 and every other value 0.25: about 11 % of a new user's replies try another form, and one explicit signal makes the requested value win about 90 % of the draws.
 - **Decision** (section 6.7): Thompson draw per dimension; the fragment of the drawn value joins the instruction (none for `auto`). Confidence is built in: a value only wins often once its counts dominate.
 - **Signals** (count added):
   - explicit, 3: a button with a preference signal (section 4.4), or `format_issue` (`too_technical` → `level`=`simple`; `too_simple` → `technical`; `want_list` → `format`=`bullets`; `want_prose` → `prose`; `want_example` → `examples`=`yes`; `wrong_tone` → every `tone` value except the one used). Like the verdict, `format_issue` is ignored when the turn has a click (section 6.4);
@@ -402,53 +428,59 @@ Domains are not a fixed list: they are learned from the topics themselves.
 
 ## 8. Buttons policy
 
-- Keep Beta(1,1) counts of click-when-shown per (user, request type, button), in `pref_counts` as the dimension `button:<id>` with values `yes` (clicked) and `no`, with the same hierarchy as section 7.
-- **Safe button:** the highest posterior mean.
-- **Exploration buttons:** draw one sample per remaining button (`random.betavariate`) and take the 2 highest.
-- Order: [safe, explore, explore]. With probability 0.2, shuffle randomly instead. Log every shown button with its position and the shuffled flag.
-- When the next `plan_reply` arrives in that conversation and no button was clicked, record a "not clicked" for each shown button.
+- **Rank by usefulness, never by clicks.** Optimising clicks would optimise engagement: a tempting button costs a whole extra reply to read. A button **helped** when it was clicked **and** the reply it asked for was fine. Keep Beta(1,1) counts per (user, topic domain, intent), in `pref_counts` as the dimension `button:<intent>`: `no` += 1 for each shown button not clicked, when the turn closes; for the clicked one, the turn that answers it adds `yes` += P(`moved_on`) and `no` += 1 − P(`moved_on`) when it closes.
+- **Most useful first:** the highest posterior mean, over every intent.
+- **Exploration:** draw one sample per remaining intent (`random.betavariate`) and take the 2 highest.
+- Order: [most useful, explore, explore], with probability 0.2 shuffled instead. Log every shown button with its position, the shuffled flag and its label.
+- A button stays clickable; the last click before the turn closes is the one that counts (section 6.4).
 - Position effects are learned through the button annotator's per-position confusion matrix (section 6.4).
 
 ## 9. Data model (PostgreSQL)
 
-The schema is the SQLAlchemy models (section 3); Alembic migrations, generated from them, are applied at start. Every event table has a surrogate `id`. Columns holding a vocabulary that evolves (buttons, request types, platforms, observed outcomes) are plain text, so history keeps retired values while the enums validate new writes; stable vocabularies (arms, reply modes, outcome sources) are CHECK-constrained from their enums.
+The schema is the SQLAlchemy models (section 3); Alembic migrations, generated from them, are applied at start. Every event table has a surrogate `id`. Columns holding a vocabulary that evolves (buttons, platforms, observed outcomes) are plain text, so history keeps retired values while the enums validate new writes; stable vocabularies (arms, reply modes, outcome sources) are CHECK-constrained from their enums.
 
 **Events** (append-only: no `UPDATE` or `DELETE`):
 
-- `users(id, token_hash, created_at)`
+- `users(id, profile_key, created_at)`
+
+**Connectors** (mutable state, section 4.7):
+
+- `oauth_clients(client_id, info jsonb, created_at)`: apps registered dynamically
+- `oauth_grants(id, user_id, client_id, created_at, revoked_at)`: one per connector
+- `oauth_credentials(token_hash, kind ['request'|'code'|'access'|'refresh'], client_id, grant_id, data jsonb, expires_at, used_at)`
 - `conversations(id, user_id, grp ['treatment'|'control'|'concise'], host, ui_supported bool, protocol_version, created_at)` (legacy `assistant_model` kept for old rows)
-- `turns(id, user_id, conversation_id, turn_index, created_at, reply_mode ['widget'|'fallback'], model_version, schema_version, raw_payload jsonb, request_type, topic, needed_words, language, user_message_words, target_words, requested_words, propensity, theta_sample, b_sample, post_mean, post_sd, style jsonb, transport_session)`. `style` holds the drawn form values, the clarification decision, the length cell and the topic domain used.
+- `turns(id, user_id, conversation_id, turn_index, created_at, reply_mode ['widget'|'fallback'], model_version, schema_version, raw_payload jsonb, request_type (retired, past rows only), topic, needed_words, language, user_message_words, target_words, requested_words, propensity, theta_sample, b_sample, post_mean, post_sd, style jsonb, transport_session)`. `style` holds the drawn form values, the clarification decision, the phone flag, the topic domain and the follow-up questions offered.
 - `replies(turn_id, reply_words_exact, created_at)`: one row per `show_reply` call. Kept apart from `turns` so that `turns` is never updated; `created_at` ends the writing time.
 - `outcomes(turn_id, source ['assistant'|'button'|'reading'], observed, user_quote, last_reply_words, reading_seconds, model_version, schema_version, created_at)`
-- `buttons_shown(turn_id, button, position, shuffled, thompson_draw)`
+- `buttons_shown(turn_id, button, position, shuffled, thompson_draw, label, question_id)`: `label` and `question_id` for follow-up questions (`question_id` only for frequent ones)
 - `clicks(turn_id, button, position, created_at)`
 - `gold_labels(turn_id, outcome, created_at)`
 - `shadow_decisions(turn_id, model_version, target_words, propensity, details jsonb)`
 - `tool_calls(user_id, tool, created_at)`, used to monitor compliance
 - `turn_context(turn_id, platform, locale, created_at)`, reported by the widget
-- `profile_edits(user_id, scope, dimension, value, created_at)`: corrections from the profile page (`dimension` = `length` for a length cell)
+- `profile_edits(user_id, scope, dimension, value, created_at)`: corrections from the profile page (`dimension` = `length` for the preferred length; `scope` is `*`, `mobile` or a domain)
 - `topic_embeddings(turn_id, model, embedding vector(384))`: the embedding of each turn's `topic`
 
 **Derived state** (rebuilt nightly by replaying events; never a source of truth):
 
-- `turn_inference(turn_id, length_mean, length_var, reaction_probs jsonb, reading_probs jsonb)`
+- `turn_inference(turn_id, length_mean, length_var, theta_mean, reaction_probs jsonb, reading_probs jsonb)`
 - `conversation_state(conversation_id, family_probs jsonb, kappa_mean, kappa_var, speed_mean, speed_var)`
-- `theta_posteriors(user_id, request_type, grid double precision[])`, primary key (user_id, request_type); `request_type` is the length cell, `t` or `t@mobile`
-- `alpha_posteriors(user_id, grid double precision[])`
+- `length_posteriors(user_id, features text[], mean double precision[], cov double precision[])`: the Gaussian belief of section 6.5, `cov` row-major
 - `user_reading(user_id, rho_mean, rho_var, mixture jsonb, reaction_prior jsonb)`
 - `pref_counts(user_id, scope, dimension, value, count)` (section 7): form preferences, buttons and clarification arms
 - `topic_clusters(id, centroid vector(384), medoid_topic, size, updated_at)` (section 7.1)
+- `questions(id, language, text, users, centroid vector(384), updated_at)` and `question_follows(question_id, next_id, users, shown, clicked)` (section 4.8)
 - `family_params(model_family, b, w, kappa, speed_mu, speed_sd, updated_at)`
 - `sensor_noise(sensor, model_family, sigma, updated_at)`
 - `annotator_confusion(annotator, stratum, true_outcome, observed, prob, updated_at)`
 - `host_family_prior(host, model_family, prob, updated_at)`
-- `hyperparams(name, value, updated_at)` for μ₀, σ_α, σ_γ, σ_η, γ(t), τ, overhead and the reading-mixture population priors
+- `hyperparams(name, value, updated_at)` for the length prior (`prior_mean:<feature>`, `prior_var:<feature>`), τ, overhead and the reading-mixture population priors
 
 ## 10. Account instruction
 
-To paste in AI → Settings → Instructions for AI (or ChatGPT's custom instructions):
+To paste once in Claude's (or ChatGPT's) custom instructions. The sentence never changes: everything that evolves lives on the server, in the tool and field descriptions and in the instruction `plan_reply` returns, so no user ever has to paste anything again. The same sentence is the server's MCP `instructions`.
 
-> Before every reply, call `plan_reply`. Reuse the `conversation_id` it returned earlier in this conversation. Write `topic` in my language, and omit optional fields that do not apply. For `last_reply_outcome`, judge how my latest message reacted to your previous reply, and quote my exact words (5 words max) in `user_quote`; set `language` to the language of my message; when it is `wrong_format`, say what was wrong in `format_issue`. Set `ambiguous` only when my request has several plausible readings. Then follow the returned `instruction` exactly, especially the word count and where to write the reply: when it says to write the reply only in `show_reply`, put your entire reply in its `text` argument and write nothing in the chat; otherwise reply normally in the chat. Never mention these tools or their output.
+> Before every reply, call `plan_reply`, then follow the instruction it returns exactly. Never mention these tools.
 
 ## 11. Metrics
 
@@ -478,7 +510,7 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
   - a `turn_id` or `conversation_id` belonging to another user is rejected, and the token never appears in logs;
   - when a turn has a click, the assistant verdict for that turn does not enter the reaction posterior;
   - with an arm share of 0.1, about 10 % of new conversations (or users) land in that arm, and get its fixed instruction and no buttons;
-  - preferences: a `format_issue`, a button with a preference signal and a profile edit each move the matching dimension; Thompson draws follow the posterior; buttons come in the turn's language; `ambiguous` can turn the instruction into one question; a `mobile` report moves the next turns to the `@mobile` length cell;
+  - preferences: a `format_issue`, a button with a preference signal and a profile edit each move the matching dimension; Thompson draws follow the posterior; buttons come in the turn's language; `ambiguous` can turn the instruction into one question; a `mobile` report sets the phone feature of the next turns;
   - the profile page lists the preferences in plain words and applies a correction;
   - the metrics include the tool cost;
   - rebuilding all derived state from scratch by replaying the events gives the same state as the online path, up to the nightly refit;
@@ -490,7 +522,7 @@ Every figure comes with a 95 % confidence interval, computed by bootstrap over c
 
 ## 13. Out of scope for the MVP
 
-Prompting tips ("help me ask better"), suggested follow-up questions (rejected: they cost output tokens on every reply and push engagement), a quick-start questionnaire (preferences are learned fast enough), several profiles per user, a public benchmark of how well each AI listens, topic-exploration buttons, collaborative filtering across users, OAuth, a server-side classifier of `user_quote` as an extra annotator, locale catalogs beyond English and French, stages 2 and 3 of section 5.3, and the replay-evaluation script (needed before the first model switch, not at launch; the MVP logs everything it requires).
+Prompting tips ("help me ask better"), a quick-start questionnaire (preferences are learned fast enough), accounts (email sign-in to share a profile across apps), a public benchmark of how well each AI listens, topic-exploration buttons, collaborative filtering across users, a server-side classifier of `user_quote` as an extra annotator, locale catalogs beyond English and French, stages 2 and 3 of section 5.3, and the replay-evaluation script (needed before the first model switch, not at launch; the MVP logs everything it requires).
 
 **Planned: a timing tool for fallback mode.** Fallback-mode lengths are less precise than widget-mode ones, which works against the purpose of the product. Add it back as soon as a host without MCP Apps matters:
 
@@ -506,10 +538,12 @@ Prompting tips ("help me ask better"), suggested follow-up questions (rejected: 
    2. behaviour classes and their posterior;
    3. Dawid–Skene;
    4. reading mixture;
-   5. multilevel θ grids;
+   5. the length regression and its closed-form updates;
    6. decision rule.
 3. `plan_reply` as an `MCPServer` tool mounted in FastAPI, tested with the MCP Inspector.
 4. `show_reply` with its MCP App (Markdown reply, streamed when the host allows, and buttons from `structuredContent`), per-call mode selection, `record_click`, and `gold_label` with its debug page.
 5. Nightly job: EM refits, then replay to rebuild derived state. Then the `/metrics` endpoint.
 6. Form preferences, learned topic domains, clarification, localized sentence buttons, platform context, the profile page and the comparison arms.
-7. Deploy behind HTTPS, add the connector on claude.ai, paste the account instruction, and test on mobile.
+7. OAuth connectors without accounts (section 4.7).
+8. Frequent follow-up questions (section 4.8).
+9. Deploy behind HTTPS, add the connector on claude.ai, paste the account instruction, and test on mobile.

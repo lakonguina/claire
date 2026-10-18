@@ -1,4 +1,9 @@
-"""Buttons (SPEC sections 4.4 and 8): what a click means, Thompson choice."""
+"""Buttons (SPEC sections 4.4 and 8): what a click means, Thompson choice.
+
+A button is an intent (shorter, an example, the next question…) whose label
+the assistant writes for its reply. Intents are ranked by how often they
+helped: clicked, and the reply that followed the click was fine.
+"""
 
 import dataclasses
 import random
@@ -44,9 +49,12 @@ EFFECTS = {
         (vocab.Dimension.FORMAT, vocab.PrefValue.PROSE),
     ),
     vocab.Button.NOT_THIS: Effect(vocab.Outcome.MISUNDERSTOOD),
+    # Asking a follow-up question: the reply was enough to move on.
+    vocab.Button.RELATED: Effect(vocab.Outcome.MOVED_ON),
 }
 
 
+# The buttons that adjust a reply, chosen per user by Thompson sampling.
 @dataclasses.dataclass(frozen=True)
 class Shown:
     """A button placed under a reply."""
@@ -58,29 +66,30 @@ class Shown:
 
 
 def choose(counts: prefs.Counts, rng: random.Random) -> list[Shown]:
-    """Returns [safe, explore, explore], or a random order sometimes.
+    """Returns [most useful, explore, explore], sometimes shuffled.
 
     Args:
-        counts: Preference counts holding the buttons' click dimensions.
+        counts: Preference counts holding the buttons' usefulness, as the
+            two-value dimensions "button:<intent>".
         rng: The random source.
 
     Returns:
-        The buttons to show, with their positions and Thompson draws.
+        The intents to show, with their positions and Thompson draws.
     """
     alphas = {
         b: prefs.posterior(counts, prefs.arm(vocab.ArmKind.BUTTON, b))
         for b in vocab.Button
     }
-    p_click = {
+    useful = {
         b: a[vocab.PrefValue.YES] / sum(a.values()) for b, a in alphas.items()
     }
-    safe = max(p_click, key=p_click.get)
+    best = max(useful, key=useful.get)
     draws = {
         b: prefs.draw(a, rng)[vocab.PrefValue.YES]
         for b, a in alphas.items()
-        if b != safe
+        if b != best
     }
-    chosen = [safe, *sorted(draws, key=draws.get, reverse=True)[: SHOWN - 1]]
+    chosen = [best, *sorted(draws, key=draws.get, reverse=True)[: SHOWN - 1]]
     shuffled = rng.random() < SHUFFLE_PROB
     if shuffled:
         rng.shuffle(chosen)

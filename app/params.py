@@ -25,7 +25,7 @@ ALL_FAMILIES = "all"  # Sensor noise shared by every model family.
 class Params:
     """Every learned global parameter, at its initial value until refit."""
 
-    hyper: theta.Hyper = dataclasses.field(default_factory=theta.Hyper)
+    prior: theta.Prior = dataclasses.field(default_factory=theta.Prior)
     reading: reading_lib.ReadingParams = dataclasses.field(
         default_factory=reading_lib.ReadingParams
     )
@@ -41,13 +41,21 @@ class Params:
     )
 
 
-HYPER_NAMES = ("mu0", "sigma_alpha", "sigma_gamma", "sigma_eta", "tau")
 READING_NAMES = {
     "reading_s_r": "s_r",
     "reading_mu_away": "mu_away",
     "reading_s_away": "s_away",
 }
-GAMMA_PREFIX = "gamma:"
+# Hyperparameter names of the length prior: "<prefix><feature>".
+PRIOR_MEAN, PRIOR_VAR = "prior_mean:", "prior_var:"
+
+
+def _prefixed(values: dict[str, float], prefix: str) -> dict[str, float]:
+    return {
+        k.removeprefix(prefix): v
+        for k, v in values.items()
+        if k.startswith(prefix)
+    }
 
 
 async def load_params(session: sa_asyncio.AsyncSession) -> Params:
@@ -58,15 +66,9 @@ async def load_params(session: sa_asyncio.AsyncSession) -> Params:
 
     p = Params()
     hyper = {r.name: r.value for r in await rows(models.Hyperparam)}
-    p.hyper = dataclasses.replace(
-        p.hyper,
-        **{n: hyper[n] for n in HYPER_NAMES if n in hyper},
-        gamma={
-            k.removeprefix(GAMMA_PREFIX): v
-            for k, v in hyper.items()
-            if k.startswith(GAMMA_PREFIX)
-        },
-    )
+    p.prior.mean |= _prefixed(hyper, PRIOR_MEAN)
+    p.prior.var |= _prefixed(hyper, PRIOR_VAR)
+    p.prior.tau = hyper.get("tau", p.prior.tau)
     p.overhead = hyper.get("overhead", p.overhead)
     p.reading = dataclasses.replace(
         p.reading,

@@ -1,7 +1,7 @@
 /**
  * @fileoverview The reply widget (SPEC 4.2): renders the reply as it streams,
- * then the buttons, copy actions and profile link sent by the server. Every
- * label comes from the server's locale catalog.
+ * then the buttons (follow-up questions first), copy actions and profile
+ * link sent by the server. Every label comes from the server.
  */
 import {
   App,
@@ -102,11 +102,16 @@ function decorate(labels, profileUrl) {
 }
 
 /**
- * Records a click, then sends the button's follow-up message.
+ * Records a click, then sends the button's message. Buttons stay clickable:
+ * a second click corrects a mistaken first one.
  * @param {{id: string, position: number, message: string}} button
+ * @param {!HTMLButtonElement} el
  */
-async function click(button) {
-  for (const el of buttonsEl.querySelectorAll('button')) el.disabled = true;
+async function click(button, el) {
+  for (const other of document.querySelectorAll('.clicked')) {
+    other.classList.remove('clicked');
+  }
+  el.classList.add('clicked');
   try {
     await app.callServerTool({
       name: 'record_click',
@@ -125,7 +130,7 @@ async function click(button) {
 }
 
 /**
- * Renders the buttons chosen by the server.
+ * Renders the buttons chosen by the server, follow-up questions first.
  * @param {!Array<{id: string, position: number, label: string,
  *     message: string}>} buttons
  */
@@ -135,7 +140,7 @@ function renderButtons(buttons) {
       const el = Object.assign(document.createElement('button'), {
         textContent: b.label,
       });
-      el.onclick = () => click(b);
+      el.onclick = () => click(b, el);
       return el;
     }),
   );
@@ -186,7 +191,7 @@ app.ontoolresult = (result) => {
 };
 app.ontoolcancelled = () => {
   render();
-  buttonsEl.replaceChildren();
+  renderButtons([]);
 };
 app.onhostcontextchanged = applyContext;
 

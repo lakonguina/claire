@@ -1,16 +1,11 @@
-"""Numeric helpers shared by the models: normal law, grids, bootstrap."""
+"""Numeric helpers shared by the models: normal law, bootstrap."""
 
 from collections.abc import Sequence
-import random
 
 import numpy as np
 from scipy import stats as scipy_stats
 
 NORMAL = scipy_stats.norm
-GRID_N = 81
-GRID_LO, GRID_HI = np.log(0.1), np.log(2.0)
-GRID = np.linspace(GRID_LO, GRID_HI, GRID_N)
-HALF_STEP = (GRID_HI - GRID_LO) / (GRID_N - 1) / 2
 
 
 def phi(x):
@@ -41,29 +36,6 @@ def normalize_log(log_weights) -> np.ndarray:
     """Normalizes weights given as logarithms."""
     log_weights = np.asarray(log_weights, dtype=float)
     return normalize(np.exp(log_weights - log_weights.max()))
-
-
-def normal_grid(mean: float, var: float) -> np.ndarray:
-    """Returns N(mean, var) discretised on GRID."""
-    return normalize_log(log_normal_pdf(GRID, mean, var))
-
-
-def grid_update(probs, likelihood) -> np.ndarray:
-    """Returns the grid posterior after one likelihood."""
-    return normalize(np.asarray(probs) * likelihood)
-
-
-def grid_mean_var(probs) -> tuple[float, float]:
-    """Returns the mean and variance of a grid distribution."""
-    probs = np.asarray(probs)
-    mean = float(probs @ GRID)
-    return mean, max(float(probs @ (GRID - mean) ** 2), 1e-9)
-
-
-def grid_sample(probs, rng: random.Random) -> float:
-    """Samples the grid, jittered uniformly within the sampled cell."""
-    i = rng.choices(range(GRID_N), weights=probs)[0]
-    return float(GRID[i]) + rng.uniform(-HALF_STEP, HALF_STEP)
 
 
 def mean_var(

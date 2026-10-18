@@ -3,16 +3,6 @@
 import enum
 
 
-class RequestType(enum.StrEnum):
-    FACT = enum.auto()
-    EXPLANATION = enum.auto()
-    ADVICE = enum.auto()
-    DECISION = enum.auto()
-    CODE = enum.auto()
-    WRITING = enum.auto()
-    PLAN = enum.auto()
-
-
 class Outcome(enum.StrEnum):
     MOVED_ON = enum.auto()
     TOO_LONG = enum.auto()
@@ -62,6 +52,7 @@ class Button(enum.StrEnum):
     AS_LIST = enum.auto()
     AS_PROSE = enum.auto()
     NOT_THIS = enum.auto()
+    RELATED = enum.auto()  # A follow-up question (SPEC 4.8).
 
 
 class Arm(enum.StrEnum):
@@ -99,8 +90,6 @@ DIMENSION_VALUES = {
     Dimension.TONE: (PrefValue.AUTO, PrefValue.DIRECT, PrefValue.WARM),
     Dimension.HEADINGS: (PrefValue.AUTO, PrefValue.YES, PrefValue.NO),
 }
-# Dimensions learned per topic domain rather than per request type.
-DOMAIN_SCOPED = frozenset({Dimension.LEVEL})
 # Format issue -> the (dimension, value) it asks for; None: anything else.
 FORMAT_ISSUES = {
     FormatIssue.TOO_TECHNICAL: (Dimension.LEVEL, PrefValue.SIMPLE),
@@ -131,7 +120,7 @@ class ArmKind(enum.StrEnum):
     CLARIFY = enum.auto()
 
 
-# The profile-page dimension that edits a length cell, not a preference.
+# The profile-page dimension that edits the preferred length (SPEC 6.5).
 LENGTH = "length"
 
 
@@ -141,3 +130,12 @@ class Source(enum.StrEnum):
     ASSISTANT = enum.auto()
     BUTTON = enum.auto()
     READING = enum.auto()
+
+
+class Credential(enum.StrEnum):
+    """The OAuth credentials the server issues (SPEC 4.7)."""
+
+    REQUEST = enum.auto()  # A pending authorization, until the consent.
+    CODE = enum.auto()
+    ACCESS = enum.auto()
+    REFRESH = enum.auto()

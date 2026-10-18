@@ -86,9 +86,9 @@ button {
   cursor: pointer;
 }
 
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
+button.clicked {
+  border-color: var(--color-border-info, LinkText);
+  color: var(--color-text-info, LinkText);
 }
 
 button.ghost {

@@ -4,12 +4,15 @@ import numpy as np
 from scipy import optimize
 
 
-def stable_ids(similarity: np.ndarray, old_ids: list[int]) -> list[int]:
+def stable_ids(
+    similarity: np.ndarray, old_ids: list[int], minimum: float = -np.inf
+) -> list[int]:
     """Matches new clusters to old ids (Hungarian), fresh ids for the rest.
 
     Args:
         similarity: new x old similarity matrix (higher is closer).
         old_ids: The id of each old cluster, one per column.
+        minimum: The similarity below which a match is refused.
 
     Returns:
         An id for each new cluster: its matched old id, or a fresh one.
@@ -18,7 +21,8 @@ def stable_ids(similarity: np.ndarray, old_ids: list[int]) -> list[int]:
     if old_ids:
         rows, cols = optimize.linear_sum_assignment(-similarity)
         for r, c in zip(rows, cols):
-            ids[r] = old_ids[c]
+            if similarity[r, c] >= minimum:
+                ids[r] = old_ids[c]
     fresh = max(old_ids, default=0) + 1
     for i, assigned in enumerate(ids):
         if assigned < 0:

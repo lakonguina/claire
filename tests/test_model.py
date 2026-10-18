@@ -1,5 +1,6 @@
 """Model behaviour and recovery on synthetic data (SPEC 12)."""
 
+import json
 import math
 import random
 
@@ -7,6 +8,7 @@ import numpy as np
 import pytest
 
 from app import i18n
+from app import service
 from app import text
 from app import topics
 from app import vocab
@@ -18,7 +20,6 @@ from app.model import policy
 from app.model import prefs
 from app.model import reaction
 from app.model import reading
-from app.model import stats
 from app.model import theta
 
 CONF = reaction.default_confusions()
@@ -33,28 +34,58 @@ def outcome_probs(verdict: str) -> list[float]:
     return reaction.posterior(prior, [obs], CONF)
 
 
-def posterior_mean_after(verdict: str) -> float:
-    hyper = theta.Hyper()
-    grid = stats.normal_grid(math.log(0.6), 0.25)
-    grid, _ = theta.update(
-        grid,
-        theta.alpha_prior(hyper),
-        "fact",
+CODE, COOKING = "topic:1", "topic:2"
+
+
+def belief_after(verdict: str, x: dict) -> theta.Belief:
+    belief = theta.Belief.empty()
+    theta.update(
+        belief,
+        x,
         math.log(0.6),
         0.0,
         (0.0, 0.0),
         outcome_probs(verdict),
-        hyper,
+        theta.Prior(),
     )
-    return stats.grid_mean_var(grid)[0]
+    return belief
 
 
-def test_outcomes_move_the_posterior_the_right_way():
-    before = stats.grid_mean_var(stats.normal_grid(math.log(0.6), 0.25))[0]
-    too_long, too_short, moved_on = map(
-        posterior_mean_after, ("too_long", "too_short", "moved_on")
+def test_outcomes_move_the_preference_the_right_way():
+    x = theta.features({CODE: 1.0}, mobile=False)
+    before = theta.Belief.empty().predict(x, theta.Prior())[0]
+    too_long, too_short, moved_on = (
+        belief_after(v, x).predict(x, theta.Prior())[0]
+        for v in ("too_long", "too_short", "moved_on")
     )
     assert too_long < moved_on < before < too_short
+
+
+def test_learning_is_shared_by_nearby_requests_only():
+    prior = theta.Prior()
+    belief = theta.Belief.empty()
+    code = theta.features({CODE: 1.0}, mobile=False)
+    for _ in range(5):
+        theta.update(
+            belief,
+            code,
+            math.log(0.6),
+            0.0,
+            (0.0, 0.0),
+            outcome_probs("too_long"),
+            prior,
+        )
+    shift = {
+        name: belief.predict(theta.features(d, False), prior)[0]
+        - theta.Belief.empty().predict(theta.features(d, False), prior)[0]
+        for name, d in (
+            ("code", {CODE: 1.0}),
+            ("between", {CODE: 0.5, COOKING: 0.5}),
+            ("cooking", {COOKING: 1.0}),
+        )
+    }
+    assert shift["code"] < shift["between"] < shift["cooking"] < 0
+    assert theta.informed(belief, prior) == [CODE]
 
 
 def test_rounding_and_clamps():
@@ -69,7 +100,8 @@ def test_rounding_and_clamps():
 def test_policy_decision_and_propensity():
     ctx = policy.Context(
         200,
-        stats.normal_grid(math.log(0.6), 0.01),
+        math.log(0.6),
+        0.01,
         0.0,
         0.0,
         math.log(0.8),
@@ -232,7 +264,7 @@ def test_preferences_explore_a_little_and_follow_signals():
         0.0,
         1.0,
     )
-    counts = {("cell", d, v): c for (d, v), c in signal.items()}
+    counts = {("scope", d, v): c for (d, v), c in signal.items()}
     counts |= {("user", d, v): c for (d, v), c in signal.items()}
     wins = sum(
         prefs.thompson(counts, vocab.Dimension.FORMAT, rng)
@@ -260,14 +292,27 @@ def test_buttons_are_distinct_and_positioned():
     assert all(s.button in vocab.Button for s in shown)
 
 
-def test_length_cells_and_profile_edits():
-    assert theta.cell_of("code", vocab.Platform.MOBILE) == "code@mobile"
-    assert theta.cell_of("code", vocab.Platform.WEB) == "code"
-    assert theta.request_type_of("code@mobile") == "code"
-    grid = theta.edit(
-        stats.normal_grid(math.log(1.0), 0.25), vocab.LengthChoice.SHORT
-    )
-    assert math.exp(stats.grid_mean_var(grid)[0]) < 0.5
+def test_assistant_labels_are_checked():
+    label = service._label  # pylint: disable=protected-access
+    assert label("  Un   exemple de budget ") == "Un exemple de budget"
+    assert label("word " * (service.MAX_LABEL_WORDS + 1)) is None
+    assert label("x" * (service.MAX_LABEL_CHARS + 1)) is None
+    assert label("") is None and label(3) is None
+
+
+def test_stable_ids_refuse_distant_matches():
+    similarity = np.array([[0.9, 0.1], [0.2, 0.3]])
+    assert matching.stable_ids(similarity, [7, 8], minimum=0.5) == [7, 9]
+
+
+def test_profile_edits_reach_their_scope():
+    prior, belief = theta.Prior(), theta.Belief.empty()
+    mobile = theta.edit_features(theta.MOBILE, topics.DOMAIN_PREFIX)
+    assert theta.edit_features("code@mobile", topics.DOMAIN_PREFIX) == mobile
+    theta.edit(belief, mobile, vocab.LengthChoice.SHORT, prior)
+    assert math.exp(belief.predict(mobile, prior)[0]) < 0.45
+    general = theta.edit_features("*", topics.DOMAIN_PREFIX)
+    assert belief.predict(general, prior)[0] > belief.predict(mobile, prior)[0]
 
 
 def test_word_count_parses_markdown():
@@ -287,13 +332,27 @@ def test_catalogs_cover_every_identifier():
     for language in ("en", "fr"):
         texts = i18n.catalog(language)
         assert set(texts["buttons"]) == set(vocab.Button)
-        assert set(texts["request_types"]) == set(vocab.RequestType)
         assert set(texts["lengths"]) == set(vocab.LengthChoice)
         for dimension, values in vocab.DIMENSION_VALUES.items():
             assert set(texts["dimensions"][dimension]["values"]) == set(values)
+        dashboard = texts["dashboard"]
+        for section, identifiers in (
+            ("outcomes", vocab.Outcome),
+            ("format_issues", vocab.FormatIssue),
+            ("groups", vocab.Arm),
+            ("modes", vocab.ReplyMode),
+            ("clarify", vocab.Clarify),
+            ("reading", reading.COMPONENTS),
+        ):
+            assert set(dashboard[section]) == set(identifiers)
+    french = json.loads((i18n.LOCALES / "fr.json").read_text())["dashboard"]
+    for section, texts in english["dashboard"].items():
+        if isinstance(texts, dict):  # Every dashboard text is translated.
+            assert set(french[section]) == set(texts)
     fragments = english["prompts"]["fragments"]
     for dimension, values in vocab.DIMENSION_VALUES.items():
         assert set(fragments[dimension]) == set(values) - {vocab.PrefValue.AUTO}
+    assert set(english["prompts"]["intents"]) == set(vocab.Button)
     assert set(english["prompts"]["arms"]) == set(vocab.Arm) - {
         vocab.Arm.TREATMENT
     }
@@ -302,8 +361,8 @@ def test_catalogs_cover_every_identifier():
 
 def test_topic_clustering_is_multilingual_and_stable():
     rng = np.random.default_rng(0)
-    centers = topics._unit(rng.normal(size=(3, 384)))  # pylint: disable=protected-access
-    vectors = topics._unit(  # pylint: disable=protected-access
+    centers = topics.unit(rng.normal(size=(3, 384)))
+    vectors = topics.unit(
         np.repeat(centers, 40, axis=0) + 0.05 * rng.normal(size=(120, 384))
     )
     found, labels = topics._best_k_means(vectors)  # pylint: disable=protected-access

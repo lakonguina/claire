@@ -12,18 +12,21 @@ import sqlalchemy as sa
 from app import config
 from app import db
 from app import i18n
+from app import mcp_server
 from app import models
 from app import nightly
 from app import params as params_lib
+from app import questions
 from app import service
+from app import topics
 from app import vocab
 from app.model import bandits
 from app.model import prefs
+from app.model import theta
 from tests import conftest
 
 MARKER = "SECRET_REPLY_MARKER_93f1"
 PLAN = {
-    "request_type": "explanation",
     "topic": "how to deploy the server",
     "language": "en",
     "needed_words": 200,
@@ -111,7 +114,7 @@ async def test_full_turn_sequence_and_no_trace_of_text(
     caplog.set_level(logging.DEBUG)
     client = await make_client()
     plan = (await client.call("plan_reply", **PLAN))["data"]
-    assert plan["instruction"].endswith(WIDGET_SENTENCE)
+    assert WIDGET_SENTENCE in plan["instruction"]
     shown = await client.call(
         "show_reply",
         turn_id=plan["turn_id"],
@@ -119,7 +122,7 @@ async def test_full_turn_sequence_and_no_trace_of_text(
     )
     assert shown["content"] == [{"type": "text", "text": "ok"}]
     content = shown["structuredContent"]
-    assert content["profile_url"].endswith(service.token_hash(client.token))
+    assert content["profile_url"].endswith(await client.profile_key())
     b = content["buttons"][0]
     await client.call(
         "record_click",
@@ -154,8 +157,8 @@ async def test_full_turn_sequence_and_no_trace_of_text(
     )
     assert MARKER not in await dump(database)
     assert MARKER not in server_logs
-    assert client.token not in server_logs
-    assert "/mcp/<redacted>" in server_logs
+    assert client.access not in server_logs
+    assert "POST /mcp 200" in server_logs
 
 
 async def test_show_reply_errors_hide_the_text(make_client, caplog):
@@ -178,7 +181,7 @@ async def test_mode_selection_in_both_protocol_eras(make_client, database):
         ):
             client = await make_client(apps=apps, version=version)
             plan = (await client.call("plan_reply", **PLAN))["data"]
-            assert plan["instruction"].endswith(WIDGET_SENTENCE) == apps
+            assert (WIDGET_SENTENCE in plan["instruction"]) == apps
             async with database() as session:
                 turn = await session.get(models.Turn, turn_number(plan))
                 conv = await session.get(
@@ -205,7 +208,7 @@ async def test_foreign_handles_are_rejected(make_client):
     )["isError"]
 
 
-async def test_unknown_token_is_404(http):
+async def test_connector_urls_are_gone(http):
     assert (await http.post("/mcp/not-a-token", json={})).status_code == 404
 
 
@@ -291,7 +294,7 @@ async def test_format_issue_moves_the_preference(make_client, database):
     count = await pref_count(
         database,
         await client.user_id(),
-        PLAN["request_type"],
+        topics.ANY_DOMAIN,
         vocab.Dimension.FORMAT,
         vocab.PrefValue.BULLETS,
     )
@@ -341,7 +344,8 @@ async def test_buttons_and_labels_come_in_the_turns_language(make_client):
     french = i18n.catalog("fr")
     assert content["labels"] == french["widget"]
     for b in content["buttons"]:
-        assert b["label"] == french["buttons"][b["id"]]["label"]
+        if not b.get("question"):
+            assert b["label"] == french["buttons"][b["id"]]["label"]
 
 
 async def test_ambiguous_requests_can_get_a_question(make_client):
@@ -356,7 +360,7 @@ async def test_ambiguous_requests_can_get_a_question(make_client):
     assert len(instructions) > 1
 
 
-async def test_mobile_report_moves_the_length_cell(make_client, database):
+async def test_mobile_report_becomes_a_length_feature(make_client, database):
     client = await make_client()
     plan = (await client.call("plan_reply", **PLAN))["data"]
     await client.call(
@@ -374,7 +378,7 @@ async def test_mobile_report_moves_the_length_cell(make_client, database):
         database,
         sa.select(models.Turn.style).where(models.Turn.id == turn_number(nxt)),
     )
-    assert style["cell"] == "explanation@mobile"
+    assert style["mobile"]
 
 
 async def test_profile_page_lists_and_applies_corrections(
@@ -382,7 +386,7 @@ async def test_profile_page_lists_and_applies_corrections(
 ):
     client = await make_client()
     await plan_and_close(client)
-    key = service.token_hash(client.token)
+    key = await client.profile_key()
     page = await http.get(f"/me/{key}")
     title = i18n.catalog(i18n.FALLBACK)["profile"]["title"]
     assert page.status_code == 200 and title in page.text
@@ -402,7 +406,7 @@ async def test_profile_page_lists_and_applies_corrections(
     assert count >= prefs.EDIT
     length = await http.post(
         f"/me/{key}",
-        content="scope=explanation&dimension=length&value=short",
+        content="scope=*&dimension=length&value=short",
         headers=FORM,
     )
     assert length.status_code == 303
@@ -433,7 +437,7 @@ async def test_replay_rebuilds_the_online_state(http, make_client, database):
                 )
             )["data"]
     await http.post(
-        f"/me/{service.token_hash(client.token)}",
+        f"/me/{await client.profile_key()}",
         content="scope=*&dimension=tone&value=direct",
         headers=FORM,
     )
@@ -448,13 +452,13 @@ async def test_nightly_job_runs(make_client, database):
     await plan_and_close(await make_client())
     async with database() as session, session.begin():
         assert await nightly.run(session) == 1
-    mu0 = await scalar(
+    typical = await scalar(
         database,
         sa.select(models.Hyperparam.value).where(
-            models.Hyperparam.name == "mu0"
+            models.Hyperparam.name == f"{params_lib.PRIOR_MEAN}{theta.BIAS}"
         ),
     )
-    assert mu0 is not None
+    assert typical is not None
 
 
 async def test_policy_swap_through_configuration(
@@ -485,6 +489,9 @@ async def test_metrics_and_gold_labels(http, make_client):
 async def test_dashboard(http, make_client):
     plan, _ = await plan_and_close(await make_client())
     assert "Lingua Franca Admin" in (await http.get("/admin")).text
+    french = i18n.catalog("fr")["dashboard"]["tabs"]["model"]
+    page = await http.get("/admin", headers={"accept-language": "fr-FR,en"})
+    assert french in page.text and 'lang="fr"' in page.text
     assert (await http.get("/admin/api/overview")).status_code == 401
     overview = (await http.get("/admin/api/overview", headers=AUTH)).json()
     assert overview["counts"]["turns"] == 2
@@ -567,18 +574,189 @@ def test_nightly_learns_behaviour_classes_and_host_priors():
                 {
                     "user_id": 1,
                     "conversation_id": conversation_id,
-                    "cell": "explanation",
+                    "theta_mean": math.log(0.6),
                     "needed_words": 150,
                     "length_mean": math.log(words),
                     "duration": writing + p.overhead,
                 }
             )
-    nightly.refit_families(
-        pd.DataFrame(turns), pd.DataFrame(conversations), p, {}
-    )
+    nightly.refit_families(pd.DataFrame(turns), pd.DataFrame(conversations), p)
     assert len(p.families.params) == 2
     fast_class = max(
         p.families.params, key=lambda f: p.families.params[f]["speed_mu"]
     )
     prior = p.families.host_prior["fast-host"]
     assert max(prior, key=prior.get) == fast_class
+
+
+DEPLOY = "How do I deploy the server?"
+PIZZA = "What is the best pizza dough recipe?"
+SHOES = "Which running shoes should I buy?"
+
+
+async def converse(make_client, *asked: str, language: str = "en"):
+    """One conversation of a new user, asking the topics in order."""
+    client = await make_client()
+    conversation = {}
+    for topic in asked:
+        plan = (
+            await client.call(
+                "plan_reply",
+                **{**PLAN, "topic": topic, "language": language},
+                **conversation,
+            )
+        )["data"]
+        await client.call("show_reply", turn_id=plan["turn_id"], text="ok")
+        conversation = {"conversation_id": plan["conversation_id"]}
+    return client
+
+
+def with_intents(monkeypatch, *intents: str) -> None:
+    """Makes the bandit choose these intents, in this order."""
+    monkeypatch.setattr(
+        bandits,
+        "choose",
+        lambda counts, rng: [
+            bandits.Shown(b, i, False, None) for i, b in enumerate(intents)
+        ],
+    )
+
+
+async def test_buttons_mix_frequent_and_written_labels(
+    http, make_client, database, monkeypatch
+):
+    for _ in range(questions.MIN_USERS):
+        await converse(make_client, DEPLOY, PIZZA)
+    for _ in range(questions.MIN_USERS - 1):  # One person short of shown.
+        await converse(make_client, DEPLOY, SHOES)
+    await http.post("/admin/api/nightly", headers=AUTH)
+    with_intents(
+        monkeypatch,
+        vocab.Button.RELATED,
+        vocab.Button.EXAMPLE,
+        vocab.Button.NOT_THIS,
+    )
+    client = await make_client()
+    plan = (await client.call("plan_reply", **{**PLAN, "topic": DEPLOY}))[
+        "data"
+    ]
+    prompts = i18n.prompts()
+    asked = prompts["buttons"].format(
+        count=2,
+        intents="; ".join(
+            prompts["intents"][b]
+            for b in (vocab.Button.EXAMPLE, vocab.Button.NOT_THIS)
+        ),
+    )
+    assert plan["instruction"].endswith(asked)
+    buttons = (
+        await client.call(
+            "show_reply",
+            turn_id=plan["turn_id"],
+            text="ok",
+            suggestions=["Un exemple avec Docker", "word " * 20],
+        )
+    )["structuredContent"]["buttons"]
+    fallback = i18n.catalog("en")["buttons"][vocab.Button.NOT_THIS]
+    assert [b["label"] for b in buttons] == [
+        PIZZA,  # Frequent: asked next by 5 people.
+        "Un exemple avec Docker",
+        fallback["label"],  # Too long: the catalog's.
+    ]
+    assert buttons[1]["message"] == "Un exemple avec Docker"
+    for b in buttons[:2]:  # A second click corrects the first.
+        await client.call(
+            "record_click",
+            turn_id=plan["turn_id"],
+            button=b["id"],
+            position=b["position"],
+        )
+    await http.post("/admin/api/nightly", headers=AUTH)
+    follow = await scalar(
+        database,
+        sa.select(models.QuestionFollow)
+        .join(
+            models.Question, models.Question.id == models.QuestionFollow.next_id
+        )
+        .where(models.Question.text == PIZZA),
+    )
+    assert (follow.shown, follow.clicked) == (1, 1)
+
+
+async def test_a_button_is_useful_when_its_reply_is_fine(
+    make_client, database, monkeypatch
+):
+    with_intents(monkeypatch, vocab.Button.EXAMPLE, vocab.Button.SHORTER)
+    client = await make_client()
+    plan = (await client.call("plan_reply", **PLAN))["data"]
+    shown = (
+        await client.call("show_reply", turn_id=plan["turn_id"], text="ok")
+    )["structuredContent"]["buttons"]
+    await client.call(
+        "record_click",
+        turn_id=plan["turn_id"],
+        button=shown[0]["id"],
+        position=0,
+    )
+    conversation = {"conversation_id": plan["conversation_id"]}
+    for _ in range(2):  # The answer to the click, then the reaction to it.
+        nxt = (await client.call("plan_reply", **PLAN, **conversation))["data"]
+        await client.call("show_reply", turn_id=nxt["turn_id"], text="ok")
+    user, scope = await client.user_id(), topics.ANY_DOMAIN
+
+    async def count(button: str, value: str) -> float:
+        dimension = prefs.arm(vocab.ArmKind.BUTTON, button)
+        return await pref_count(database, user, scope, dimension, value)
+
+    assert await count(vocab.Button.EXAMPLE, vocab.PrefValue.YES) > 0.5
+    assert await count(vocab.Button.SHORTER, vocab.PrefValue.NO) >= 1
+
+
+async def test_questions_stay_in_their_language(
+    http, make_client, database, monkeypatch
+):
+    for _ in range(questions.MIN_USERS):
+        await converse(make_client, DEPLOY, PIZZA)
+    await http.post("/admin/api/nightly", headers=AUTH)
+    with_intents(monkeypatch, vocab.Button.RELATED)
+    client = await make_client()
+    labels = {}
+    for language, topic in (
+        ("en", DEPLOY),
+        ("fr", "Comment déployer le serveur ?"),
+    ):
+        plan = await client.call(
+            "plan_reply", **{**PLAN, "topic": topic, "language": language}
+        )
+        style = await scalar(
+            database,
+            sa.select(models.Turn.style).where(
+                models.Turn.id == turn_number(plan["data"])
+            ),
+        )
+        labels[language] = style["buttons"][0].get("label")
+    assert labels == {"en": PIZZA, "fr": None}  # In French, the AI writes it.
+
+
+async def test_a_next_question_without_a_label_is_dropped(
+    make_client, monkeypatch
+):
+    with_intents(monkeypatch, vocab.Button.RELATED, vocab.Button.SHORTER)
+    client = await make_client()
+    plan = (await client.call("plan_reply", **PLAN))["data"]
+    buttons = (
+        await client.call("show_reply", turn_id=plan["turn_id"], text="ok")
+    )["structuredContent"]["buttons"]
+    assert [(b["id"], b["position"]) for b in buttons] == [
+        (vocab.Button.SHORTER, 0)
+    ]
+
+
+async def test_every_widget_address_serves_the_current_widget(make_client):
+    client = await make_client()
+    tools = (await client.rpc("tools/list"))["result"]["tools"]
+    show = next(t for t in tools if t["name"] == "show_reply")
+    assert show["_meta"]["ui"]["resourceUri"] == mcp_server.UI_URI
+    for uri in (mcp_server.UI_URI, "ui://lingua-franca/reply.html"):
+        read = await client.rpc("resources/read", {"uri": uri})
+        assert read["result"]["contents"][0]["text"] == mcp_server.WIDGET_HTML

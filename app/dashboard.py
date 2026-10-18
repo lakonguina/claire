@@ -2,7 +2,6 @@
 
 import datetime
 import math
-import pathlib
 
 import fastapi
 from fastapi import responses
@@ -12,17 +11,25 @@ from sqlalchemy.ext import asyncio as sa_asyncio
 from app import config
 from app import db
 from app import engine
+from app import i18n
 from app import models
 from app import nightly
 from app import params as params_lib
+from app import questions
+from app import topics
 from app import vocab
 from app.model import prefs
 from app.model import reaction
 from app.model import reading as reading_lib
 from app.model import stats
+from app.model import theta
 
-PAGE = (pathlib.Path(__file__).resolve().parent / "dashboard.html").read_text()
+PAGE = i18n.TEMPLATES.get_template("dashboard.html")
+# The catalog sections the page reads.
+PAGE_TEXTS = ("dashboard", "buttons", "dimensions", "lengths")
 MAX_TURNS = 500
+GENERAL = theta.features({}, mobile=False)
+MAX_QUESTIONS = 10
 DAY = datetime.timedelta(hours=24)
 BEARER = "Bearer "
 FILTERS = {
@@ -54,8 +61,13 @@ api = fastapi.APIRouter(
 @page.get(
     "/admin", response_class=responses.HTMLResponse, include_in_schema=False
 )
-async def dashboard_page() -> str:
-    return PAGE  # Holds no data: the API below needs the admin token.
+async def dashboard_page(request: fastapi.Request) -> str:
+    """Returns the page in the browser's language; it holds no data."""
+    language = i18n.preferred(request.headers.get("accept-language"))
+    texts = i18n.catalog(language)
+    return PAGE.render(
+        language=language, texts={k: texts[k] for k in PAGE_TEXTS}
+    )
 
 
 def _row(obj) -> dict:
@@ -133,6 +145,21 @@ async def overview() -> dict:
         clusters = await session.scalars(
             sa.select(models.TopicCluster).order_by(models.TopicCluster.id)
         )
+        q, f = models.Question, models.QuestionFollow
+        frequent = (
+            await session.execute(
+                sa.select(
+                    q.text,
+                    q.language,
+                    q.users,
+                    sa.func.coalesce(sa.func.sum(f.users), 0).label("follows"),
+                )
+                .outerjoin(f, f.question_id == q.id)
+                .group_by(q.id)
+                .order_by(q.users.desc(), q.id)
+                .limit(MAX_QUESTIONS)
+            )
+        ).mappings()
         return {
             "counts": counts,
             "hosts": [dict(r) for r in hosts],
@@ -141,6 +168,8 @@ async def overview() -> dict:
                 {"id": k.id, "medoid_topic": k.medoid_topic, "size": k.size}
                 for k in clusters
             ],
+            "questions": [dict(r) for r in frequent],
+            "min_users": questions.MIN_USERS,
             "settings": {
                 "policy": settings.policy,
                 "control_unit": settings.control_unit,
@@ -181,7 +210,7 @@ async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
     for turn, conv, inference in rows:
         reply = engine.first(turn.replies)
         verdict = engine.first(turn.outcomes, source=vocab.Source.ASSISTANT)
-        click = engine.first(turn.clicks)
+        click = engine.last(turn.clicks)
         probs = inference.reaction_probs if inference else {}
         out.append(
             {
@@ -197,8 +226,11 @@ async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
                 "verdict": verdict.observed if verdict else None,
                 "user_quote": verdict.user_quote if verdict else None,
                 "format_issue": verdict.format_issue if verdict else None,
-                "clicked": click.button if click else None,
-                "buttons": [b.button for b in turn.buttons_shown] or None,
+                "clicked": click.position if click else None,
+                "buttons": [
+                    {"id": b.button, "label": b.label, "position": b.position}
+                    for b in turn.buttons_shown
+                ],
                 "inferred": max(probs, key=probs.get, default=None),
                 "inferred_p": max(probs.values(), default=None),
             }
@@ -267,10 +299,11 @@ async def users() -> list[dict]:
                 .order_by(sa.desc("last_seen").nulls_last())
             )
         ).mappings()
-        alphas = {
-            a.user_id: a.grid
-            for a in await session.scalars(sa.select(models.AlphaPosterior))
+        beliefs = {
+            b.user_id: engine.belief_of(b)
+            for b in await session.scalars(sa.select(models.LengthPosterior))
         }
+        p = await params_lib.cache.get(session)
         speeds = {
             r.user_id: r.rho_mean
             for r in await session.scalars(sa.select(models.UserReading))
@@ -278,9 +311,9 @@ async def users() -> list[dict]:
     return [
         {
             **r,
-            "alpha_ratio": (
-                math.exp(stats.grid_mean_var(alphas[r["id"]])[0])
-                if r["id"] in alphas
+            "length_ratio": (
+                math.exp(beliefs[r["id"]].predict(GENERAL, p.prior)[0])
+                if r["id"] in beliefs
                 else None
             ),
             "reading_wps": (
@@ -295,13 +328,8 @@ async def users() -> list[dict]:
 async def user_detail(user_id: int) -> dict:
     pc = models.PrefCount
     async with db.session() as session:
-        thetas = list(
-            await session.scalars(
-                sa.select(models.ThetaPosterior)
-                .where(models.ThetaPosterior.user_id == user_id)
-                .order_by(models.ThetaPosterior.request_type)
-            )
-        )
+        belief = await engine.length_belief(session, user_id)
+        p = await params_lib.cache.get(session)
         dimensions = (
             await session.execute(
                 sa.select(pc.scope, pc.dimension)
@@ -316,25 +344,22 @@ async def user_detail(user_id: int) -> dict:
         reading = await engine.user_reading(session, user_id)
     preferences = []
     for scope, dimension in dimensions:
-        belief = prefs.posterior(counts[scope], dimension)
-        total = sum(belief.values())
+        pseudo_counts = prefs.posterior(counts[scope], dimension)
+        total = sum(pseudo_counts.values())
         preferences.append(
             {
                 "scope": scope,
                 "dimension": dimension,
-                "means": {v: a / total for v, a in belief.items()},
+                "means": {v: a / total for v, a in pseudo_counts.items()},
                 "evidence": total - prefs.STRENGTH,
             }
         )
     lengths = []
-    for cell in thetas:
-        mean, var = stats.grid_mean_var(cell.grid)
+    for scope in [prefs.USER_SCOPE, *theta.informed(belief, p.prior)]:
+        x = theta.edit_features(scope, topics.DOMAIN_PREFIX)
+        mean, var = belief.predict(x, p.prior)
         lengths.append(
-            {
-                "cell": cell.request_type,
-                "ratio": math.exp(mean),
-                "sd": math.sqrt(var),
-            }
+            {"scope": scope, "ratio": math.exp(mean), "sd": math.sqrt(var)}
         )
     return {
         "lengths": lengths,
@@ -360,17 +385,25 @@ async def learned_model() -> dict:
             m.__tablename__: await _count(session, sa.select(m)) > 0
             for m in (*models.LEARNED, models.TopicCluster)
         }
-    h = p.hyper
+        clusters = list(await session.scalars(sa.select(models.TopicCluster)))
+    prior = p.prior
     return {
         "learned": learned,
         "hyper": {
-            "mu0_ratio": math.exp(h.mu0),
-            "sigma_alpha": h.sigma_alpha,
-            "sigma_gamma": h.sigma_gamma,
-            "sigma_eta": h.sigma_eta,
-            "tau": h.tau,
+            "tau": prior.tau,
             "overhead_s": p.overhead,
-            "gamma": {t: math.exp(g) for t, g in h.gamma.items()},
+            "default_sd": math.sqrt(prior.default_var),
+            "prior": [
+                {
+                    "feature": f,
+                    "ratio": math.exp(prior.mean.get(f, 0.0)),
+                    "sd": math.sqrt(prior.var.get(f, prior.default_var)),
+                }
+                for f in dict.fromkeys([*prior.mean, *prior.var])
+            ],
+        },
+        "domains": {
+            topics.domain_scope(k.id): k.medoid_topic for k in clusters
         },
         "reading": vars(p.reading),
         "family": {

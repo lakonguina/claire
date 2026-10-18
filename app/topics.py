@@ -23,6 +23,8 @@ MIN_TOPICS = 20  # Below this, every topic is in one domain.
 MAX_CLUSTERS = 30
 DOMAIN_PREFIX = "topic:"
 ANY_DOMAIN = DOMAIN_PREFIX + "any"
+SOFTNESS = 0.05  # Softmax temperature of domain memberships.
+MIN_MEMBERSHIP = 0.01  # Smaller memberships are dropped.
 
 
 @functools.cache
@@ -33,14 +35,15 @@ def _model() -> fastembed.TextEmbedding:
     )
 
 
-def _unit(rows: np.ndarray) -> np.ndarray:
+def unit(rows: np.ndarray) -> np.ndarray:
+    """Scales vectors to unit norm (cosine geometry)."""
     return rows / np.linalg.norm(rows, axis=-1, keepdims=True)
 
 
 async def embed(topic: str) -> np.ndarray:
     """Returns the unit-norm embedding of a topic."""
     vectors = await asyncio.to_thread(lambda: list(_model().embed([topic])))
-    return _unit(np.asarray(vectors[0], dtype=np.float32))
+    return unit(np.asarray(vectors[0], dtype=np.float32))
 
 
 def domain_scope(cluster_id: int | None) -> str:
@@ -60,17 +63,51 @@ async def domain_of(
     return domain_scope(cluster_id)
 
 
+async def memberships(
+    session: sa_asyncio.AsyncSession, embedding: np.ndarray
+) -> dict[str, float]:
+    """Returns a topic's soft membership in every domain (sums to 1).
+
+    A softmax of the cosine similarities: a topic between two domains
+    belongs to both, so nothing learned has a hard frontier (SPEC 6.5).
+    """
+    clusters = (
+        await session.execute(
+            sa.select(models.TopicCluster.id, models.TopicCluster.centroid)
+        )
+    ).all()
+    if not clusters:
+        return {}
+    centroids = np.stack([np.asarray(c.centroid) for c in clusters])
+    logits = centroids @ embedding / SOFTNESS
+    weights = np.exp(logits - logits.max())
+    weights /= weights.sum()
+    return {
+        domain_scope(c.id): float(w)
+        for c, w in zip(clusters, weights)
+        if w >= MIN_MEMBERSHIP
+    }
+
+
 def _best_k_means(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Returns unit centroids and labels, k chosen by the cosine silhouette."""
+    """Returns unit centroids and labels, k chosen by the cosine silhouette.
+
+    k never exceeds the number of distinct topics: the same topic asked many
+    times is one point.
+    """
+    distinct = len(np.unique(vectors, axis=0))
+    k_max = min(MAX_CLUSTERS, int(len(vectors) ** 0.5), distinct)
+    if k_max < 2:
+        return unit(vectors.mean(0, keepdims=True)), np.zeros(len(vectors), int)
     best_score, best = -1.0, None
-    for k in range(2, min(MAX_CLUSTERS, int(len(vectors) ** 0.5)) + 1):
+    for k in range(2, k_max + 1):
         model = cluster.KMeans(k, n_init=10, random_state=0).fit(vectors)
         score = metrics.silhouette_score(
             vectors, model.labels_, metric="cosine"
         )
         if score > best_score:
             best_score, best = score, model
-    return _unit(best.cluster_centers_), best.labels_
+    return unit(best.cluster_centers_), best.labels_
 
 
 async def recluster(session: sa_asyncio.AsyncSession) -> int:
@@ -89,7 +126,7 @@ async def recluster(session: sa_asyncio.AsyncSession) -> int:
     await session.execute(sa.delete(models.TopicCluster))
     if len(rows) < MIN_TOPICS:
         return 0
-    vectors = _unit(np.stack([np.asarray(r.embedding) for r in rows]))
+    vectors = unit(np.stack([np.asarray(r.embedding) for r in rows]))
     centroids, labels = _best_k_means(vectors)
     old_ids = list(old)
     similarity = (

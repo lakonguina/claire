@@ -16,6 +16,7 @@ from app import db
 from app import engine
 from app import models
 from app import params as params_lib
+from app import questions
 from app import topics
 from app import vocab
 from app.model import family
@@ -31,7 +32,7 @@ DERIVED = models.DERIVED
 TURN_COLUMNS = [
     "user_id",
     "conversation_id",
-    "cell",
+    "theta_mean",
     "needed_words",
     "requested_words",
     "length_mean",
@@ -51,6 +52,7 @@ NUMERIC = [
     "needed_words",
     "requested_words",
     "length_mean",
+    "theta_mean",
     "kappa_mean",
     "speed_mean",
     "duration",
@@ -60,7 +62,6 @@ NUMERIC = [
 MIN_WEIGHT = 20.0  # Evidence needed before a parameter leaves its prior.
 MIN_ITEMS = 50  # Turns needed before Dawid-Skene runs.
 MIN_USERS = 5  # Users needed before the hyperparameters are refit.
-MIN_CELLS = 3  # Cells of a request type needed to estimate its gamma.
 MIN_VAR = 0.01
 HOST_SMOOTHING = 0.5
 
@@ -89,12 +90,12 @@ async def finalized_turns(session: Session) -> pd.DataFrame:
     for turn, inference, state in rows:
         reply = engine.first(turn.replies)
         verdict = engine.first(turn.outcomes, source=vocab.Source.ASSISTANT)
-        click = engine.first(turn.clicks)
+        click = engine.last(turn.clicks)
         out.append(
             {
                 "user_id": turn.user_id,
                 "conversation_id": turn.conversation_id,
-                "cell": engine.style_of(turn)["cell"],
+                "theta_mean": inference.theta_mean,
                 "needed_words": turn.needed_words,
                 "requested_words": turn.requested_words,
                 "length_mean": inference.length_mean,
@@ -182,7 +183,6 @@ def refit_families(
     turns: pd.DataFrame,
     conversations: pd.DataFrame,
     p: params_lib.Params,
-    theta_means: dict[tuple[int, str], float],
 ) -> None:
     """Refits the behaviour classes and the host priors (SPEC 6.3).
 
@@ -202,12 +202,8 @@ def refit_families(
     membership = pd.DataFrame(
         fit.memberships, index=speed.index, columns=fit.names
     )
-    cell_theta = pd.Series(
-        [theta_means.get(k) for k in zip(turns.user_id, turns.cell)],
-        index=turns.index,
-        dtype=float,
-    )
-    bias = turns.length_mean - np.log(turns.needed_words) - cell_theta
+    # The preference predicted before each turn, so no turn explains itself.
+    bias = turns.length_mean - np.log(turns.needed_words) - turns.theta_mean
     weights = membership.reindex(turns.conversation_id.to_numpy()).fillna(0.0)
     params = {}
     for k, name in enumerate(fit.names):
@@ -223,7 +219,7 @@ def refit_families(
             "speed_mu": float(fit.means[k, 0]),
             "speed_sd": math.sqrt(fit.variances[k, 0]),
         }
-    # mu0 holds the population level, so the class biases are centred.
+    # The prior's bias holds the population level: class biases are centred.
     center = np.mean([c["b"] for c in params.values()])
     for c in params.values():
         c["b"] -= center
@@ -248,50 +244,41 @@ def refit_reading(
         )
 
 
-def refit_hyper(
-    alphas: dict[int, list[float]],
-    thetas: dict[tuple[int, str], list[float]],
-    p: params_lib.Params,
-) -> None:
-    """Refits mu0, sigma_alpha, gamma, sigma_gamma and sigma_eta (SPEC 6.5)."""
-    if len(alphas) < MIN_USERS:
-        return
-    a_stats = {u: stats.grid_mean_var(g) for u, g in alphas.items()}
-    hyper = p.hyper
-    hyper.mu0, spread = stats.mean_var([m for m, _ in a_stats.values()])
-    mean_var = sum(v for _, v in a_stats.values()) / len(a_stats)
-    hyper.sigma_alpha = math.sqrt(spread + mean_var)
-    residuals = collections.defaultdict(list)
-    for (u, cell), grid in thetas.items():
-        if u in a_stats:
-            residuals[theta.request_type_of(cell)].append(
-                stats.grid_mean_var(grid)[0] - a_stats[u][0]
+def refit_prior(beliefs: list[theta.Belief], p: params_lib.Params) -> None:
+    """Refits the population prior of the length weights (SPEC 6.5).
+
+    Empirical Bayes per feature: the mean of the users' posterior means, and
+    their spread plus the mean posterior variance (the part of each user the
+    data has not pinned down yet).
+    """
+    by_feature = collections.defaultdict(list)
+    for belief in beliefs:
+        for i, name in enumerate(belief.names):
+            by_feature[name].append((belief.mean[i], belief.cov[i, i]))
+    for name, values in by_feature.items():
+        if len(values) >= MIN_USERS:
+            means, variances = np.array(values).T
+            p.prior.mean[name] = float(means.mean())
+            p.prior.var[name] = max(
+                float(means.var() + variances.mean()), MIN_VAR
             )
-    hyper.gamma = {
-        t: stats.mean_var(r)[0]
-        for t, r in residuals.items()
-        if len(r) >= MIN_CELLS
-    }
-    if len(hyper.gamma) >= 2:
-        hyper.sigma_gamma = _sd(list(hyper.gamma.values()))
-    eta = [
-        r - hyper.gamma.get(t, 0.0) for t, rs in residuals.items() for r in rs
+    domains = [
+        v for n, v in p.prior.var.items() if n.startswith(topics.DOMAIN_PREFIX)
     ]
-    if len(eta) >= MIN_USERS:
-        hyper.sigma_eta = _sd(eta)
+    if len(domains) >= 2:
+        p.prior.default_var = float(np.mean(domains))
 
 
 async def save_params(session: Session, p: params_lib.Params) -> None:
     """Replaces every learned parameter table."""
     for model in models.LEARNED:
         await session.execute(sa.delete(model))
-    hyper = {name: getattr(p.hyper, name) for name in params_lib.HYPER_NAMES}
-    hyper |= {
+    hyper = {
         n: getattr(p.reading, f) for n, f in params_lib.READING_NAMES.items()
     }
-    hyper |= {
-        f"{params_lib.GAMMA_PREFIX}{t}": g for t, g in p.hyper.gamma.items()
-    }
+    hyper |= {f"{params_lib.PRIOR_MEAN}{f}": m for f, m in p.prior.mean.items()}
+    hyper |= {f"{params_lib.PRIOR_VAR}{f}": v for f, v in p.prior.var.items()}
+    hyper["tau"] = p.prior.tau
     hyper["overhead"] = p.overhead
     session.add_all(
         [
@@ -388,30 +375,22 @@ async def run(session: Session) -> int:
         ).all(),
         columns=["id", "host", "kappa_mean"],
     )
-    thetas = {
-        (t.user_id, t.request_type): t.grid
-        for t in await session.scalars(sa.select(models.ThetaPosterior))
-    }
-    alphas = {
-        a.user_id: a.grid
-        for a in await session.scalars(sa.select(models.AlphaPosterior))
-    }
+    beliefs = [
+        engine.belief_of(row)
+        for row in await session.scalars(sa.select(models.LengthPosterior))
+    ]
     rho = {
         r.user_id: r.rho_mean
         for r in await session.scalars(sa.select(models.UserReading))
     }
     refit_reactions(turns, p)
     refit_sensors(turns, p)
-    refit_families(
-        turns,
-        conversations,
-        p,
-        {k: stats.grid_mean_var(g)[0] for k, g in thetas.items()},
-    )
+    refit_families(turns, conversations, p)
     refit_reading(turns, rho, p)
-    refit_hyper(alphas, thetas, p)
+    refit_prior(beliefs, p)
     await save_params(session, p)
     await topics.recluster(session)
+    await questions.rebuild(session)
     params_lib.cache.invalidate()
     return await replay(session, p)
 
