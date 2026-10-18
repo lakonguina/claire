@@ -1,6 +1,5 @@
 """System tests through the MCP endpoint and the HTTP routes (SPEC 12)."""
 
-import dataclasses
 import logging
 import math
 import random
@@ -86,7 +85,7 @@ async def pref_count(
 
 def with_settings(monkeypatch, **changes) -> None:
     monkeypatch.setattr(
-        config, "settings", dataclasses.replace(config.settings, **changes)
+        config, "settings", config.settings.model_copy(update=changes)
     )
 
 
@@ -225,7 +224,8 @@ async def test_repair_without_quote_is_no_signal(make_client, database):
 async def test_arms_share_and_behaviour(make_client, monkeypatch):
     with_settings(
         monkeypatch,
-        arm_shares={vocab.Arm.CONTROL: 0.1, vocab.Arm.CONCISE: 0.1},
+        control_share=0.1,
+        concise_share=0.1,
     )
     client = await make_client()
     plans = [

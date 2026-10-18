@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="$language">
+<html lang="{{ language }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>$title</title>
+<title>{{ texts.title }}</title>
 <style>
 :root {
   --bg: #fdfcf6; --panel: #f4f2e8; --line: #dfdad1; --ink: #191711; --muted: #716d64;
@@ -34,9 +34,23 @@ button { background: var(--accent); color: #fff; border: 0; cursor: pointer; }
 </head>
 <body>
 <main>
-<h1>$title</h1>
-<p>$intro</p>
-$rows
+<h1>{{ texts.title }}</h1>
+<p>{{ texts.intro }}</p>
+{% for row in rows %}
+<form method="post">
+  <label>{{ row.name }}<small>{{ row.scope }}</small></label>
+  <input type="hidden" name="scope" value="{{ row.scope_id }}">
+  <input type="hidden" name="dimension" value="{{ row.dimension }}">
+  <select name="value" aria-label="{{ row.name }}">
+    {% for value, label in row.options.items() %}
+    <option value="{{ value }}"{% if value == row.current %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button>{{ texts.save }}</button>
+</form>
+{% else %}
+<p>{{ texts.nothing }}</p>
+{% endfor %}
 </main>
 </body>
 </html>

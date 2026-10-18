@@ -4,13 +4,12 @@ Treatment-versus-arm comparisons are labelled "measured"; every other figure
 is "estimated".
 """
 
-import collections
 import datetime
 import json
 import math
-import random
-import statistics
 
+import numpy as np
+import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
@@ -24,84 +23,54 @@ CHARS_PER_TOKEN = 4.0
 WORDS_PER_TOKEN = 0.75
 RESAMPLES = 1000
 ESTIMATED, MEASURED = "estimated", "measured"
-
-
-def _words_per_step(turns: list[dict]) -> float | None:
-    moved = sum(t["p_moved"] for t in turns)
-    words = sum(t["words"] + t["tool_words"] for t in turns)
-    return words / moved if moved > 0 else None
-
-
-def _mean_of(key: str):
-    def mean(turns: list[dict]) -> float | None:
-        return sum(t[key] for t in turns) / len(turns) if turns else None
-
-    return mean
-
-
-STATISTICS = {
-    "words_per_step_forward": _words_per_step,
-    "repair_rate": _mean_of("p_repair"),
-    "missing_info_rate": _mean_of("p_missing"),
-    "tool_words_per_turn": _mean_of("tool_words"),
+# Every figure is a ratio of sums: name -> (numerator, denominator) columns.
+RATIOS = {
+    "words_per_step_forward": ("spent", "p_moved"),
+    "repair_rate": ("p_repair", "one"),
+    "missing_info_rate": ("p_missing", "one"),
+    "tool_words_per_turn": ("tool_words", "one"),
 }
+SUMMED = sorted({c for pair in RATIOS.values() for c in pair})
 
 
-def _group(turns: list[dict], *keys: str) -> dict[tuple, list[dict]]:
-    out = collections.defaultdict(list)
-    for t in turns:
-        out[tuple(t[k] for k in keys)].append(t)
-    return out
-
-
-def _flat(clusters: list[list[dict]]) -> list[dict]:
-    return [t for cluster in clusters for t in cluster]
-
-
-def _summary(turns: list[dict], unit: str) -> dict:
-    clusters = list(_group(turns, unit).values())
-    out = {"turns": len(turns), "label": ESTIMATED}
-    for name, statistic in STATISTICS.items():
-        out[name] = statistic(turns)
-        out[f"{name}_ci95"] = stats.bootstrap_ci(
-            clusters, lambda cs, f=statistic: f(_flat(cs))
+def _summary(frame: pd.DataFrame, unit: str) -> dict:
+    """Returns every ratio with its cluster-bootstrap 95 % interval."""
+    sums = frame.groupby(unit)[SUMMED].sum()
+    out = {"turns": len(frame), "label": ESTIMATED}
+    for name, (num, den) in RATIOS.items():
+        total = sums[den].sum()
+        out[name] = float(sums[num].sum() / total) if total else None
+        out[f"{name}_ci95"] = stats.cluster_bootstrap(
+            sums[num].to_numpy(), sums[den].to_numpy()
         )
     return out
 
 
-def _saving(treatment: list[dict], arm: list[dict]) -> float | None:
-    t, a = _words_per_step(treatment), _words_per_step(arm)
-    return 1 - t / a if t and a else None
-
-
-def _measured(turns: list[dict], arm: str, unit: str) -> dict | None:
+def _measured(frame: pd.DataFrame, arm: str, unit: str) -> dict | None:
     """Returns the words-per-step saving of treatment over an arm."""
-    by_arm = {
-        g: list(_group(ts, unit).values())
-        for (g,), ts in _group(turns, "grp").items()
-    }
-    treated, other = by_arm.get(vocab.Arm.TREATMENT, []), by_arm.get(arm, [])
-    if len(treated) < 2 or len(other) < 2:
+    groups = [
+        frame[frame.grp == g].groupby(unit)[["spent", "p_moved"]].sum()
+        for g in (vocab.Arm.TREATMENT, arm)
+    ]
+    if min(len(g) for g in groups) < 2:
         return None
-    rng = random.Random(0)
-    draws = sorted(
-        v
-        for v in (
-            _saving(
-                _flat(rng.choices(treated, k=len(treated))),
-                _flat(rng.choices(other, k=len(other))),
-            )
-            for _ in range(RESAMPLES)
-        )
-        if v is not None
-    )
-    last = len(draws) - 1
+    rng = np.random.default_rng(0)
+
+    def per_step(g: pd.DataFrame, picks: np.ndarray) -> np.ndarray:
+        return g.spent.to_numpy()[picks].sum(-1) / g.p_moved.to_numpy()[
+            picks
+        ].sum(-1)
+
+    draws = [
+        per_step(g, rng.integers(len(g), size=(RESAMPLES, len(g))))
+        for g in groups
+    ]
+    everything = [per_step(g, np.arange(len(g))) for g in groups]
+    low, high = np.percentile(1 - draws[0] / draws[1], [2.5, 97.5])
     return {
         "label": MEASURED,
-        "words_per_step_saving": _saving(_flat(treated), _flat(other)),
-        "ci95": (draws[int(0.025 * last)], draws[int(0.975 * last)])
-        if draws
-        else None,
+        "words_per_step_saving": float(1 - everything[0] / everything[1]),
+        "ci95": (float(low), float(high)),
     }
 
 
@@ -153,6 +122,7 @@ async def _turns(session: sa_asyncio.AsyncSession) -> list[dict]:
                 "p_repair": 1 - probs[vocab.Outcome.MOVED_ON],
                 "p_missing": probs[vocab.Outcome.MISSING_INFO],
                 "family": max(families, key=families.get, default=None),
+                "one": 1.0,
             }
         )
     return out
@@ -217,67 +187,64 @@ async def _coverage(session: sa_asyncio.AsyncSession) -> dict:
     }
 
 
+def _records(frame: pd.DataFrame, keys: list[str], unit: str) -> list[dict]:
+    return [
+        {**dict(zip(keys, key)), **_summary(group, unit)}
+        for key, group in frame.groupby(keys)
+    ]
+
+
 async def compute(session: sa_asyncio.AsyncSession) -> dict:
     """Returns every metric of SPEC 11."""
     settings = config.settings
-    turns = await _turns(session)
+    frame = pd.DataFrame(await _turns(session))
     unit = (
         "user_id"
         if settings.control_unit == vocab.RandomizationUnit.USER
         else "conversation_id"
     )
-    out = {
-        "control_unit": settings.control_unit,
-        "by_group": {
-            g: _summary(ts, unit) for (g,), ts in _group(turns, "grp").items()
-        },
-        "measured": {
-            arm: _measured(turns, arm, unit)
-            for arm in vocab.Arm
-            if arm != vocab.Arm.TREATMENT
-        },
-        "weekly": [
-            {"week": w, "group": g, **_summary(ts, unit)}
-            for (w, g), ts in sorted(_group(turns, "week", "grp").items())
-        ],
-        "per_user": [
-            {"user_id": u, "group": g, **_summary(ts, unit)}
-            for (u, g), ts in sorted(_group(turns, "user_id", "grp").items())
-        ],
-        "compliance": [
-            {
-                "family": f,
-                "host": h,
-                "median_length_over_requested": statistics.median(
-                    t["words"] / t["requested_words"] for t in ts
-                ),
-            }
-            for (f, h), ts in sorted(
-                _group(
-                    [t for t in turns if t["requested_words"]], "family", "host"
-                ).items(),
-                key=lambda item: tuple(map(str, item[0])),
+    out = {"control_unit": settings.control_unit}
+    if not frame.empty:
+        frame["spent"] = frame.words + frame.tool_words
+        held_back = frame[frame.grp != vocab.Arm.TREATMENT]
+        compliance = (
+            frame[frame.requested_words.notna()]
+            .assign(ratio=lambda f: f.words / f.requested_words)
+            .groupby(["family", "host"])
+            .ratio.median()
+        )
+        out |= {
+            "by_group": {
+                g: _summary(group, unit) for g, group in frame.groupby("grp")
+            },
+            "measured": {
+                arm: _measured(frame, arm, unit)
+                for arm in vocab.Arm
+                if arm != vocab.Arm.TREATMENT
+            },
+            "weekly": _records(frame, ["week", "grp"], unit),
+            "per_user": _records(frame, ["user_id", "grp"], unit),
+            "compliance": [
+                {"family": f, "host": h, "median_length_over_requested": r}
+                for (f, h), r in compliance.items()
+            ],
+        }
+        if settings.control_unit == vocab.RandomizationUnit.CONVERSATION:
+            out["arms_over_time"] = _records(
+                held_back, ["user_id", "week"], unit
             )
-        ],
+    p = await params_lib.load_params(session)
+    out |= {
         "clicks": await _clicks(session),
         "tool_coverage": await _coverage(session),
-    }
-    if settings.control_unit == vocab.RandomizationUnit.CONVERSATION:
-        held_back = [t for t in turns if t["grp"] != vocab.Arm.TREATMENT]
-        out["arms_over_time"] = [
-            {"user_id": u, "week": w, **_summary(ts, unit)}
-            for (u, w), ts in sorted(
-                _group(held_back, "user_id", "week").items()
-            )
-        ]
-    p = await params_lib.load_params(session)
-    out["noise"] = {
-        "sensor_sigma": p.noise,
-        "confusion_diagonal": {
-            f"{vocab.Source.ASSISTANT}/{s}": {
-                y: row[y] for y, row in ys.items()
-            }
-            for s, ys in p.confusions[vocab.Source.ASSISTANT].items()
+        "noise": {
+            "sensor_sigma": p.noise,
+            "confusion_diagonal": {
+                f"{vocab.Source.ASSISTANT}/{s}": {
+                    y: row[y] for y, row in ys.items()
+                }
+                for s, ys in p.confusions[vocab.Source.ASSISTANT].items()
+            },
         },
     }
     return out

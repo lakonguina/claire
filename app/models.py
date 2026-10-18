@@ -15,6 +15,7 @@ import datetime
 import enum
 from typing import Annotated, Any
 
+import numpy as np
 import pgvector.sqlalchemy
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -68,6 +69,19 @@ EmptyJson = Annotated[
 ]
 
 
+class FloatArray(sa.TypeDecorator):
+    """A float8[] read as a numpy array, written from any sequence."""
+
+    impl = postgresql.ARRAY(sa.Float)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else [float(v) for v in value]
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else np.asarray(value, dtype=float)
+
+
 class Base(orm.DeclarativeBase):
     """Declarative base, with Postgres-style constraint names."""
 
@@ -75,7 +89,7 @@ class Base(orm.DeclarativeBase):
     type_annotation_map = {
         str: sa.Text,
         Json: postgresql.JSONB,
-        Grid: postgresql.ARRAY(sa.Float),
+        Grid: FloatArray,
         datetime.datetime: sa.DateTime(timezone=True),
     }
 

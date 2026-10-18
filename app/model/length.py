@@ -3,6 +3,8 @@
 import dataclasses
 import math
 
+import numpy as np
+
 from app.model import stats
 
 STUDENT_DOF = 4.0
@@ -13,22 +15,16 @@ EXACT_VAR = 1e-6
 class Gaussian3:
     """Joint Gaussian over (log length, log compliance, log writing speed)."""
 
-    mean: list[float]
-    cov: list[list[float]]
+    mean: np.ndarray
+    cov: np.ndarray
 
     @classmethod
-    def independent(
-        cls, means: list[float], variances: list[float]
-    ) -> "Gaussian3":
+    def independent(cls, means, variances) -> "Gaussian3":
         """Returns a Gaussian with a diagonal covariance."""
-        cov = [
-            [variances[i] if i == j else 0.0 for j in range(3)]
-            for i in range(3)
-        ]
-        return cls(list(means), cov)
+        return cls(np.array(means, dtype=float), np.diag(variances))
 
     def observe(
-        self, h: list[float], z: float, noise_var: float, robust: bool = False
+        self, h, z: float, noise_var: float, robust: bool = False
     ) -> None:
         """Applies a scalar observation z = h.x + e (Kalman update).
 
@@ -38,18 +34,16 @@ class Gaussian3:
             noise_var: The variance of e.
             robust: Down-weights large residuals (Student-t) if true.
         """
-        ph = [sum(self.cov[i][j] * h[j] for j in range(3)) for i in range(3)]
-        residual = z - sum(hi * xi for hi, xi in zip(h, self.mean))
-        prior_var = sum(hi * p for hi, p in zip(h, ph))
+        h = np.asarray(h, dtype=float)
+        ph = self.cov @ h
+        residual = z - h @ self.mean
+        prior_var = h @ ph
         if robust:
             ratio = residual**2 / (prior_var + noise_var)
             noise_var *= (STUDENT_DOF + ratio) / (STUDENT_DOF + 1)
-        gain = [p / (prior_var + noise_var) for p in ph]
-        self.mean = [m + g * residual for m, g in zip(self.mean, gain)]
-        self.cov = [
-            [self.cov[i][j] - gain[i] * ph[j] for j in range(3)]
-            for i in range(3)
-        ]
+        gain = ph / (prior_var + noise_var)
+        self.mean = self.mean + gain * residual
+        self.cov = self.cov - np.outer(gain, ph)
 
 
 @dataclasses.dataclass
@@ -75,7 +69,7 @@ def fuse(
     Returns:
         The posterior over (L, kappa, v).
     """
-    post = Gaussian3(list(prior.mean), [list(row) for row in prior.cov])
+    post = Gaussian3(prior.mean.copy(), prior.cov.copy())
     if sensors.exact_words:
         post.observe([1, 0, 0], math.log(sensors.exact_words), EXACT_VAR)
     if sensors.self_report_words:

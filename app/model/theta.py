@@ -3,6 +3,8 @@
 import dataclasses
 import math
 
+import numpy as np
+
 from app import vocab
 from app.model import reaction
 from app.model import stats
@@ -49,8 +51,8 @@ def request_type_of(cell: str) -> str:
 
 
 def length_likelihood(
-    r_hat: float, offset: float, sigma: float, outcome_probs: list[float]
-) -> list[float]:
+    r_hat: float, offset: float, sigma: float, outcome_probs
+) -> np.ndarray:
     """Returns sum_y P(y) l_y(theta) over the grid.
 
     Args:
@@ -65,19 +67,20 @@ def length_likelihood(
     probs = dict(zip(reaction.OUTCOMES, outcome_probs))
     p_suff = sum(probs[y] for y in SUFFICIENT)
     p_insuff = sum(probs[y] for y in INSUFFICIENT)
-    out = []
-    for theta in stats.GRID:
-        s = stats.phi((r_hat - theta - offset) / sigma)
-        out.append(p_suff * s + p_insuff * (1 - s) + 1 - p_suff - p_insuff)
-    return out
+    sufficient = stats.phi((r_hat - stats.GRID - offset) / sigma)
+    return (
+        p_suff * sufficient
+        + p_insuff * (1 - sufficient)
+        + (1 - p_suff - p_insuff)
+    )
 
 
-def alpha_prior(hyper: Hyper) -> list[float]:
+def alpha_prior(hyper: Hyper) -> np.ndarray:
     """Returns the population prior of a user's alpha grid."""
     return stats.normal_grid(hyper.mu0, hyper.sigma_alpha**2)
 
 
-def new_cell(alpha: list[float], cell: str, hyper: Hyper) -> list[float]:
+def new_cell(alpha: list[float], cell: str, hyper: Hyper) -> np.ndarray:
     """Returns the prior of a cell with no data: from alpha and gamma(t)."""
     mean, var = stats.grid_mean_var(alpha)
     return stats.normal_grid(
@@ -94,7 +97,7 @@ def update(
     bias: tuple[float, float],
     outcome_probs: list[float],
     hyper: Hyper,
-) -> tuple[list[float], list[float]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Applies one turn's censored observation to theta and alpha.
 
     Args:
@@ -125,7 +128,7 @@ def update(
     return theta, alpha
 
 
-def edit(theta: list[float], choice: str) -> list[float]:
+def edit(theta: list[float], choice: str) -> np.ndarray:
     """Applies a profile-page length correction, a sharp observation."""
     target = stats.normal_grid(math.log(EDIT_RATIOS[choice]), EDIT_SD**2)
     return stats.grid_update(theta, target)

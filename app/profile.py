@@ -1,13 +1,12 @@
 """The profile page: "What I learned about you" (SPEC 4.6)."""
 
-import html
 import math
 import pathlib
-import string
 import urllib.parse
 
 import fastapi
 from fastapi import responses
+import jinja2
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
@@ -22,9 +21,10 @@ from app.model import prefs
 from app.model import stats
 from app.model import theta
 
-HERE = pathlib.Path(__file__).resolve().parent
-TEMPLATE = string.Template((HERE / "profile.html").read_text())
-ROW = string.Template((HERE / "profile_row.html").read_text())
+TEMPLATES = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(pathlib.Path(__file__).resolve().parent),
+    autoescape=True,
+)
 
 router = fastapi.APIRouter()
 
@@ -97,14 +97,6 @@ def _length_choice(grid: list[float]) -> str:
     )
 
 
-def _options(names: dict[str, str], current: str) -> str:
-    return "".join(
-        f'<option value="{v}"{" selected" if v == current else ""}>'
-        f"{html.escape(label)}</option>"
-        for v, label in names.items()
-    )
-
-
 @router.get("/me/{key}", response_class=responses.HTMLResponse)
 async def page(key: str) -> str:
     """Renders what the server believes about the user, line by line."""
@@ -126,22 +118,17 @@ async def page(key: str) -> str:
                     name, names = entry["name"], entry["values"]
                     current = max(belief, key=belief.get)
                 rows.append(
-                    ROW.substitute(
-                        name=html.escape(name),
-                        scope=html.escape(
-                            await _scope_name(session, scope, texts)
-                        ),
-                        scope_id=html.escape(scope),
-                        dimension=dimension,
-                        options=_options(names, current),
-                        save=html.escape(texts["profile"]["save"]),
-                    )
+                    {
+                        "name": name,
+                        "scope": await _scope_name(session, scope, texts),
+                        "scope_id": scope,
+                        "dimension": dimension,
+                        "options": names,
+                        "current": current,
+                    }
                 )
-    return TEMPLATE.substitute(
-        language=html.escape(language or i18n.FALLBACK),
-        title=html.escape(texts["profile"]["title"]),
-        intro=html.escape(texts["profile"]["intro"]),
-        rows="".join(rows),
+    return TEMPLATES.get_template("profile.html").render(
+        language=language or i18n.FALLBACK, texts=texts["profile"], rows=rows
     )
 
 

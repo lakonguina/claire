@@ -195,7 +195,7 @@ def observations(
     if any_shown and (click is None or effect):
         token = f"{click[1]}:{effect.outcome}" if click else NO_CLICK
         obs.append(reaction.Observation(vocab.Source.BUTTON, {token: 1.0}))
-    if reading_probs:
+    if reading_probs is not None:
         read, skim, away = reading_probs
         obs.append(
             reaction.Observation(
