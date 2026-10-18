@@ -452,7 +452,7 @@
       "new": "You react with one click. It remembers, and reminds Claude before every reply, in all your conversations."
     },
     "demo": {
-      "title": "Same question. Look.",
+      "title": "Same question.",
       "question": "What is an index in SQL?",
       "before": "Without Claire",
       "after": "With Claire",

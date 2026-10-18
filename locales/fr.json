@@ -333,7 +333,7 @@
       "new": "Tu réagis d'un clic. Il retient, et le rappelle à Claude avant chaque réponse, dans toutes tes conversations."
     },
     "demo": {
-      "title": "Même question. Regarde.",
+      "title": "Même question.",
       "question": "C'est quoi un index en SQL ?",
       "before": "Sans Claire",
       "after": "Avec Claire",
