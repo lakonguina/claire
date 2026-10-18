@@ -76,42 +76,37 @@ async def overview() -> dict:
     async with db.session() as session:
         now = await session.scalar(sa.select(sa.func.now()))
         widget = sa.select(t.id).where(t.reply_mode == vocab.ReplyMode.WIDGET)
-        counts = {
-            "users": await _count(session, sa.select(models.User.id)),
-            "conversations": await _count(session, sa.select(c.id)),
-            "held_back_conversations": await _count(
-                session, sa.select(c.id).where(c.grp != vocab.Arm.TREATMENT)
-            ),
-            "turns": await _count(session, sa.select(t.id)),
-            "turns_24h": await _count(
-                session, sa.select(t.id).where(t.created_at > now - DAY)
-            ),
-            "widget_turns": await _count(session, widget),
-            "widget_turns_with_reply": await _count(
-                session,
-                sa.select(models.Reply.turn_id)
-                .distinct()
-                .where(models.Reply.turn_id.in_(widget)),
-            ),
-            "turns_with_buttons": await _count(
-                session, sa.select(models.ButtonShown.turn_id).distinct()
-            ),
-            "turns_with_click": await _count(
-                session, sa.select(models.Click.turn_id).distinct()
-            ),
-            "finalized_turns": await _count(
-                session, sa.select(models.TurnInference.turn_id)
-            ),
-            "gold_labels": await _count(
-                session, sa.select(models.GoldLabel.id)
-            ),
-            "topic_clusters": await _count(
-                session, sa.select(models.TopicCluster.id)
-            ),
-            "last_nightly": await session.scalar(
-                sa.select(sa.func.max(models.Hyperparam.updated_at))
-            ),
+        distinct_turns = {
+            name: sa.select(model.turn_id).distinct()
+            for name, model in (
+                ("turns_with_buttons", models.ButtonShown),
+                ("turns_with_click", models.Click),
+                ("finalized_turns", models.TurnInference),
+            )
         }
+        statements = {
+            "users": sa.select(models.User.id),
+            "conversations": sa.select(c.id),
+            "held_back_conversations": sa.select(c.id).where(
+                c.grp != vocab.Arm.TREATMENT
+            ),
+            "turns": sa.select(t.id),
+            "turns_24h": sa.select(t.id).where(t.created_at > now - DAY),
+            "widget_turns": widget,
+            "widget_turns_with_reply": sa.select(models.Reply.turn_id)
+            .distinct()
+            .where(models.Reply.turn_id.in_(widget)),
+            **distinct_turns,
+            "gold_labels": sa.select(models.GoldLabel.id),
+            "topic_clusters": sa.select(models.TopicCluster.id),
+        }
+        counts = {
+            name: await _count(session, statement)
+            for name, statement in statements.items()
+        }
+        counts["last_nightly"] = await session.scalar(
+            sa.select(sa.func.max(models.Hyperparam.updated_at))
+        )
         hosts = (
             await session.execute(
                 sa.select(

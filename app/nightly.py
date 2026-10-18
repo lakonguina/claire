@@ -7,6 +7,7 @@ import logging
 import math
 
 import numpy as np
+import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext import asyncio as sa_asyncio
@@ -27,6 +28,35 @@ from app.model import theta
 Session = sa_asyncio.AsyncSession
 log = logging.getLogger(__name__)
 DERIVED = models.DERIVED
+TURN_COLUMNS = [
+    "user_id",
+    "conversation_id",
+    "cell",
+    "needed_words",
+    "requested_words",
+    "length_mean",
+    "reading_probs",
+    "family_probs",
+    "kappa_mean",
+    "speed_mean",
+    "duration",
+    "exact",
+    "verdict",
+    "self_report",
+    "click",
+    "any_shown",
+    "gold",
+]
+NUMERIC = [
+    "needed_words",
+    "requested_words",
+    "length_mean",
+    "kappa_mean",
+    "speed_mean",
+    "duration",
+    "exact",
+    "self_report",
+]
 MIN_WEIGHT = 20.0  # Evidence needed before a parameter leaves its prior.
 MIN_ITEMS = 50  # Turns needed before Dawid-Skene runs.
 MIN_USERS = 5  # Users needed before the hyperparameters are refit.
@@ -35,7 +65,7 @@ MIN_VAR = 0.01
 HOST_SMOOTHING = 0.5
 
 
-async def finalized_turns(session: Session) -> list[dict]:
+async def finalized_turns(session: Session) -> pd.DataFrame:
     """Returns every closed turn with its first events and inferred state."""
     rows = (
         await session.execute(
@@ -87,10 +117,12 @@ async def finalized_turns(session: Session) -> list[dict]:
                 else None,
             }
         )
-    return out
+    frame = pd.DataFrame(out, columns=TURN_COLUMNS)
+    frame[NUMERIC] = frame[NUMERIC].apply(pd.to_numeric)
+    return frame
 
 
-def refit_reactions(turns: list[dict], p: params_lib.Params) -> None:
+def refit_reactions(turns: pd.DataFrame, p: params_lib.Params) -> None:
     """Refits every annotator's confusion matrix by Dawid-Skene."""
     items = [
         reaction.Item(
@@ -103,67 +135,52 @@ def refit_reactions(turns: list[dict], p: params_lib.Params) -> None:
             ),
             t["gold"],
         )
-        for t in turns
+        for t in turns.to_dict("records")
     ]
     if len(items) >= MIN_ITEMS:
         p.confusions, _, _ = reaction.dawid_skene(items, p.confusions)
 
 
-def _sd(values: list[float]) -> float:
-    return math.sqrt(max(stats.mean_var(values)[1], MIN_VAR))
+def _sd(values) -> float:
+    return math.sqrt(max(float(np.var(values)), MIN_VAR))
 
 
-def refit_sensors(turns: list[dict], p: params_lib.Params) -> None:
+def _log_speed(turns: pd.DataFrame, p: params_lib.Params) -> pd.Series:
+    """Each turn's measured log writing speed (NaN without a timing)."""
+    writing = turns.duration - p.overhead
+    return turns.length_mean - np.log(writing.where(writing > 0))
+
+
+def refit_sensors(turns: pd.DataFrame, p: params_lib.Params) -> None:
     """Refits the length sensors' noise and the timing overhead (SPEC 6.2)."""
-    writing, requested, self_reports, fallback_requested, overheads = (
-        [],
-        [],
-        [],
-        [],
-        [],
-    )
-    for t in turns:
-        w = (t["duration"] or 0) - p.overhead
-        s2 = math.log(w) + t["speed_mean"] if w > 0 else None
-        s3 = (
-            math.log(t["requested_words"]) + t["kappa_mean"]
-            if t["requested_words"]
-            else None
-        )
-        if t["exact"]:
-            truth = math.log(t["exact"])
-            if s2 is not None:
-                writing.append(s2 - truth)
-            if s3 is not None:
-                requested.append(s3 - truth)
-            if t["duration"]:
-                overheads.append(
-                    t["duration"] - math.exp(truth - t["speed_mean"])
-                )
-        elif t["self_report"] and s3 is not None:
-            self_reports.append(math.log(t["self_report"]))
-            fallback_requested.append(s3)
-    if len(writing) >= MIN_WEIGHT:
-        p.noise["writing_time"] = _sd(writing)
-    if len(requested) >= MIN_WEIGHT:
-        p.noise["requested"] = _sd(requested)
-    if len(self_reports) >= MIN_WEIGHT:
+    truth = np.log(turns.exact)
+    exact = turns.exact.notna()
+    s2 = truth - _log_speed(turns, p) + turns.speed_mean
+    s3 = np.log(turns.requested_words) + turns.kappa_mean
+    residuals = {
+        "writing_time": (s2 - truth)[exact].dropna(),
+        "requested": (s3 - truth)[exact].dropna(),
+    }
+    for sensor, values in residuals.items():
+        if len(values) >= MIN_WEIGHT:
+            p.noise[sensor] = _sd(values)
+    fallback = ~exact & turns.self_report.notna() & s3.notna()
+    if fallback.sum() >= MIN_WEIGHT:
         p.noise["self_report"] = math.sqrt(
             length.self_report_variance(
-                self_reports, fallback_requested, p.noise["requested"] ** 2
+                np.log(turns.self_report[fallback]),
+                s3[fallback],
+                p.noise["requested"] ** 2,
             )
         )
+    overheads = (turns.duration - np.exp(truth - turns.speed_mean)).dropna()
     if len(overheads) >= MIN_WEIGHT:
-        p.overhead = max(sorted(overheads)[len(overheads) // 2], 0.5)
-
-
-def _cell(turn: dict) -> tuple[int, str]:
-    return turn["user_id"], turn["cell"]
+        p.overhead = max(float(overheads.median()), 0.5)
 
 
 def refit_families(
-    turns: list[dict],
-    conversations: list[dict],
+    turns: pd.DataFrame,
+    conversations: pd.DataFrame,
     p: params_lib.Params,
     theta_means: dict[tuple[int, str], float],
 ) -> None:
@@ -173,77 +190,62 @@ def refit_families(
     speed and its compliance; the classes found keep their names across
     nights, and each gets the estimation bias of its conversations.
     """
-    speeds = collections.defaultdict(list)
-    for t in turns:
-        w = (t["duration"] or 0) - p.overhead
-        if w > 0:
-            speeds[t["conversation_id"]].append(t["length_mean"] - math.log(w))
-    measured = [c for c in conversations if c["id"] in speeds]
-    features = np.array(
-        [
-            [stats.mean_var(speeds[c["id"]])[0], c["kappa_mean"]]
-            for c in measured
-        ]
-    ).reshape(len(measured), 2)
-    fit = family.fit_classes(features, p.families)
+    speed = _log_speed(turns, p).groupby(turns.conversation_id).mean().dropna()
+    measured = conversations.set_index("id").loc[speed.index]
+    fit = family.fit_classes(
+        np.column_stack([speed.to_numpy(), measured.kappa_mean.to_numpy()]),
+        p.families,
+    )
     if fit is None:
         p.families = family.Families()
         return
-    membership = {
-        c["id"]: dict(zip(fit.names, row))
-        for c, row in zip(measured, fit.memberships)
-    }
+    membership = pd.DataFrame(
+        fit.memberships, index=speed.index, columns=fit.names
+    )
+    cell_theta = pd.Series(
+        [theta_means.get(k) for k in zip(turns.user_id, turns.cell)],
+        index=turns.index,
+        dtype=float,
+    )
+    bias = turns.length_mean - np.log(turns.needed_words) - cell_theta
+    weights = membership.reindex(turns.conversation_id.to_numpy()).fillna(0.0)
     params = {}
     for k, name in enumerate(fit.names):
-        biases, weights = [], []
-        for t in turns:
-            weight = membership.get(t["conversation_id"], {}).get(name, 0.0)
-            if weight and _cell(t) in theta_means:
-                biases.append(
-                    t["length_mean"]
-                    - math.log(t["needed_words"])
-                    - theta_means[_cell(t)]
-                )
-                weights.append(weight)
-        b, w = family.PRIOR["b"], family.PRIOR["w"]
-        if sum(weights) >= MIN_WEIGHT:
-            b, w = stats.mean_var(biases, weights)
+        w = weights[name].to_numpy()
+        known = bias.notna().to_numpy() & (w > 0)
+        b, var = family.PRIOR["b"], family.PRIOR["w"]
+        if w[known].sum() >= MIN_WEIGHT:
+            b, var = stats.mean_var(bias[known], w[known])
         params[name] = {
             "b": b,
-            "w": max(w, MIN_VAR),
+            "w": max(var, MIN_VAR),
             "kappa": float(fit.means[k, 1]),
             "speed_mu": float(fit.means[k, 0]),
             "speed_sd": math.sqrt(fit.variances[k, 0]),
         }
     # mu0 holds the population level, so the class biases are centred.
-    center = sum(c["b"] for c in params.values()) / len(params)
+    center = np.mean([c["b"] for c in params.values()])
     for c in params.values():
         c["b"] -= center
-
-    by_host = collections.defaultdict(list)
-    for c in measured:
-        by_host[c["host"]].append(membership[c["id"]])
-    host_prior = {}
-    for host, rows in by_host.items():
-        if len(rows) >= MIN_WEIGHT:
-            sums = [sum(r[n] for r in rows) + HOST_SMOOTHING for n in fit.names]
-            host_prior[host] = dict(zip(fit.names, stats.normalize(sums)))
+    by_host = membership.groupby(measured.host)
+    host_prior = {
+        host: dict(zip(fit.names, stats.normalize(rows.sum() + HOST_SMOOTHING)))
+        for host, rows in by_host
+        if len(rows) >= MIN_WEIGHT
+    }
     p.families = family.Families(params, host_prior)
 
 
 def refit_reading(
-    turns: list[dict], rho: dict[int, float], p: params_lib.Params
+    turns: pd.DataFrame, rho: dict[int, float], p: params_lib.Params
 ) -> None:
     """Refits the population reading mixture (SPEC 6.6)."""
-    data = [
-        (
-            math.log(t["reading_probs"]["seconds"]),
-            t["length_mean"] - rho.get(t["user_id"], 0.0),
+    seconds = turns.reading_probs.map(lambda r: r["seconds"])
+    full_read = turns.length_mean - turns.user_id.map(rho).fillna(0.0)
+    if len(turns) >= MIN_WEIGHT:
+        p.reading, _ = reading.fit_mixture(
+            list(zip(np.log(seconds), full_read)), p.reading
         )
-        for t in turns
-    ]
-    if len(data) >= MIN_WEIGHT:
-        p.reading, _ = reading.fit_mixture(data, p.reading)
 
 
 def refit_hyper(
@@ -370,13 +372,12 @@ async def run(session: Session) -> int:
     """Refits everything, then replays; returns the number of turns closed."""
     p = await params_lib.load_params(session)
     turns = await finalized_turns(session)
-    conversations = (
+    conversations = pd.DataFrame(
         (
             await session.execute(
                 sa.select(
                     models.Conversation.id,
                     models.Conversation.host,
-                    models.ConversationState.family_probs,
                     models.ConversationState.kappa_mean,
                 ).join(
                     models.ConversationState,
@@ -384,9 +385,8 @@ async def run(session: Session) -> int:
                     == models.Conversation.id,
                 )
             )
-        )
-        .mappings()
-        .all()
+        ).all(),
+        columns=["id", "host", "kappa_mean"],
     )
     thetas = {
         (t.user_id, t.request_type): t.grid

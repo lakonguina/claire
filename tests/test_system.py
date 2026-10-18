@@ -6,6 +6,7 @@ import random
 
 from alembic import autogenerate
 from alembic import migration
+import pandas as pd
 import sqlalchemy as sa
 
 from app import config
@@ -572,7 +573,9 @@ def test_nightly_learns_behaviour_classes_and_host_priors():
                     "duration": writing + p.overhead,
                 }
             )
-    nightly.refit_families(turns, conversations, p, {})
+    nightly.refit_families(
+        pd.DataFrame(turns), pd.DataFrame(conversations), p, {}
+    )
     assert len(p.families.params) == 2
     fast_class = max(
         p.families.params, key=lambda f: p.families.params[f]["speed_mu"]
