@@ -1,0 +1,14 @@
+{
+  "name": "lingua-franca-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tailwindcss -i landing.css -o ../app/static/site/landing.css --minify",
+    "watch": "tailwindcss -i landing.css -o ../app/static/site/landing.css --watch=always"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "basecoat-css": "1.0.2",
+    "tailwindcss": "4.3.3"
+  }
+}

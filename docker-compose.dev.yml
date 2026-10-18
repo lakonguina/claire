@@ -1,0 +1,52 @@
+# Development: code, templates and catalogs reload live, no restart.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build --watch
+services:
+  app:
+    command:
+      - uvicorn
+      - app.main:app
+      - --host=0.0.0.0
+      - --port=8000
+      - --no-access-log
+      - --reload
+      - --reload-dir=app
+      - --reload-dir=locales
+      - --reload-include=*.html
+      - --reload-include=*.json
+    volumes:
+      - site:/srv/app/static/site
+    develop:
+      watch:
+        - action: sync
+          path: ./app
+          target: /srv/app
+          ignore:
+            - static/
+            - __pycache__/
+        - action: sync
+          path: ./locales
+          target: /srv/locales
+        - action: rebuild
+          path: requirements.txt
+
+  # Recompiles the landing stylesheet whenever the template uses new classes.
+  site:
+    build:
+      context: .
+      target: site
+    command: ["npm", "run", "watch"]
+    volumes:
+      - site:/build/app/static/site
+    develop:
+      watch:
+        - action: sync
+          path: ./app/landing.html
+          target: /build/app/landing.html
+        - action: sync
+          path: ./site/landing.css
+          target: /build/site/landing.css
+        - action: rebuild
+          path: ./site/package.json
+
+volumes:
+  site:

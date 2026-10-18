@@ -4,3 +4,4 @@ __pycache__/
 app/static/
 widget/node_modules/
 .pytest_cache/
+site/node_modules/

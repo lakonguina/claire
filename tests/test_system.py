@@ -15,6 +15,7 @@ from app import i18n
 from app import mcp_server
 from app import models
 from app import nightly
+from app import oauth
 from app import params as params_lib
 from app import questions
 from app import service
@@ -210,6 +211,16 @@ async def test_foreign_handles_are_rejected(make_client):
 
 async def test_connector_urls_are_gone(http):
     assert (await http.post("/mcp/not-a-token", json={})).status_code == 404
+
+
+async def test_the_landing_page_gives_what_to_paste(http):
+    page = await http.get("/", headers={"accept-language": "fr-FR"})
+    assert page.status_code == 200
+    assert i18n.catalog("fr")["landing"]["title_b"] in page.text
+    assert mcp_server.TOOLS["server"] in page.text
+    assert oauth.RESOURCE in page.text
+    css = await http.get("/static/site/landing.css")
+    assert css.status_code == 200
 
 
 async def test_repair_without_quote_is_no_signal(make_client, database):

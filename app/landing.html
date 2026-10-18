@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="{{ language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ texts.meta_title }}</title>
+<meta name="description" content="{{ texts.description }}">
+<script>
+  // Basecoat's dark tokens apply under html.dark: follow the system theme.
+  (() => {
+    const dark = matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => document.documentElement.classList.toggle("dark", dark.matches);
+    apply();
+    dark.addEventListener("change", apply);
+  })();
+</script>
+<link rel="stylesheet" href="/static/site/landing.css">
+</head>
+<body class="bg-background text-foreground font-sans antialiased">
+
+<header class="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
+  <nav class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+    <a href="#" class="flex items-center gap-2 font-semibold">
+      <span class="size-3 rounded-[4px] bg-primary"></span>{{ connector_name }}
+    </a>
+    <a href="#setup" class="btn" data-size="sm">{{ texts.nav_cta }}</a>
+  </nav>
+</header>
+
+{% macro window(side, demo, reply, screen, highlight) %}
+<div class="min-w-0">
+  <p class="mb-3 text-center text-sm font-semibold {{ 'text-primary' if highlight else 'text-muted-foreground' }}">{{ demo[side] }}</p>
+  {% if screen %}
+  <img src="{{ screen }}" alt="{{ demo[side] }}" class="w-full rounded-xl border shadow-xl">
+  {% else %}
+  <figure class="overflow-hidden rounded-xl border border-(--chat-line) bg-(--chat) text-(--chat-ink) shadow-xl {{ 'ring-2 ring-primary shadow-primary/20' if highlight else '' }}">
+    <div class="flex items-center gap-1.5 border-b border-(--chat-line) px-4 py-2.5">
+      <span class="size-3 rounded-full bg-[#ff5f57]"></span>
+      <span class="size-3 rounded-full bg-[#febc2e]"></span>
+      <span class="size-3 rounded-full bg-[#28c840]"></span>
+      <span class="flex-1 text-center text-xs font-medium text-(--chat-muted)">{{ demo.window }}</span>
+      <span class="badge" {% if not highlight %}data-variant="secondary"{% endif %}>{{ demo.words.format(count=reply.words) }}</span>
+    </div>
+    <div class="space-y-5 p-5">
+      <p class="ml-auto w-fit max-w-[85%] rounded-2xl bg-(--chat-bubble) px-4 py-2.5 text-sm">{{ demo.question }}</p>
+      {% if highlight %}
+      <div class="rounded-xl border border-(--chat-line) p-4">
+        <div class="reply font-serif text-[15px] leading-relaxed">{{ reply.html|safe }}</div>
+        <div class="mt-4 flex flex-wrap gap-2">
+          {% for label in demo.buttons %}<span class="rounded-lg bg-(--chat-bubble) px-3 py-1.5 text-sm">{{ label }}</span>{% endfor %}
+        </div>
+        <p class="mt-3 text-xs text-(--chat-muted)">⧉ {{ demo.copy_reply }}</p>
+      </div>
+      {% else %}
+      <div class="reply font-serif text-[15px] leading-relaxed">{{ reply.html|safe }}</div>
+      {% endif %}
+    </div>
+    <div class="px-4 pb-4">
+      <div class="flex items-center rounded-2xl border border-(--chat-line) py-2 pr-2 pl-4 text-sm text-(--chat-muted)">
+        {{ demo.input }}
+        <span class="ml-auto flex size-8 items-center justify-center rounded-lg bg-[#d97757] text-white">↑</span>
+      </div>
+    </div>
+  </figure>
+  {% endif %}
+</div>
+{% endmacro %}
+
+<main>
+  <section class="mx-auto max-w-5xl px-4 pt-16 pb-16 text-center sm:pt-24">
+    <span class="badge" data-variant="secondary">{{ texts.callout }}</span>
+    <ul class="mx-auto mt-8 flex max-w-2xl flex-wrap justify-center gap-2" aria-hidden="true">
+      {% for rant in texts.rants %}
+      <li class="rant rounded-2xl rounded-br-sm bg-secondary px-3 py-1.5 text-sm text-muted-foreground {{ loop.cycle('-rotate-2', 'rotate-1', '-rotate-1', 'rotate-2') }}" style="--i: {{ loop.index0 }}">{{ rant }}</li>
+      {% endfor %}
+    </ul>
+    <h1 class="mx-auto mt-6 max-w-3xl text-balance">
+      <span class="block text-5xl font-black tracking-tight sm:text-7xl">{{ texts.title_a }}</span>
+      <span class="mt-3 block text-2xl font-bold tracking-tight text-primary sm:text-4xl">{{ texts.title_b }}</span>
+    </h1>
+    <p class="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground text-pretty">{{ texts.subtitle }}</p>
+    <a href="#setup" class="btn mt-8 shadow-lg shadow-primary/30 transition hover:scale-105" data-size="lg">{{ texts.cta }} →</a>
+    <p class="mt-3 text-sm text-muted-foreground">{{ texts.cta_note }}</p>
+  </section>
+
+  {% set problem = texts.problem %}
+  <section class="mx-auto max-w-4xl px-4 pb-20">
+    <h2 class="text-center text-3xl font-bold tracking-tight text-balance">{{ problem.title }}</h2>
+    <div class="mt-8 grid gap-4 md:grid-cols-2">
+      <div class="rounded-xl border bg-card p-5">
+        <p class="text-sm font-semibold text-muted-foreground">✗ {{ problem.old_label }}</p>
+        <p class="mt-2 text-muted-foreground">{{ problem.old }}</p>
+      </div>
+      <div class="rounded-xl border border-primary bg-accent p-5">
+        <p class="text-sm font-semibold text-primary">✓ {{ problem.new_label }}</p>
+        <p class="mt-2 text-accent-foreground">{{ problem.new }}</p>
+      </div>
+    </div>
+  </section>
+
+  {% set demo = texts.demo %}
+  <section class="border-y bg-card/50">
+    <div class="mx-auto max-w-6xl px-4 py-20">
+      <h2 class="text-center text-3xl font-bold tracking-tight">{{ demo.title }}</h2>
+      <div class="mt-4 text-center">
+        <p class="text-6xl font-black tracking-tight text-primary tabular-nums">−<span data-count="{{ (100 - 100 * replies.after.words / replies.before.words)|round|int }}">0</span>%</p>
+        <p class="mt-1 font-semibold">{{ demo.saved }}</p>
+        <p class="text-sm text-muted-foreground">{{ demo.saved_note }}</p>
+      </div>
+      <div class="mt-10 grid items-start gap-8 md:grid-cols-2">
+        {{ window(DemoSide.BEFORE, demo, replies.before, demo_screens.before, false) }}
+        {{ window(DemoSide.AFTER, demo, replies.after, demo_screens.after, true) }}
+      </div>
+    </div>
+  </section>
+
+  {% set offer = texts.offer %}
+  <section class="mx-auto max-w-xl px-4 py-20">
+    <div class="card ring-2 ring-primary">
+      <header><h2 class="text-2xl font-bold">{{ offer.title }}</h2></header>
+      <section>
+        <ul class="space-y-3">
+          {% for item in offer["items"] %}
+          <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-sm text-primary-foreground">✓</span>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+      <footer class="flex-col items-stretch gap-3">
+        <a href="#setup" class="btn shadow-lg shadow-primary/30 transition hover:scale-105" data-size="lg">{{ texts.cta }} →</a>
+        <p class="text-center text-sm text-muted-foreground">{{ offer.guarantee }}</p>
+      </footer>
+    </div>
+  </section>
+
+  {% set setup = texts.setup %}
+  <section id="setup" class="scroll-mt-16 border-t bg-card/50">
+    <div class="mx-auto max-w-3xl px-4 py-20">
+      <h2 class="text-center text-3xl font-bold tracking-tight">{{ setup.title }}</h2>
+      <p class="mt-4 text-center text-muted-foreground">{{ setup.subtitle }}</p>
+      <ol class="mt-10 space-y-6">
+        {% for step in steps %}
+        {% set text = setup.steps[step.id] %}
+        <li class="card">
+          <header>
+            <h3>{{ text.title }}</h3>
+            <p>{{ text.text }}</p>
+          </header>
+          <section class="space-y-3">
+            {% if step.id == SetupStep.INSTRUCTION %}
+            <div class="flex items-start gap-2 rounded-lg border bg-background p-3">
+              <code class="min-w-0 flex-1 font-mono text-sm break-words">{{ instruction }}</code>
+              <button type="button" class="btn" data-variant="secondary" data-size="sm" data-copy="{{ instruction }}">{{ setup.copy_label }}</button>
+            </div>
+            {% elif step.id == SetupStep.CONNECTOR %}
+            {% for label, value in ((text.name, connector_name), (text.url, mcp_url)) %}
+            <div class="grid gap-1">
+              <span class="text-sm font-medium">{{ label }}</span>
+              <div class="flex items-center gap-2 rounded-lg border bg-background p-2 pl-3">
+                <code class="min-w-0 flex-1 truncate font-mono text-sm">{{ value }}</code>
+                <button type="button" class="btn" data-variant="secondary" data-size="sm" data-copy="{{ value }}">{{ setup.copy_label }}</button>
+              </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% if step.screen %}
+            <img src="{{ step.screen }}" alt="{{ setup.screen_alt.format(title=text.title) }}" loading="lazy" class="w-full rounded-lg border">
+            {% endif %}
+          </section>
+          {% if step.link %}
+          <footer>
+            <a href="{{ step.link }}" target="_blank" rel="noopener" class="btn">{{ text.link }} ↗</a>
+          </footer>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-5xl px-4 py-20 text-center">
+    <h2 class="text-3xl font-bold tracking-tight text-balance sm:text-4xl">{{ texts.final.title }}</h2>
+    <p class="mx-auto mt-4 max-w-xl text-lg text-muted-foreground text-pretty">{{ texts.final.text }}</p>
+    <a href="#setup" class="btn mt-8 shadow-lg shadow-primary/30 transition hover:scale-105" data-size="lg">{{ texts.cta }} →</a>
+    <p class="mx-auto mt-10 max-w-md text-sm text-muted-foreground italic">{{ texts.final.ps }}</p>
+  </section>
+</main>
+
+<footer class="border-t">
+  <p class="mx-auto flex max-w-5xl items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+    <span class="size-2.5 rounded-[3px] bg-primary"></span>{{ connector_name }}
+  </p>
+</footer>
+
+<script>
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // The saving counts up when the demo comes into view.
+  const counters = new IntersectionObserver((entries) => {
+    for (const { isIntersecting, target } of entries) {
+      if (!isIntersecting) continue;
+      counters.unobserve(target);
+      const end = Number(target.dataset.count);
+      const start = performance.now();
+      const tick = (now) => {
+        const t = still ? 1 : Math.min((now - start) / 1200, 1);
+        target.textContent = Math.round(end * (1 - (1 - t) ** 3));
+        if (t < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  });
+  document.querySelectorAll("[data-count]").forEach((el) => counters.observe(el));
+
+  for (const button of document.querySelectorAll("[data-copy]")) {
+    const label = button.textContent;
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      button.textContent = {{ setup.copied|tojson }};
+      setTimeout(() => (button.textContent = label), 1500);
+    });
+  }
+</script>
+</body>
+</html>

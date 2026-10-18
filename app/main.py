@@ -2,9 +2,11 @@
 
 import contextlib
 import logging
+import pathlib
 from urllib import parse
 
 import fastapi
+from fastapi import staticfiles
 from mcp.server import transport_security
 import pydantic
 import sqlalchemy as sa
@@ -12,6 +14,7 @@ import sqlalchemy as sa
 from app import config
 from app import dashboard
 from app import db
+from app import landing
 from app import mcp_server
 from app import metrics
 from app import models
@@ -27,6 +30,8 @@ logging.basicConfig(
 log = logging.getLogger("access")
 BEARER = "Bearer "
 MCP = oauth.MCP_PATH
+# The landing page stylesheet, built by site/ (Dockerfile).
+SITE = pathlib.Path(__file__).resolve().parent / "static" / "site"
 LOCAL_HOSTS = ["localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*", "app:*"]
 
 
@@ -134,6 +139,12 @@ api.include_router(dashboard.page)
 api.include_router(dashboard.api)
 api.include_router(profile.router)
 api.include_router(oauth.router)
+api.include_router(landing.router)
+api.mount(
+    "/static/site",
+    staticfiles.StaticFiles(directory=SITE, check_dir=False),
+)
+api.mount("/assets", staticfiles.StaticFiles(directory=landing.ASSETS))
 api.router.routes.extend(oauth.routes())
 app = AccessLog(McpAuth(mcp_app, api))
 admin = [fastapi.Depends(dashboard.admin)]

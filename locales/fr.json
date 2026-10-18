@@ -307,5 +307,92 @@
     "asked_by": {"name": "personnes"},
     "follows": {"name": "suites"}
     }
+  },
+  "landing": {
+    "meta_title": "Lingua Franca : Claude, sous stéroïdes",
+    "description": "Des réponses plus courtes, taillées pour toi : Lingua Franca apprend ce que tu préfères et le dicte à Claude avant chaque réponse.",
+    "nav_cta": "Installer",
+    "callout": "Tu utilises Claude tous les jours ?",
+    "rants": [
+      "Fais plus court.",
+      "J'ai demandé oui ou non.",
+      "Arrête les listes à puces.",
+      "Pas si technique.",
+      "Va droit au but."
+    ],
+    "title_a": "Claude, sous stéroïdes.",
+    "title_b": "Des réponses plus courtes, taillées pour toi.",
+    "subtitle": "Lingua Franca apprend comment tu aimes qu'on te réponde, et le dicte à Claude avant chaque réponse. Tu n'as plus rien à lui répéter.",
+    "cta": "Je veux Claude sous stéroïdes",
+    "cta_note": "2 minutes · Sans compte · Sans email",
+    "problem": {
+      "title": "Le problème n'est pas Claude. C'est qu'il oublie.",
+      "old_label": "Aujourd'hui",
+      "old": "Tu répètes « plus court » dans chaque conversation. Ça pollue son contexte, et demain il a tout oublié.",
+      "new_label": "Avec Lingua Franca",
+      "new": "Tu réagis d'un clic. Il retient, et le rappelle à Claude avant chaque réponse, dans toutes tes conversations."
+    },
+    "demo": {
+      "title": "Même question. Regarde.",
+      "question": "C'est quoi un index en SQL ?",
+      "before": "Sans Lingua Franca",
+      "after": "Avec Lingua Franca",
+      "words": "{count} mots",
+      "saved": "de mots en moins",
+      "saved_note": "L'essentiel, sans le blabla.",
+      "window": "Claude",
+      "input": "Répondre à Claude…",
+      "copy_reply": "Copier la réponse",
+      "buttons": [
+        "Montre-moi un exemple concret",
+        "Explique-le sans listes",
+        "Explique-le plus simplement"
+      ],
+      "replies": {
+        "before": "Un index en SQL est une structure de données à part que la base maintient à côté d'une table pour retrouver des lignes rapidement sans parcourir toute la table. Il fonctionne comme l'index à la fin d'un livre : au lieu de lire chaque page pour trouver un sujet, tu le cherches dans une liste triée qui t'envoie à la bonne page.\n\n### Fonctionnement\n\nSans index, une requête comme `WHERE email = 'a@b.com'` force un parcours complet de la table : la base lit chaque ligne. Avec un index sur `email`, la base cherche dans une structure triée (en général un B-tree) en temps logarithmique, puis va directement à la ou aux lignes correspondantes.\n\n### Créer un index\n\n```sql\nCREATE INDEX idx_users_email ON users (email);\n```\n\nIndex unique (interdit aussi les doublons) :\n\n```sql\nCREATE UNIQUE INDEX idx_users_email ON users (email);\n```\n\nIndex composite (plusieurs colonnes) :\n\n```sql\nCREATE INDEX idx_orders_user_date ON orders (user_id, created_at);\n```\n\nSupprimer un index :\n\n```sql\nDROP INDEX idx_users_email;\n```\n\n### Types courants\n\n- **B-tree :** le type par défaut dans la plupart des bases ; bon pour l'égalité, les intervalles et le tri.\n- **Hash :** rapide uniquement pour les recherches d'égalité exacte.\n- **Full-text :** pour chercher des mots dans du texte.\n- **GIN / GiST** (PostgreSQL) : pour les tableaux, le JSON, les données géographiques, etc.\n- **Clustered ou non** (SQL Server, MySQL/InnoDB) : un index clustered fixe l'ordre physique des lignes (un par table) ; les autres sont des structures à part qui pointent vers les lignes.\n\n### Quand les index aident\n\n- Les colonnes utilisées dans `WHERE`, `JOIN`, `ORDER BY` ou `GROUP BY`\n- Les colonnes de clés étrangères\n- Les colonnes très sélectives (beaucoup de valeurs distinctes)\n\n### Compromis\n\n- **Écritures plus lentes :** chaque `INSERT`, `UPDATE` et `DELETE` doit aussi mettre à jour les index.\n- **Stockage en plus :** chaque index prend de la place sur le disque.\n- **Pas toujours utilisés :** sur de petites tables ou des colonnes peu sélectives (un booléen, par exemple), le planificateur peut ignorer l'index.\n- **L'ordre des colonnes compte dans un index composite :** un index sur `(user_id, created_at)` aide les requêtes qui filtrent sur `user_id` ou sur les deux, mais en général pas sur `created_at` seul.\n\n### Vérifier l'utilisation\n\nUtilise `EXPLAIN` (ou `EXPLAIN ANALYZE`) pour voir si une requête utilise un index :\n\n```sql\nEXPLAIN SELECT * FROM users WHERE email = 'a@b.com';\n```\n\n**Règle d'or :** indexe les colonnes sur lesquelles tu cherches, joins ou tries souvent, mais n'indexe pas tout.",
+        "after": "Un index est une structure de données à part qui permet à la base de retrouver des lignes rapidement sans parcourir toute la table, comme l'index à la fin d'un livre.\n\n- **Fonctionnement :** en général un B-tree qui garde les valeurs de la colonne triées, avec des pointeurs vers les lignes correspondantes.\n- **Avantage :** accélère `WHERE`, `JOIN`, `ORDER BY` et les recherches sur les colonnes indexées.\n- **Coût :** prend de la place et ralentit `INSERT`, `UPDATE` et `DELETE`, car l'index doit aussi être mis à jour.\n- **En créer un :** `CREATE INDEX idx_users_email ON users(email);`\n- **Types :** clé primaire et index uniques, composites (plusieurs colonnes), clustered ou non."
+      }
+    },
+    "offer": {
+      "title": "Ce que tu obtiens",
+      "items": [
+        "La bonne longueur, pour toi",
+        "Ton format : listes ou texte suivi",
+        "Ton niveau : simple ou technique",
+        "Des boutons en un clic sous chaque réponse",
+        "Une page pour voir et corriger ce qu'il sait de toi"
+      ],
+      "guarantee": "Ça ne te plaît pas ? Supprime le connecteur : Claude redevient comme avant."
+    },
+    "setup": {
+      "title": "Installe-le en 2 minutes",
+      "subtitle": "Trois copier-coller. Une seule fois.",
+      "copy_label": "Copier",
+      "copied": "Copié",
+      "screen_alt": "Capture : {title}",
+      "steps": {
+        "instruction": {
+          "title": "Colle cette phrase dans tes instructions",
+          "text": "Ouvre les réglages de ton compte Claude et colle-la dans « Instructions for Claude ».",
+          "link": "Ouvrir les réglages"
+        },
+        "connector": {
+          "title": "Ajoute le connecteur",
+          "text": "Ajoute un connecteur personnalisé avec ces deux champs.",
+          "link": "Ouvrir les connecteurs",
+          "name": "Name",
+          "url": "MCP Server URL"
+        },
+        "connect": {
+          "title": "Connecte-le",
+          "text": "Clique sur Connect : Claude ouvre notre page. Clique sur Continuer. C'est tout."
+        }
+      }
+    },
+    "final": {
+      "title": "Imagine ta prochaine question.",
+      "text": "La réponse fait la bonne longueur, dans ton format, du premier coup. Plus jamais « PLUS COURT. »",
+      "ps": "P.S. Ça prend 2 minutes. Au pire, tu supprimes le connecteur."
+    }
   }
 }

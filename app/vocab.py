@@ -139,3 +139,18 @@ class Credential(enum.StrEnum):
     CODE = enum.auto()
     ACCESS = enum.auto()
     REFRESH = enum.auto()
+
+
+class SetupStep(enum.StrEnum):
+    """The steps of connecting Claude, in order (landing page)."""
+
+    INSTRUCTION = enum.auto()
+    CONNECTOR = enum.auto()
+    CONNECT = enum.auto()
+
+
+class DemoSide(enum.StrEnum):
+    """The two replies the landing page compares."""
+
+    BEFORE = enum.auto()
+    AFTER = enum.auto()

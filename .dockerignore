@@ -5,3 +5,4 @@ widget/node_modules
 app/static
 tests
 .env
+site/node_modules

@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@import "basecoat-css";
+
+@source "../app/landing.html";
+
+/* Lingua Franca palette on the shadcn tokens. */
+:root {
+  --background: #fbfcfe;
+  --foreground: #0f172a;
+  --card: #f1f5f9;
+  --card-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eef7;
+  --secondary-foreground: #0f172a;
+  --accent: #dbeafe;
+  --accent-foreground: #1e40af;
+  --ring: #2563eb;
+  /* The chat windows of the demo, in Claude's own colours. */
+  --chat: #faf9f5;
+  --chat-bubble: #f0eee6;
+  --chat-ink: #141413;
+  --chat-muted: #73726c;
+  --chat-line: #e8e6dc;
+}
+
+.dark {
+  --background: #020817;
+  --foreground: #f8fafc;
+  --card: #0b1224;
+  --card-foreground: #f8fafc;
+  --muted: #0b1224;
+  --muted-foreground: #94a3b8;
+  --border: #1e293b;
+  --input: #1e293b;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #111a2e;
+  --secondary-foreground: #f8fafc;
+  --accent: #1e293b;
+  --accent-foreground: #bfdbfe;
+  --ring: #3b82f6;
+  --chat: #262624;
+  --chat-bubble: #141413;
+  --chat-ink: #faf9f5;
+  --chat-muted: #a3a29b;
+  --chat-line: #3a3936;
+}
+
+@theme inline {
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Hero: the rants pop in one by one, then get struck out. */
+.rant {
+  position: relative;
+  animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: calc(var(--i) * 0.2s);
+}
+.rant::after {
+  content: "";
+  position: absolute;
+  inset: 50% 0.6rem auto;
+  height: 2px;
+  background: var(--primary);
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: strike 0.3s ease-out forwards;
+  animation-delay: calc(var(--i) * 0.2s + 0.9s);
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.6) translateY(8px); }
+}
+@keyframes strike {
+  to { transform: scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rant, .rant::after { animation-duration: 0s; animation-delay: 0s; }
+}
+
+/* The demo replies, rendered from Markdown like the widget shows them. */
+.reply {
+  > * + * { @apply mt-3; }
+  h3 { @apply font-semibold; }
+  ul { @apply list-disc space-y-1 pl-5; }
+  strong { @apply font-semibold; }
+  h3, strong { color: var(--chat-ink); }
+  code { @apply rounded bg-(--chat-bubble) px-1 py-0.5 font-mono text-[0.85em]; }
+  pre { @apply overflow-x-auto rounded-lg bg-(--chat-bubble) p-3; }
+  pre code { @apply bg-transparent p-0; }
+}
+
+/* Basecoat clips button fills inside a transparent border, which shows the
+   page through it as a pale outline: fill the border too. */
+.btn {
+  background-clip: border-box;
+}
