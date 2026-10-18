@@ -429,7 +429,7 @@
   },
   "landing": {
     "meta_title": "Claire: Claude, on steroids",
-    "description": "Shorter replies, tailored to you: Claire learns what you prefer and tells Claude before every reply.",
+    "description": "Shorter replies, tailored to you: Claire learns what you prefer and tells Claude before every reply. Free.",
     "nav_cta": "Install",
     "callout": "Do you use Claude every day?",
     "rants": [
@@ -443,7 +443,7 @@
     "title_b": "Shorter replies, tailored to you.",
     "subtitle": "Claire learns how you like to be answered, and tells Claude before every reply. You never have to repeat yourself.",
     "cta": "I want Claude on steroids",
-    "cta_note": "2 minutes · No account · No email",
+    "cta_note": "Free · 2 minutes · No account · No email",
     "problem": {
       "title": "The problem isn't Claude. It's that it forgets.",
       "old_label": "Today",
@@ -511,7 +511,7 @@
     "final": {
       "title": "Picture your next question.",
       "text": "The answer is the right length, in your format, the first time. Never type “SHORTER.” again.",
-      "ps": "P.S. It takes 2 minutes. Worst case, you remove the connector."
+      "ps": "P.S. It's free and takes 2 minutes. Worst case, you remove the connector."
     }
   }
 }

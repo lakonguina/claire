@@ -310,7 +310,7 @@
   },
   "landing": {
     "meta_title": "Claire : Claude, sous stéroïdes",
-    "description": "Des réponses plus courtes, taillées pour toi : Claire apprend ce que tu préfères et le dicte à Claude avant chaque réponse.",
+    "description": "Des réponses plus courtes, taillées pour toi : Claire apprend ce que tu préfères et le dicte à Claude avant chaque réponse. Gratuit.",
     "nav_cta": "Installer",
     "callout": "Tu utilises Claude tous les jours ?",
     "rants": [
@@ -324,7 +324,7 @@
     "title_b": "Des réponses plus courtes, taillées pour toi.",
     "subtitle": "Claire apprend comment tu aimes qu'on te réponde, et le dicte à Claude avant chaque réponse. Tu n'as plus rien à lui répéter.",
     "cta": "Je veux Claude sous stéroïdes",
-    "cta_note": "2 minutes · Sans compte · Sans email",
+    "cta_note": "Gratuit · 2 minutes · Sans compte · Sans email",
     "problem": {
       "title": "Le problème n'est pas Claude. C'est qu'il oublie.",
       "old_label": "Aujourd'hui",
@@ -392,7 +392,7 @@
     "final": {
       "title": "Imagine ta prochaine question.",
       "text": "La réponse fait la bonne longueur, dans ton format, du premier coup. Plus jamais « PLUS COURT. »",
-      "ps": "P.S. Ça prend 2 minutes. Au pire, tu supprimes le connecteur."
+      "ps": "P.S. C'est gratuit et ça prend 2 minutes. Au pire, tu supprimes le connecteur."
     }
   }
 }
