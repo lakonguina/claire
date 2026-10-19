@@ -1,5 +1,7 @@
 # Development: code, templates and catalogs reload live, no restart.
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build --watch
+# Loaded by a plain `docker compose up` when .env sets
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+# Production's .env leaves it out, so it runs the image as built.
 services:
   app:
     command:
@@ -13,21 +15,11 @@ services:
       - --reload-dir=locales
       - --reload-include=*.html
       - --reload-include=*.json
+    # The working tree itself: app/static/index.html is the local widget
+    # build (README, Develop), app/static/site the site service's output.
     volumes:
-      - site:/srv/app/static/site
-    develop:
-      watch:
-        - action: sync
-          path: ./app
-          target: /srv/app
-          ignore:
-            - static/
-            - __pycache__/
-        - action: sync
-          path: ./locales
-          target: /srv/locales
-        - action: rebuild
-          path: requirements.txt
+      - ./app:/srv/app
+      - ./locales:/srv/locales
 
   # Recompiles the landing stylesheet whenever the template uses new classes.
   site:
@@ -36,17 +28,7 @@ services:
       target: site
     command: ["npm", "run", "watch"]
     volumes:
-      - site:/build/app/static/site
-    develop:
-      watch:
-        - action: sync
-          path: ./app/landing.html
-          target: /build/app/landing.html
-        - action: sync
-          path: ./site/landing.css
-          target: /build/site/landing.css
-        - action: rebuild
-          path: ./site/package.json
-
-volumes:
-  site:
+      - ./app:/build/app
+      - ./site:/build/site
+      # The image's Linux packages, not the host's.
+      - /build/site/node_modules

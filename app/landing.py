@@ -1,4 +1,4 @@
-"""Public landing page: the promise, and how to connect Claude."""
+"""Public landing page: the promise, and how to connect each AI."""
 
 import functools
 import pathlib
@@ -14,13 +14,33 @@ from app import vocab
 ASSETS = pathlib.Path(__file__).resolve().parent / "assets"
 SCREEN_SUFFIXES = (".webp", ".png", ".jpg")
 CONNECTOR_NAME = "Claire"
-# Where each step happens in Claude; a step without a link happens on its own.
+# Brand names, never translated; the logos are logos/<key>.svg.
+ASSISTANTS = {
+    vocab.Assistant.CLAUDE: "Claude",
+    vocab.Assistant.CHATGPT: "ChatGPT",
+    vocab.Assistant.GROK: "Grok",
+}
+SOON = {"gemini": "Gemini"}
+# Where each step happens in each AI; a step without a link happens on its own.
 LINKS = {
-    vocab.SetupStep.INSTRUCTION: "https://claude.ai/new#settings/account",
-    vocab.SetupStep.CONNECTOR: (
-        "https://claude.ai/new?modal=add-custom-connector"
-        "#customize/connectors/yours"
-    ),
+    vocab.Assistant.CLAUDE: {
+        vocab.SetupStep.INSTRUCTION: "https://claude.ai/new#settings/account",
+        vocab.SetupStep.CONNECTOR: (
+            "https://claude.ai/new?modal=add-custom-connector"
+            "#customize/connectors/yours"
+        ),
+    },
+    vocab.Assistant.CHATGPT: {
+        vocab.SetupStep.INSTRUCTION: (
+            "https://chatgpt.com/settings/personalization"
+            "?instructions=chatgpt"
+        ),
+        vocab.SetupStep.CONNECTOR: "https://chatgpt.com/plugins",
+    },
+    vocab.Assistant.GROK: {
+        vocab.SetupStep.INSTRUCTION: "https://grok.com/?_s=personality",
+        vocab.SetupStep.CONNECTOR: "https://grok.com/connectors",
+    },
 }
 
 router = fastapi.APIRouter(include_in_schema=False)
@@ -48,10 +68,17 @@ def _screen(folder: str, name: str) -> str | None:
     return None
 
 
-STEPS = [
-    {"id": step, "link": LINKS.get(step), "screen": _screen("setup", step)}
-    for step in vocab.SetupStep
-]
+STEPS = {
+    assistant: [
+        {
+            "id": step,
+            "link": LINKS[assistant].get(step),
+            "screen": _screen(f"setup/{assistant}", step),
+        }
+        for step in vocab.SetupStep
+    ]
+    for assistant in vocab.Assistant
+}
 # Screenshots of the demo replies; without them, the catalog's texts show.
 DEMO_SCREENS = {side: _screen("demo", side) for side in vocab.DemoSide}
 
@@ -66,6 +93,8 @@ async def page(request: fastapi.Request) -> str:
         instruction=i18n.catalog(i18n.FALLBACK)["tools"]["server"],
         connector_name=CONNECTOR_NAME,
         mcp_url=oauth.RESOURCE,
+        assistants=ASSISTANTS,
+        soon=SOON,
         steps=STEPS,
         demo_screens=DEMO_SCREENS,
         replies=_replies(language),

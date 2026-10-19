@@ -38,6 +38,11 @@ FIELDS = TOOLS["plan_reply"]["fields"]
 OK = [mcp_types.TextContent(type="text", text="ok")]
 # Without it the model may think nothing appeared and repeat the reply.
 SHOWN = [mcp_types.TextContent(type="text", text=TOOLS["shown"])]
+# ChatGPT requires these hints (Apps SDK reference): the tools only shape the
+# conversation, they never touch the user's data elsewhere nor the internet.
+ANNOTATIONS = mcp_types.ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, open_world_hint=False
+)
 
 
 def _field(name: str, **kwargs: Any) -> pydantic.fields.FieldInfo:
@@ -123,7 +128,11 @@ def _handled(
 apps = mcp_apps.Apps()
 
 
-@apps.tool(resource_uri=UI_URI, description=TOOLS["show_reply"]["description"])
+@apps.tool(
+    resource_uri=UI_URI,
+    description=TOOLS["show_reply"]["description"],
+    annotations=ANNOTATIONS,
+)
 async def show_reply(
     ctx: mcpserver.Context,
     turn_id: str,
@@ -147,6 +156,7 @@ async def show_reply(
     resource_uri=UI_URI,
     visibility=["app"],
     description=TOOLS["record_click"]["description"],
+    annotations=ANNOTATIONS,
 )
 async def record_click(
     ctx: mcpserver.Context, turn_id: str, button: str, position: int
@@ -159,6 +169,7 @@ async def record_click(
     resource_uri=UI_URI,
     visibility=["app"],
     description=TOOLS["report_context"]["description"],
+    annotations=ANNOTATIONS,
 )
 async def report_context(
     ctx: mcpserver.Context,
@@ -193,7 +204,9 @@ mcp = ClaireServer(
 
 
 @mcp.tool(
-    structured_output=False, description=TOOLS["plan_reply"]["description"]
+    structured_output=False,
+    description=TOOLS["plan_reply"]["description"],
+    annotations=ANNOTATIONS,
 )
 async def plan_reply(
     ctx: mcpserver.Context,

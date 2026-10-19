@@ -592,6 +592,13 @@ async def test_tools_listed_to_the_model(make_client):
     }
     for app_only in ("record_click", "report_context"):
         assert tools[app_only]["_meta"]["ui"]["visibility"] == ["app"]
+    # ChatGPT requires the three hints on every tool.
+    for tool in tools.values():
+        assert tool["annotations"] == {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        }
 
 
 async def test_schema_matches_the_models(database):

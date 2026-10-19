@@ -141,8 +141,16 @@ class Credential(enum.StrEnum):
     REFRESH = enum.auto()
 
 
+class Assistant(enum.StrEnum):
+    """The AIs the landing page shows how to connect."""
+
+    CLAUDE = enum.auto()
+    CHATGPT = enum.auto()
+    GROK = enum.auto()
+
+
 class SetupStep(enum.StrEnum):
-    """The steps of connecting Claude, in order (landing page)."""
+    """The steps of connecting an assistant, in order (landing page)."""
 
     INSTRUCTION = enum.auto()
     CONNECTOR = enum.auto()

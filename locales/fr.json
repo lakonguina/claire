@@ -309,10 +309,10 @@
     }
   },
   "landing": {
-    "meta_title": "Claire : Claude, sous stéroïdes",
-    "description": "Des réponses plus courtes, taillées pour toi : Claire apprend ce que tu préfères et le dicte à Claude avant chaque réponse.",
+    "meta_title": "Claire : ton IA, sous stéroïdes",
+    "description": "Des réponses plus courtes, taillées pour toi : Claire apprend ce que tu préfères et le dicte à ton IA avant chaque réponse.",
     "nav_cta": "Installer gratuitement",
-    "callout": "Tu utilises Claude tous les jours ?",
+    "callout": "Tu utilises une IA tous les jours ?",
     "rants": [
       "Fais plus court.",
       "J'ai demandé oui ou non.",
@@ -320,17 +320,19 @@
       "Pas si technique.",
       "Va droit au but."
     ],
-    "title_a": "Claude, sous stéroïdes.",
+    "title_a": "Ton IA, sous stéroïdes.",
     "title_b": "Des réponses plus courtes, taillées pour toi.",
-    "subtitle": "Claire apprend comment tu aimes qu'on te réponde, et le dicte à Claude avant chaque réponse. Tu n'as plus rien à lui répéter.",
-    "cta": "Je veux Claude sous stéroïdes, gratuit",
+    "subtitle": "Claire apprend comment tu aimes qu'on te réponde, et le dicte à ton IA avant chaque réponse. Tu n'as plus rien à lui répéter.",
+    "cta": "Je veux mon IA sous stéroïdes, gratuit",
     "cta_note": "2 minutes · Sans compte · Sans email",
+    "works_with": "Marche avec",
+    "soon": "Bientôt",
     "problem": {
-      "title": "Le problème n'est pas Claude. C'est qu'il oublie.",
+      "title": "Le problème n'est pas ton IA. C'est qu'elle oublie.",
       "old_label": "Aujourd'hui",
-      "old": "Tu répètes « plus court » dans chaque conversation. Ça pollue son contexte, et demain il a tout oublié.",
+      "old": "Tu répètes « plus court » dans chaque conversation. Ça pollue son contexte, et demain elle a tout oublié.",
       "new_label": "Avec Claire",
-      "new": "Tu réagis d'un clic. Il retient, et le rappelle à Claude avant chaque réponse, dans toutes tes conversations."
+      "new": "Tu réagis d'un clic. Claire retient, et le rappelle à ton IA avant chaque réponse, dans toutes tes conversations."
     },
     "demo": {
       "title": "Même question.",
@@ -340,8 +342,8 @@
       "words": "{count} mots",
       "saved": "de mots en moins",
       "saved_note": "L'essentiel, sans le blabla.",
-      "window": "Claude",
-      "input": "Répondre à Claude…",
+      "window": "Ton IA",
+      "input": "Pose ta question…",
       "copy_reply": "Copier la réponse",
       "buttons": [
         "Montre-moi un exemple concret",
@@ -362,7 +364,7 @@
         "Des boutons en un clic sous chaque réponse",
         "Une page pour voir et corriger ce qu'il sait de toi"
       ],
-      "guarantee": "Ça ne te plaît pas ? Supprime le connecteur : Claude redevient comme avant."
+      "guarantee": "Ça ne te plaît pas ? Supprime le connecteur : ton IA redevient comme avant."
     },
     "setup": {
       "title": "Installe-le en 2 minutes",
@@ -373,19 +375,31 @@
       "steps": {
         "instruction": {
           "title": "Colle cette phrase dans tes instructions",
-          "text": "Ouvre les réglages de ton compte Claude et colle-la dans « Instructions for Claude ».",
+          "text": {
+            "claude": "Ouvre les réglages de ton compte Claude et colle-la dans « Instructions for Claude ».",
+            "chatgpt": "Ouvre la personnalisation de ChatGPT et colle-la dans tes instructions personnalisées.",
+            "grok": "Ouvre la personnalisation de Grok et colle-la dans tes instructions personnalisées."
+          },
           "link": "Ouvrir les réglages"
         },
         "connector": {
           "title": "Ajoute le connecteur",
-          "text": "Ajoute un connecteur personnalisé avec ces deux champs.",
+          "text": {
+            "claude": "Ajoute un connecteur personnalisé avec ces deux champs.",
+            "chatgpt": "En haut à droite, clique sur Add puis Add Custom MCP Server, et remplis ces deux champs.",
+            "grok": "Clique sur New connector et remplis ces deux champs."
+          },
           "link": "Ouvrir les connecteurs",
           "name": "Name",
           "url": "MCP Server URL"
         },
         "connect": {
           "title": "Connecte-le",
-          "text": "Clique sur Connect : Claude ouvre notre page. Clique sur Continuer. C'est tout."
+          "text": {
+            "claude": "Clique sur Connect : Claude ouvre notre page. Clique sur Continuer. C'est tout.",
+            "chatgpt": "Lance la connexion : ChatGPT ouvre notre page. Clique sur Continuer. C'est tout.",
+            "grok": "Lance la connexion : Grok ouvre notre page. Clique sur Continuer. C'est tout."
+          }
         }
       }
     },

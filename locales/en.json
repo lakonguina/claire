@@ -428,10 +428,10 @@
     }
   },
   "landing": {
-    "meta_title": "Claire: Claude, on steroids",
-    "description": "Shorter replies, tailored to you: Claire learns what you prefer and tells Claude before every reply.",
+    "meta_title": "Claire: your AI, on steroids",
+    "description": "Shorter replies, tailored to you: Claire learns what you prefer and tells your AI before every reply.",
     "nav_cta": "Install for free",
-    "callout": "Do you use Claude every day?",
+    "callout": "Do you use an AI every day?",
     "rants": [
       "Make it shorter.",
       "I asked yes or no.",
@@ -439,17 +439,19 @@
       "Less technical, please.",
       "Get to the point."
     ],
-    "title_a": "Claude, on steroids.",
+    "title_a": "Your AI, on steroids.",
     "title_b": "Shorter replies, tailored to you.",
-    "subtitle": "Claire learns how you like to be answered, and tells Claude before every reply. You never have to repeat yourself.",
-    "cta": "I want Claude on steroids, free",
+    "subtitle": "Claire learns how you like to be answered, and tells your AI before every reply. You never have to repeat yourself.",
+    "cta": "I want my AI on steroids, free",
     "cta_note": "2 minutes · No account · No email",
+    "works_with": "Works with",
+    "soon": "Soon",
     "problem": {
-      "title": "The problem isn't Claude. It's that it forgets.",
+      "title": "The problem isn't your AI. It's that it forgets.",
       "old_label": "Today",
       "old": "You type “shorter” in every conversation. It pollutes its context, and tomorrow it has forgotten it all.",
       "new_label": "With Claire",
-      "new": "You react with one click. It remembers, and reminds Claude before every reply, in all your conversations."
+      "new": "You react with one click. Claire remembers, and reminds your AI before every reply, in all your conversations."
     },
     "demo": {
       "title": "Same question.",
@@ -459,8 +461,8 @@
       "words": "{count} words",
       "saved": "fewer words",
       "saved_note": "The essentials, minus the fluff.",
-      "window": "Claude",
-      "input": "Reply to Claude…",
+      "window": "Your AI",
+      "input": "Ask anything…",
       "copy_reply": "Copy reply",
       "buttons": [
         "Show me a concrete example",
@@ -481,7 +483,7 @@
         "One-click buttons under every reply",
         "A page to see and correct what it knows about you"
       ],
-      "guarantee": "Don't like it? Remove the connector: Claude goes back to how it was."
+      "guarantee": "Don't like it? Remove the connector: your AI goes back to how it was."
     },
     "setup": {
       "title": "Install it in 2 minutes",
@@ -492,19 +494,31 @@
       "steps": {
         "instruction": {
           "title": "Paste this sentence in your instructions",
-          "text": "Open your Claude account settings and paste it in “Instructions for Claude”.",
+          "text": {
+            "claude": "Open your Claude account settings and paste it in “Instructions for Claude”.",
+            "chatgpt": "Open ChatGPT's personalization and paste it in your custom instructions.",
+            "grok": "Open Grok's personalization and paste it in your custom instructions."
+          },
           "link": "Open settings"
         },
         "connector": {
           "title": "Add the connector",
-          "text": "Add a custom connector with these two fields.",
+          "text": {
+            "claude": "Add a custom connector with these two fields.",
+            "chatgpt": "Top right, click Add, then Add Custom MCP Server, and fill in these two fields.",
+            "grok": "Click New connector and fill in these two fields."
+          },
           "link": "Open connectors",
           "name": "Name",
           "url": "MCP Server URL"
         },
         "connect": {
           "title": "Connect it",
-          "text": "Click Connect: Claude opens our page. Click Continue. That's it."
+          "text": {
+            "claude": "Click Connect: Claude opens our page. Click Continue. That's it.",
+            "chatgpt": "Start the connection: ChatGPT opens our page. Click Continue. That's it.",
+            "grok": "Start the connection: Grok opens our page. Click Continue. That's it."
+          }
         }
       }
     },

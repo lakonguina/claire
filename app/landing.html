@@ -58,7 +58,7 @@
     <div class="px-4 pb-4">
       <div class="flex items-center rounded-2xl border border-(--chat-line) py-2 pr-2 pl-4 text-sm text-(--chat-muted)">
         {{ demo.input }}
-        <span class="ml-auto flex size-8 items-center justify-center rounded-lg bg-[#d97757] text-white">↑</span>
+        <span class="ml-auto flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">↑</span>
       </div>
     </div>
   </figure>
@@ -81,6 +81,12 @@
     <p class="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground text-pretty">{{ texts.subtitle }}</p>
     <a href="#setup" class="btn capitalize mt-8 shadow-lg shadow-primary/30 transition hover:scale-105" data-size="lg">{{ texts.cta }} →</a>
     <p class="mt-3 text-sm text-muted-foreground">{{ texts.cta_note }}</p>
+    <p class="mt-10 text-sm text-muted-foreground">{{ texts.works_with }}</p>
+    <ul class="mt-3 flex justify-center gap-5 text-3xl">
+      {% for key, name in assistants.items() %}
+      <li><a href="#setup" data-pick="{{ key }}" title="{{ name }}" aria-label="{{ name }}" class="block transition hover:scale-110">{% include "logos/" ~ key ~ ".svg" %}</a></li>
+      {% endfor %}
+    </ul>
   </section>
 
   {% set problem = texts.problem %}
@@ -137,43 +143,57 @@
     <div class="mx-auto max-w-3xl px-4 py-20">
       <h2 class="text-center text-3xl font-bold tracking-tight">{{ setup.title }}</h2>
       <p class="mt-4 text-center text-muted-foreground">{{ setup.subtitle }}</p>
-      <ol class="mt-10 space-y-6">
-        {% for step in steps %}
-        {% set text = setup.steps[step.id] %}
-        <li class="card">
-          <header>
-            <h3>{{ text.title }}</h3>
-            <p>{{ text.text }}</p>
-          </header>
-          <section class="space-y-3">
-            {% if step.id == SetupStep.INSTRUCTION %}
-            <div class="flex items-start gap-2 rounded-lg border bg-background p-3">
-              <code class="min-w-0 flex-1 font-mono text-sm break-words">{{ instruction }}</code>
-              <button type="button" class="btn" data-variant="secondary" data-size="sm" data-copy="{{ instruction }}">{{ setup.copy_label }}</button>
-            </div>
-            {% elif step.id == SetupStep.CONNECTOR %}
-            {% for label, value in ((text.name, connector_name), (text.url, mcp_url)) %}
-            <div class="grid gap-1">
-              <span class="text-sm font-medium">{{ label }}</span>
-              <div class="flex items-center gap-2 rounded-lg border bg-background p-2 pl-3">
-                <code class="min-w-0 flex-1 truncate font-mono text-sm">{{ value }}</code>
-                <button type="button" class="btn" data-variant="secondary" data-size="sm" data-copy="{{ value }}">{{ setup.copy_label }}</button>
-              </div>
-            </div>
+      <div class="tabs mt-10 items-center">
+        <nav role="tablist" aria-orientation="horizontal" class="max-w-full flex-wrap">
+          {% for key, name in assistants.items() %}
+          <button type="button" role="tab" id="tab-{{ key }}" aria-controls="panel-{{ key }}" aria-selected="{{ loop.first|lower }}" data-pick="{{ key }}" class="gap-2">{% include "logos/" ~ key ~ ".svg" %}{{ name }}</button>
+          {% endfor %}
+          {% for key, name in soon.items() %}
+          <button type="button" role="tab" aria-disabled="true" class="gap-2"><span class="grayscale">{% include "logos/" ~ key ~ ".svg" %}</span>{{ name }} · {{ texts.soon }}</button>
+          {% endfor %}
+        </nav>
+        {% for key in assistants %}
+        <div role="tabpanel" id="panel-{{ key }}" aria-labelledby="tab-{{ key }}" class="w-full"{% if not loop.first %} hidden{% endif %}>
+          <ol class="mt-6 space-y-6">
+            {% for step in steps[key] %}
+            {% set text = setup.steps[step.id] %}
+            <li class="card">
+              <header>
+                <h3>{{ text.title }}</h3>
+                <p>{{ text.text[key] }}</p>
+              </header>
+              <section class="space-y-3">
+                {% if step.id == SetupStep.INSTRUCTION %}
+                <div class="flex items-start gap-2 rounded-lg border bg-background p-3">
+                  <code class="min-w-0 flex-1 font-mono text-sm break-words">{{ instruction }}</code>
+                  <button type="button" class="btn" data-variant="secondary" data-size="sm" data-copy="{{ instruction }}">{{ setup.copy_label }}</button>
+                </div>
+                {% elif step.id == SetupStep.CONNECTOR %}
+                {% for label, value in ((text.name, connector_name), (text.url, mcp_url)) %}
+                <div class="grid gap-1">
+                  <span class="text-sm font-medium">{{ label }}</span>
+                  <div class="flex items-center gap-2 rounded-lg border bg-background p-2 pl-3">
+                    <code class="min-w-0 flex-1 truncate font-mono text-sm">{{ value }}</code>
+                    <button type="button" class="btn" data-variant="secondary" data-size="sm" data-copy="{{ value }}">{{ setup.copy_label }}</button>
+                  </div>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% if step.screen %}
+                <img src="{{ step.screen }}" alt="{{ setup.screen_alt.format(title=text.title) }}" loading="lazy" class="w-full rounded-lg border">
+                {% endif %}
+              </section>
+              {% if step.link %}
+              <footer>
+                <a href="{{ step.link }}" target="_blank" rel="noopener" class="btn">{{ text.link }} ↗</a>
+              </footer>
+              {% endif %}
+            </li>
             {% endfor %}
-            {% endif %}
-            {% if step.screen %}
-            <img src="{{ step.screen }}" alt="{{ setup.screen_alt.format(title=text.title) }}" loading="lazy" class="w-full rounded-lg border">
-            {% endif %}
-          </section>
-          {% if step.link %}
-          <footer>
-            <a href="{{ step.link }}" target="_blank" rel="noopener" class="btn">{{ text.link }} ↗</a>
-          </footer>
-          {% endif %}
-        </li>
+          </ol>
+        </div>
         {% endfor %}
-      </ol>
+      </div>
     </div>
   </section>
 
@@ -210,6 +230,18 @@
     }
   });
   document.querySelectorAll("[data-count]").forEach((el) => counters.observe(el));
+
+  // Picking an AI, from its tab or its logo, shows its own steps.
+  const tabs = document.querySelectorAll('[role="tab"][data-pick]');
+  for (const picker of document.querySelectorAll("[data-pick]")) {
+    picker.addEventListener("click", () => {
+      for (const tab of tabs) {
+        const picked = tab.dataset.pick === picker.dataset.pick;
+        tab.setAttribute("aria-selected", picked);
+        document.getElementById(tab.getAttribute("aria-controls")).hidden = !picked;
+      }
+    });
+  }
 
   for (const button of document.querySelectorAll("[data-copy]")) {
     const label = button.textContent;
