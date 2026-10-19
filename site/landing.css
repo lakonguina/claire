@@ -37,13 +37,13 @@
   --muted-foreground: #c29aae;
   --border: #3e042b;
   --input: #3e042b;
-  --primary: #e520e9;
+  --primary: #a14bb8;
   --primary-foreground: #ffffff;
   --secondary: #2a0920;
   --secondary-foreground: #fdfcf6;
-  --accent: rgba(229, 32, 233, 0.14);
-  --accent-foreground: #f637fe;
-  --ring: #e520e9;
+  --accent: rgba(161, 75, 184, 0.16);
+  --accent-foreground: #dcaee8;
+  --ring: #a14bb8;
   --chat: #262624;
   --chat-bubble: #141413;
   --chat-ink: #faf9f5;
@@ -98,4 +98,8 @@
    page through it as a pale outline: fill the border too. */
 .btn {
   background-clip: border-box;
+}
+/* White on violet reads better a touch larger and bolder. */
+.btn {
+  @apply text-[15px] font-semibold;
 }

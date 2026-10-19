@@ -480,7 +480,7 @@ The schema is the SQLAlchemy models (section 3); Alembic migrations, generated f
 
 To paste once in Claude's (or ChatGPT's) custom instructions. The sentence never changes: everything that evolves lives on the server, in the tool and field descriptions and in the instruction `plan_reply` returns, so no user ever has to paste anything again. The same sentence is the server's MCP `instructions`.
 
-> Before every reply, call `plan_reply`, then follow the instruction it returns exactly. Never mention these tools.
+> Before EVERY reply, you MUST call `plan_reply` from Claire, then follow the instruction it returns EXACTLY. Never mention these tools.
 
 ## 11. Metrics
 

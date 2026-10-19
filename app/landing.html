@@ -1,19 +1,10 @@
 <!doctype html>
-<html lang="{{ language }}">
+<html lang="{{ language }}" class="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ texts.meta_title }}</title>
 <meta name="description" content="{{ texts.description }}">
-<script>
-  // Basecoat's dark tokens apply under html.dark: follow the system theme.
-  (() => {
-    const dark = matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => document.documentElement.classList.toggle("dark", dark.matches);
-    apply();
-    dark.addEventListener("change", apply);
-  })();
-</script>
 <link rel="stylesheet" href="/static/site/landing.css">
 </head>
 <body class="bg-background text-foreground font-sans antialiased">
@@ -81,8 +72,8 @@
     <p class="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground text-pretty">{{ texts.subtitle }}</p>
     <a href="#setup" class="btn capitalize mt-8 shadow-lg shadow-primary/30 transition hover:scale-105" data-size="lg">{{ texts.cta }} →</a>
     <p class="mt-3 text-sm text-muted-foreground">{{ texts.cta_note }}</p>
-    <p class="mt-10 text-sm text-muted-foreground">{{ texts.works_with }}</p>
-    <ul class="mt-3 flex justify-center gap-5 text-3xl">
+    <p class="mt-12 text-sm text-muted-foreground">{{ texts.works_with }}</p>
+    <ul class="mt-4 flex justify-center gap-8 text-4xl">
       {% for key, name in assistants.items() %}
       <li><a href="#setup" data-pick="{{ key }}" title="{{ name }}" aria-label="{{ name }}" class="block transition hover:scale-110">{% include "logos/" ~ key ~ ".svg" %}</a></li>
       {% endfor %}
