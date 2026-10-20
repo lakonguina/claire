@@ -1,10 +1,11 @@
-"""Locale catalogs (SPEC 3): every text a person or the model reads.
+"""Locale catalogs: every text a person or the model reads.
 
 English is complete and is the fallback for every missing key; it is also the
 only language of the model-facing prompts.
 """
 
 import functools
+import hashlib
 import json
 import pathlib
 import re
@@ -51,9 +52,36 @@ def catalog(language: str | None) -> dict:
     return _merge(base, _load(language))
 
 
-def prompts() -> dict:
-    """Returns the model-facing prompt texts."""
-    return catalog(FALLBACK)["prompts"]
+CANDIDATE = LOCALES / "candidate.json"
+
+
+@functools.cache
+def prompts(candidate: bool = False) -> dict:
+    """Returns the model-facing prompt texts.
+
+    Args:
+        candidate: Whether to read the candidate catalog being launched
+            (locales/candidate.json, the English prompts it overrides).
+
+    Returns:
+        The prompts.
+    """
+    current = catalog(FALLBACK)["prompts"]
+    if not candidate or not CANDIDATE.exists():
+        return current
+    return _merge(current, json.loads(CANDIDATE.read_text())["prompts"])
+
+
+def has_candidate() -> bool:
+    """Returns whether a candidate prompt catalog is being launched."""
+    return CANDIDATE.exists()
+
+
+@functools.cache
+def catalog_version(candidate: bool = False) -> str:
+    """Returns the version of a prompt catalog, logged with each instruction."""
+    texts = json.dumps(prompts(candidate), sort_keys=True).encode()
+    return hashlib.sha256(texts).hexdigest()[:12]
 
 
 def preferred(accept_language: str | None) -> str:

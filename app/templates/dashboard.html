@@ -209,7 +209,6 @@ const words = (v) => ui("words", { n: num(v) });
 
 const chip = (label, color, extra = "") => `<span class="chip ${extra}" style="--c:${color}">${esc(label)}</span>`;
 const outcomeChip = (o, extra) => (o ? chip(named("outcomes", o), OUTCOME_COLORS[o] || "var(--faint)", extra) : '<span class="faint">—</span>');
-const buttonName = (b) => TEXTS.buttons[b]?.label ?? b;
 const kv = (rows) => `<table class="kv">${rows.map(([k, v]) => `<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join("")}</table>`;
 const table = (columns, body) => `<table><tr>${columns.map((c) => `<th>${term(c)}</th>`).join("")}</tr>${body}</table>`;
 const empty = (key, columns = 1) => `<tr><td colspan="${columns}" class="faint">${esc(ui(key))}</td></tr>`;
@@ -223,9 +222,8 @@ function scopeName(scope) {
 
 function preference(dimension, value) {
   const [kind, arm] = dimension.split(":");
-  if (kind === "button") return [ui("button_pref", { name: buttonName(arm) }), ui(value)];
   if (kind === "clarify") return [`${ui("clarify_pref")} · ${named("clarify", arm)}`, ui(value)];
-  if (dimension === "length") return [TEXTS.dimensions.length?.name ?? dimension, TEXTS.lengths[value] ?? value];
+  if (kind === "expertise") return [`${ui("expertise_pref")} · ${named("expertise", arm)}`, ui(value)];
   const d = TEXTS.dimensions[dimension];
   return [d?.name ?? dimension, d?.values[value] ?? value];
 }
@@ -290,7 +288,7 @@ async function renderLive() {
     [c.users, "users", ""],
     [pct(ratio(c.widget_turns, c.turns)), "widget_mode", ui("turns_n", { n: c.widget_turns })],
     [pct(ratio(c.widget_turns_with_reply, c.widget_turns)), "show_reply_coverage", ui("of_widget")],
-    [pct(ratio(c.turns_with_click, c.turns_with_buttons)), "click_rate", ui("clicks_of", { a: c.turns_with_click, b: c.turns_with_buttons })],
+    [pct(ratio(c.turns_with_copy, c.widget_turns_with_reply)), "widget_events", ui("turns_n", { n: c.turns_with_copy })],
     [c.finalized_turns, "finalized", ui("gold_n", { n: c.gold_labels })],
     [c.last_nightly ? time(c.last_nightly) : ui("never"), "last_nightly", c.last_nightly ? new Date(c.last_nightly).toLocaleDateString(LANG) : ""],
   ];
@@ -303,9 +301,7 @@ async function renderLive() {
       <div class="panel">${head("topic_domains", {}, `· ${c.topic_clusters}`)}${overview.topic_clusters.length
         ? kv(overview.topic_clusters.map((k) => [`${esc(ui("domain", { n: k.id }))} · ${k.size}`, `“${esc(k.medoid_topic)}”`]))
         : `<p class="faint">${esc(ui("domains_until"))}</p>`}</div>
-      <div class="panel scroll wide">${head("questions")}${overview.questions.length ? table(["question", "language", "asked_by", "follows"],
-        overview.questions.map((q) => `<tr><td>${esc(q.text)}${q.users < overview.min_users ? "" : ` ${chip("✓", "var(--aqua)")}`}</td><td class="mono">${esc(q.language)}</td><td class="mono">${q.users}</td><td class="mono">${q.follows}</td></tr>`).join(""))
-        : `<p class="faint">${esc(ui("questions_until"))}</p>`}</div>
+      <div class="panel">${head("erase")}<form id="erase" style="display:flex;gap:8px"><input name="code" class="mono" placeholder="12-…" required style="flex:1"><button class="btn">${esc(ui("erase"))}</button></form><p id="erase-status" class="muted mono"></p></div>
       <div class="panel">${head("tool_calls")}${kv(overview.tool_calls.map((t) => [esc(t.tool), t.calls_24h]))}</div>
       <div class="panel">${head("settings")}${kv([
         [term("policy"), esc(settings.policy)],
@@ -327,7 +323,7 @@ async function renderLive() {
       <button class="btn">${esc(ui("filter"))}</button><button class="btn" type="reset">${esc(ui("clear"))}</button>
     </form>
     <div class="panel scroll" style="padding:0">${turns.length ? `<table class="rows">
-      <tr>${["time", "turn", "user_conv", "hosts", "mode", "topic", "words", "verdict", "inferred", "buttons", "write"].map((k) => `<th>${term(k)}</th>`).join("")}</tr>
+      <tr>${["time", "turn", "user_conv", "hosts", "mode", "topic", "words", "verdict", "inferred", "widget_events", "write"].map((k) => `<th>${term(k)}</th>`).join("")}</tr>
       ${turns.map(turnRow).join("")}</table>` : `<div class="empty">${esc(ui("no_turns"))}</div>`}</div>`;
   const form = $("#filters");
   form.addEventListener("submit", (event) => {
@@ -340,7 +336,7 @@ async function renderLive() {
 }
 
 function turnRow(t) {
-  const buttons = t.buttons.map((b) => chip(b.label || buttonName(b.id), b.label ? "var(--violet)" : "var(--accent)", `${b.label ? "wrap" : ""} ${b.position === t.clicked ? "clicked" : ""}`)).join(" ");
+  const events = t.events.map((e) => chip(named("widget_events", e), "var(--violet)")).join(" ");
   const flow = [t.needed_words, t.target_words, t.requested_words, t.reply_words_exact].map((w) => w ?? "—").join(" → ");
   return `<tr data-id="${t.id}" class="${state.selected === t.id ? "selected" : ""}" style="--bar:${OUTCOME_COLORS[t.inferred] || "transparent"}">
     <td class="mono muted nowrap">${time(t.created_at)}</td>
@@ -352,7 +348,7 @@ function turnRow(t) {
     <td class="mono nowrap">${flow}</td>
     <td>${outcomeChip(t.verdict)}${t.user_quote ? `<div class="faint quote">“${esc(t.user_quote)}”</div>` : ""}</td>
     <td>${outcomeChip(t.inferred)} <span class="mono faint">${t.inferred_p ? pct(t.inferred_p) : ""}</span></td>
-    <td class="buttons">${buttons || '<span class="faint">—</span>'}</td>
+    <td class="buttons">${events || '<span class="faint">—</span>'}${t.goal_reached ? ` ${chip(ui("goal_reached"), "var(--aqua)")}` : ""}</td>
     <td class="mono">${secs(t.writing_seconds)}</td></tr>`;
 }
 
@@ -366,8 +362,7 @@ async function openTurn(id) {
   const start = new Date(t.created_at).getTime();
   const at = (iso) => (iso ? (new Date(iso).getTime() - start) / 1000 : null);
   const reply = d.replies[0];
-  const click = d.clicks.at(-1);  // The last click is the reaction.
-  const end = at(d.next_turn?.created_at) ?? Math.max(at(reply?.created_at) ?? 0, at(click?.created_at) ?? 0, 1);
+  const end = at(d.next_turn?.created_at) ?? Math.max(at(reply?.created_at) ?? 0, 1);
   const span = Math.max(end, 0.001);
   const bar = (key, from, to, color) => from === null || to === null ? "" :
     `<span>${esc(named("timeline", key))}</span><div class="track"><div class="bar" style="left:${100 * from / span}%;width:${Math.max(100 * (to - from) / span, 0.4)}%;background:${color}"></div></div><span>${secs(to - from)}</span>`;
@@ -387,7 +382,6 @@ async function openTurn(id) {
     <section>${head("timeline")}<div class="wf">
       ${bar("plan_reply", 0, 0.001 * span, "var(--accent)")}
       ${bar("writing", 0, at(reply?.created_at), "var(--violet)")}
-      ${click ? bar("click", at(click.created_at), at(click.created_at) + 0.004 * span, "var(--aqua)") : ""}
       ${bar("reading", at(reply?.created_at) ?? 0, at(d.next_turn?.created_at), "var(--info)")}
     </div>${d.next_turn ? "" : `<p class="faint">${esc(ui("open_turn"))}</p>`}</section>
     <section>${head("decision")}${kv([
@@ -399,13 +393,15 @@ async function openTurn(id) {
       [term("propensity"), pct(t.propensity)],
       [term("form"), form.map(([k, v]) => chip(preference(k, v).join(" : "), "var(--violet)")).join(" ") || "auto"],
       [term("clarify"), style.clarify ? esc(named("clarify", style.clarify)) : "—"],
+      [term("expertise"), style.expertise ? esc(named("expertise", style.expertise)) : "—"],
+      [term("instruction"), esc(t.instruction)],
       [term("cell"), `${esc(scopeName(style.domain || "*"))}${style.mobile ? ` · ${esc(ui("mobile"))}` : ""}`],
       [term("language"), esc(t.language)],
       ...d.shadow_decisions.map((s) => [term("shadow", { name: s.model_version }), `${words(s.target_words)} <span class="faint">(${pct(s.propensity)})</span>`]),
     ])}</section>
     <section>${head("reaction")}${kv([
-      [term("assistant_verdict"), `${outcomeChip(verdict?.observed)} ${verdict?.format_issue ? chip(named("format_issues", verdict.format_issue), "var(--violet)") : ""} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${click ? ` <span class="faint">${esc(ui("ignored_clicked"))}</span>` : ""}`],
-      [term("buttons_shown"), d.buttons_shown.map((b) => chip(`${b.position + 1} · ${b.label || buttonName(b.button)}`, b.label ? "var(--violet)" : "var(--accent)", `${b.label ? "wrap" : ""} ${d.clicks.some((c) => c.position === b.position) ? "clicked" : ""}`)).join(" ") || "—"],
+      [term("assistant_verdict"), `${outcomeChip(verdict?.observed)} ${verdict?.format_issue ? chip(named("format_issues", verdict.format_issue), "var(--violet)") : ""} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${verdict?.goal_reached ? ` ${chip(ui("goal_reached"), "var(--aqua)")}` : ""}`],
+      [term("widget_events"), d.widget_events.map((e) => chip(`${named("widget_events", e.kind)}${e.value?.value === null || e.value?.value === undefined ? "" : ` · ${e.value.value}`}`, "var(--violet)")).join(" ") || "—"],
       [term("gold_label"), gold ? outcomeChip(gold.outcome) : "—"],
     ])}${inf ? caption("reaction_shares") : ""}${probBars(inf?.reaction_probs)}</section>
     <section>${head("gold")}<div class="gold">${OUTCOMES.map((o) => `<button class="chip" style="--c:${OUTCOME_COLORS[o]}" data-gold="${o}">${esc(named("outcomes", o))}</button>`).join("")}</div></section>
@@ -474,10 +470,8 @@ async function renderUser(id) {
 
 /* ---------- Model ---------- */
 
-// What an annotator reports: an outcome, a reading, "no_click" or "<position>:<outcome>".
+// What an annotator reports: an outcome or a reading.
 function observation(o) {
-  const [position, outcome] = o.split(":");
-  if (outcome) return ui("click_at", { n: Number(position) + 1, outcome: named("outcomes", outcome) });
   return D.outcomes[o] ?? D.reading[o] ?? ui(o);
 }
 
@@ -521,7 +515,6 @@ async function renderModel() {
     <div class="panel" style="margin-bottom:16px">${head("assistant_confusion", {}, learned("annotator_confusion"))}
       <p><label class="muted">${term("class")} <select id="family" style="margin-left:6px">${families.map((f) => `<option>${esc(f)}</option>`).join("")}</select></label></p><div id="assistant-heat"></div></div>
     <div class="grid panels">
-      <div class="panel wide">${head("button_confusion")}${heatmap(m.confusions.button.all)}</div>
       <div class="panel">${head("reading_confusion")}${heatmap(m.confusions.reading.all)}</div>
       <div class="panel">${head("host_prior", {}, learned("host_family_prior"))}${Object.keys(m.host_prior).length ? heatmap(m.host_prior, "hosts") : `<p class="faint">${esc(ui("host_prior_until"))}</p>`}</div>
     </div>`;
@@ -546,9 +539,12 @@ async function renderMetrics() {
   const figure = (s, key, format) => format(s[key]) + ci(s[`${key}_ci95`], format);
   const summary = (s) => kv([
     [term("turns"), num(s.turns)],
-    [term("words_per_step"), figure(s, "words_per_step_forward", (v) => num(v, 1))],
+    [term("words_per_goal"), figure(s, "words_per_goal_reached", (v) => num(v, 1))],
     [term("repair_rate"), figure(s, "repair_rate", pct)],
+    [term("questions_per_goal"), figure(s, "questions_per_goal", (v) => num(v, 2))],
+    [term("words_per_step"), figure(s, "words_per_step_forward", (v) => num(v, 1))],
     [term("missing_info_rate"), figure(s, "missing_info_rate", pct)],
+    [term("wrong_fact_rate"), figure(s, "wrong_fact_rate", pct)],
     [term("tool_words"), figure(s, "tool_words_per_turn", (v) => num(v, 1))],
   ]);
   const coverage = m.tool_coverage;
@@ -556,17 +552,27 @@ async function renderMetrics() {
     <div class="grid panels">
       ${Object.entries(m.by_group || {}).map(([g, s]) => `<div class="panel">${head("by_group", { group: named("groups", g) }, chip(ui(s.label), "var(--warn)"))}${summary(s)}</div>`).join("")}
       ${Object.entries(m.measured || {}).map(([arm, r]) => `<div class="panel">${head("saving", { arm: named("groups", arm) }, chip(ui("measured"), "var(--aqua)"))}${r ? kv([
-        [term("saving_row"), pct(r.words_per_step_saving)],
+        [term("saving_row"), pct(r.words_per_goal_saving)],
         [term("ci95"), r.ci95 ? `${pct(r.ci95[0])} … ${pct(r.ci95[1])}` : "—"],
       ]) : `<p class="faint">${esc(ui("needs_clusters"))}</p>`}</div>`).join("")}
       <div class="panel">${head("tool_coverage")}${kv([
         [term("turns"), num(coverage.turns)],
-        ...["widget_share", "widget_turns_with_show_reply", "conversation_id_reused"].map((k) => [term(k), pct(coverage[k])]),
+        ...["widget_share", "widget_turns_with_show_reply", "conversation_id_reused", "replies_without_call"].map((k) => [term(k), pct(coverage[k])]),
+      ])}</div>
+      <div class="panel">${head("fields")}${kv(Object.entries(m.fields).map(([k, v]) => [esc(k), pct(v)]))}</div>
+      <div class="panel">${head("widget_events")}${kv([
+        [esc("copy_rate"), pct(m.widget.copy_rate)],
+        [esc("median_visible_seconds"), secs(m.widget.median_visible_seconds)],
+        [esc("choices_answered"), num(m.widget.choices_answered)],
+        [esc("satisfaction"), Object.entries(m.widget.satisfaction).map(([k, n]) => `${esc(k)} ${n}`).join(" · ") || "—"],
+        [esc("privacy_link_opened"), num(m.widget.privacy_link_opened)],
+      ])}</div>
+      <div class="panel">${head("funnel")}${kv([
+        ...m.funnel.visits.map((v) => [`${esc(v.page)} · ${esc(v.source || "—")}`, num(v.visits)]),
+        ...["apps_registered", "consents", "consents_storing_text", "people_with_a_call", "people_active_two_days"].map((k) => [esc(k), num(m.funnel[k])]),
       ])}</div>
     </div>
     <div class="grid panels">
-      <div class="panel scroll">${head("clicks")}${table(["button", "position", "shown", "clicked", "rate"],
-        m.clicks.map((c) => `<tr><td>${esc(buttonName(c.button))}</td><td class="mono">${c.position}</td><td class="mono">${c.shown}</td><td class="mono">${c.clicked}</td><td class="mono">${pct(c.click_rate)}</td></tr>`).join("") || empty("none_yet", 5))}</div>
       <div class="panel scroll">${head("compliance_table")}${table(["class", "hosts", "written_asked"],
         (m.compliance || []).map((c) => `<tr class="mono"><td>${esc(c.family)}</td><td>${esc(c.host)}</td><td>${num(c.median_length_over_requested, 2)}</td></tr>`).join("") || empty("none_yet", 3))}</div>
     </div>
@@ -589,6 +595,18 @@ function fillRows() {
     });
   }
 }
+
+document.addEventListener("submit", async (event) => {
+  if (event.target.id !== "erase") return;
+  event.preventDefault();
+  const status = $("#erase-status");
+  const response = await fetch("/admin/api/privacy/erase", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ code: event.target.code.value.trim() }),
+  });
+  status.textContent = response.ok ? ui("erased", { user: (await response.json()).erased_user }) : ui("unknown_code");
+});
 
 const VIEWS = { live: renderLive, users: renderUsers, model: renderModel, metrics: renderMetrics };
 

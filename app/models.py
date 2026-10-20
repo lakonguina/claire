@@ -1,12 +1,14 @@
-"""The database schema as typed SQLAlchemy models (SPEC 9).
+"""The database schema as typed SQLAlchemy models.
 
-Events are append-only: the application never updates nor deletes them, but
-the owner may correct them by hand. Derived tables are rebuilt nightly by
-replay.
+Events are append-only: the application never updates them, and deletes them
+only for retention and data requests; the owner may correct them by hand.
+Derived tables are rebuilt nightly by replay.
 
-Columns holding a vocabulary that evolves (buttons, platforms)
-are plain text: history keeps retired values, and the enums validate new
-writes. Stable vocabularies (arms, reply modes, sources) are CHECK-constrained.
+Columns holding a vocabulary that evolves (platforms, widget events) are
+plain text: history keeps retired values, and the enums validate new writes.
+Stable vocabularies (arms, reply modes, sources) are CHECK-constrained.
+Every text a person or a reply wrote is encrypted by the application
+(core/crypto.py): EncryptedText columns.
 """
 
 # pylint cannot infer that orm.Mapped is generic under SQLAlchemy 2.
@@ -14,6 +16,7 @@ writes. Stable vocabularies (arms, reply modes, sources) are CHECK-constrained.
 
 import datetime
 import enum
+import json
 from typing import Annotated, Any
 
 import numpy as np
@@ -22,6 +25,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects import postgresql
 
+from app.core import crypto
 from app.core import vocab
 
 EMBEDDING_DIMENSIONS = 384
@@ -89,6 +93,32 @@ class FloatArray(sa.TypeDecorator):
         return np.array_equal(x, y)
 
 
+class EncryptedText(sa.TypeDecorator):
+    """A text stored as its AES-GCM ciphertext, read back as the text."""
+
+    impl = postgresql.BYTEA
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else crypto.encrypt(value)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else crypto.decrypt(value)
+
+
+class EncryptedJson(sa.TypeDecorator):
+    """A JSON document stored as the AES-GCM ciphertext of its text."""
+
+    impl = postgresql.BYTEA
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else crypto.encrypt(json.dumps(value))
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else json.loads(crypto.decrypt(value))
+
+
 class Base(orm.DeclarativeBase):
     """Declarative base, with Postgres-style constraint names."""
 
@@ -128,15 +158,13 @@ def _events(model: str) -> orm.Relationship:
 
 
 class User(Base):
-    """A person, anonymous: known only by their connector (SPEC 4.7).
+    """A person, anonymous: known only by their connector.
 
-    An app reaches the user through an OAuth grant. The profile page is at
-    the secret profile_key.
+    An app reaches the user through an OAuth grant.
     """
 
     __tablename__ = "users"
     id: orm.Mapped[Serial]
-    profile_key: orm.Mapped[str] = orm.mapped_column(unique=True)
     created_at: orm.Mapped[Created]
 
 
@@ -160,6 +188,8 @@ class OAuthGrant(Base):
     )
     created_at: orm.Mapped[Created]
     revoked_at: orm.Mapped[datetime.datetime | None]
+    # The version of the consent wording the person accepted.
+    consent_version: orm.Mapped[str]
 
 
 class OAuthCredential(Base):
@@ -192,11 +222,22 @@ class Conversation(Base):
     id: orm.Mapped[Serial]
     user_id: orm.Mapped[UserId]
     grp: orm.Mapped[vocab.Arm] = orm.mapped_column(_checked(vocab.Arm))
+    arm_propensity: orm.Mapped[float]
     host: orm.Mapped[str]
+    host_version: orm.Mapped[str | None]
+    capabilities: orm.Mapped[EmptyJson]  # As the client declared them.
     ui_supported: orm.Mapped[bool]
-    # No longer asked (SPEC 6.3); kept for the rows that have it.
-    assistant_model: orm.Mapped[str | None]
     protocol_version: orm.Mapped[str | None]
+    # Whether its user messages are collected.
+    sampled: orm.Mapped[bool]
+    # The tool field never asked in it, to measure what the field is worth.
+    ablated_field: orm.Mapped[str | None]
+    ablation_propensity: orm.Mapped[float]
+    # The prompt catalog its instructions come from.
+    catalog: orm.Mapped[vocab.Catalog] = orm.mapped_column(
+        _checked(vocab.Catalog)
+    )
+    catalog_propensity: orm.Mapped[float]
     created_at: orm.Mapped[Created]
 
 
@@ -217,18 +258,23 @@ class Turn(Base):
     )
     model_version: orm.Mapped[str]
     schema_version: orm.Mapped[int]
-    raw_payload: orm.Mapped[Json]
-    request_type: orm.Mapped[str | None]  # Retired: past turns only.
-    topic: orm.Mapped[str]
+    catalog_version: orm.Mapped[str]  # Of the prompts the instruction uses.
+    # Every argument as sent, encrypted: it holds the person's words.
+    raw_payload: orm.Mapped[Json] = orm.mapped_column(EncryptedJson)
+    instruction: orm.Mapped[str]  # Exactly as returned to the assistant.
+    topic: orm.Mapped[str] = orm.mapped_column(EncryptedText)
     needed_words: orm.Mapped[int]
     language: orm.Mapped[str]
     user_message_words: orm.Mapped[int | None]
-    # No longer sent (SPEC 4.1 and 6.3); kept for the rows that have them.
-    pasted_content: orm.Mapped[str | None]
-    user_specified: orm.Mapped[list[str] | None] = orm.mapped_column(
-        postgresql.ARRAY(sa.Text)
+    ambiguity: orm.Mapped[float | None]
+    # Replies the assistant gave since its previous call, without calling.
+    messages_since_last_call: orm.Mapped[int | None]
+    # The turn this call closed: the assistant's previous turn. branched when
+    # it was not the latest one: the person edited or regenerated a message.
+    follows: orm.Mapped[int | None] = orm.mapped_column(
+        sa.BigInteger, index=True
     )
-    assistant_model: orm.Mapped[str | None]
+    branched: orm.Mapped[bool]
     target_words: orm.Mapped[int | None]
     requested_words: orm.Mapped[int | None]
     propensity: orm.Mapped[float | None]
@@ -241,8 +287,7 @@ class Turn(Base):
 
     replies: orm.Mapped[list["Reply"]] = _events("Reply")
     outcomes: orm.Mapped[list["Outcome"]] = _events("Outcome")
-    buttons_shown: orm.Mapped[list["ButtonShown"]] = _events("ButtonShown")
-    clicks: orm.Mapped[list["Click"]] = _events("Click")
+    widget_events: orm.Mapped[list["WidgetEvent"]] = _events("WidgetEvent")
     gold_labels: orm.Mapped[list["GoldLabel"]] = _events("GoldLabel")
     contexts: orm.Mapped[list["TurnContext"]] = _events("TurnContext")
     embeddings: orm.Mapped[list["TopicEmbedding"]] = _events("TopicEmbedding")
@@ -252,10 +297,33 @@ class Turn(Base):
 
 
 class Reply(_TurnEvent):
-    """One show_reply call: the exact word count, never the text."""
+    """One show_reply call: the exact word count, and the text if consented."""
 
     __tablename__ = "replies"
     reply_words_exact: orm.Mapped[int | None]
+    text: orm.Mapped[str | None] = orm.mapped_column(EncryptedText)
+    choices: orm.Mapped[int]  # Options shown with a clarifying question.
+
+
+class Message(_TurnEvent):
+    """A user message the assistant copied, when the instruction asked.
+
+    Longer messages than the setting are kept as their length only.
+    """
+
+    __tablename__ = "messages"
+    words: orm.Mapped[int]
+    text: orm.Mapped[str | None] = orm.mapped_column(EncryptedText)
+
+
+class Goal(_TurnEvent):
+    """A goal the person started on a turn, as the assistant stated it."""
+
+    __tablename__ = "goals"
+    conversation_id: orm.Mapped[int] = orm.mapped_column(
+        sa.BigInteger, sa.ForeignKey("conversations.id"), index=True
+    )
+    text: orm.Mapped[str] = orm.mapped_column(EncryptedText)
 
 
 class Outcome(_TurnEvent):
@@ -264,37 +332,13 @@ class Outcome(_TurnEvent):
     __tablename__ = "outcomes"
     source: orm.Mapped[vocab.Source] = orm.mapped_column(_checked(vocab.Source))
     observed: orm.Mapped[str]
-    user_quote: orm.Mapped[str | None]
+    user_quote: orm.Mapped[str | None] = orm.mapped_column(EncryptedText)
     last_reply_words: orm.Mapped[int | None]
     reading_seconds: orm.Mapped[float | None]
     format_issue: orm.Mapped[str | None]
+    goal_reached: orm.Mapped[bool | None]
     model_version: orm.Mapped[str]
     schema_version: orm.Mapped[int]
-
-
-class ButtonShown(_TurnRow):
-    """A button placed under a reply.
-
-    A follow-up question (button "related") carries its text, and the id of
-    its question when it is a frequent one rather than written by the
-    assistant (SPEC 4.8).
-    """
-
-    __tablename__ = "buttons_shown"
-    button: orm.Mapped[str]
-    position: orm.Mapped[int]
-    shuffled: orm.Mapped[bool]
-    thompson_draw: orm.Mapped[float | None]
-    label: orm.Mapped[str | None]
-    question_id: orm.Mapped[int | None] = orm.mapped_column(sa.BigInteger)
-
-
-class Click(_TurnEvent):
-    """A click on a shown button."""
-
-    __tablename__ = "clicks"
-    button: orm.Mapped[str]
-    position: orm.Mapped[int]
 
 
 class GoldLabel(_TurnEvent):
@@ -330,17 +374,49 @@ class TurnContext(_TurnEvent):
     __tablename__ = "turn_context"
     platform: orm.Mapped[str | None]
     locale: orm.Mapped[str | None]
+    time_zone: orm.Mapped[str | None]
 
 
-class ProfileEdit(Base):
-    """A correction made on the profile page."""
+class WidgetEvent(_TurnEvent):
+    """What the widget saw: time on screen, a copy, an answered question."""
 
-    __tablename__ = "profile_edits"
+    __tablename__ = "widget_events"
+    kind: orm.Mapped[str]
+    value: orm.Mapped[EmptyJson]
+
+
+class Visit(Base):
+    """A page view of the landing or consent page: the acquisition funnel.
+
+    No address or identifier: the page, where the visit came from, and its
+    UTM parameters.
+    """
+
+    __tablename__ = "visits"
+    id: orm.Mapped[Serial]
+    page: orm.Mapped[str]
+    referrer: orm.Mapped[str | None]
+    utm: orm.Mapped[EmptyJson]
+    created_at: orm.Mapped[Created]
+
+
+class DeletionRequest(Base):
+    """A person's data request, received by email, and when it was done."""
+
+    __tablename__ = "deletion_requests"
     id: orm.Mapped[Serial]
     user_id: orm.Mapped[UserId]
-    scope: orm.Mapped[str]
-    dimension: orm.Mapped[str]
-    value: orm.Mapped[str]
+    created_at: orm.Mapped[Created]
+    done_at: orm.Mapped[datetime.datetime | None]
+
+
+class Purge(Base):
+    """One retention purge: texts older than `before` were deleted."""
+
+    __tablename__ = "purges"
+    id: orm.Mapped[Serial]
+    before: orm.Mapped[datetime.datetime]
+    rows: orm.Mapped[int]
     created_at: orm.Mapped[Created]
 
 
@@ -365,6 +441,9 @@ class TurnInference(Base):
     theta_mean: orm.Mapped[float]  # The predicted preference, before it.
     reaction_probs: orm.Mapped[Json]
     reading_probs: orm.Mapped[Json]
+    # Cosine distance from this topic to the next request's: a rephrase
+    # when small.
+    next_topic_distance: orm.Mapped[float | None]
 
 
 class ConversationState(Base):
@@ -419,32 +498,9 @@ class TopicCluster(Base):
     __tablename__ = "topic_clusters"
     id: orm.Mapped[Key]
     centroid: orm.Mapped[Embedding]
-    medoid_topic: orm.Mapped[str]
+    medoid_topic: orm.Mapped[str] = orm.mapped_column(EncryptedText)
     size: orm.Mapped[int]
     updated_at: orm.Mapped[Created]
-
-
-class Question(Base):
-    """Topics that ask the same thing, in one language (SPEC 4.8)."""
-
-    __tablename__ = "questions"
-    id: orm.Mapped[Key]
-    language: orm.Mapped[str] = orm.mapped_column(index=True)
-    text: orm.Mapped[str]  # The medoid topic.
-    users: orm.Mapped[int]  # Distinct users who asked it.
-    centroid: orm.Mapped[Embedding]
-    updated_at: orm.Mapped[Created]
-
-
-class QuestionFollow(Base):
-    """How often a question came right after another, and its clicks."""
-
-    __tablename__ = "question_follows"
-    question_id: orm.Mapped[Key]
-    next_id: orm.Mapped[Key]
-    users: orm.Mapped[int]  # Distinct users who asked next after question.
-    shown: orm.Mapped[int]  # Times offered as a follow-up of question.
-    clicked: orm.Mapped[int]
 
 
 # Learned global parameters (refit nightly).
@@ -511,6 +567,7 @@ DERIVED = (
     UserReading,
     PrefCount,
 )
+
 LEARNED = (
     FamilyParam,
     SensorNoise,

@@ -1,4 +1,4 @@
-"""Topic domains learned from embeddings (SPEC 7.1).
+"""Topic domains learned from embeddings.
 
 Topics are embedded locally with a multilingual sentence model, clustered
 nightly by spherical k-means, and each topic belongs to its nearest centroid.
@@ -25,6 +25,7 @@ DOMAIN_PREFIX = "topic:"
 ANY_DOMAIN = DOMAIN_PREFIX + "any"
 SOFTNESS = 0.05  # Softmax temperature of domain memberships.
 MIN_MEMBERSHIP = 0.01  # Smaller memberships are dropped.
+DISTANCE_DIGITS = 6
 
 
 @functools.cache
@@ -42,8 +43,23 @@ def unit(rows: np.ndarray) -> np.ndarray:
 
 async def embed(topic: str) -> np.ndarray:
     """Returns the unit-norm embedding of a topic."""
-    vectors = await asyncio.to_thread(lambda: list(_model().embed([topic])))
-    return unit(np.asarray(vectors[0], dtype=np.float32))
+    return (await embed_many([topic]))[0]
+
+
+async def embed_many(texts: list[str]) -> np.ndarray:
+    """Returns the unit-norm embeddings of texts, one row each."""
+    if not texts:
+        return np.zeros((0, models.EMBEDDING_DIMENSIONS), dtype=np.float32)
+    vectors = await asyncio.to_thread(lambda: list(_model().embed(texts)))
+    return unit(np.asarray(vectors, dtype=np.float32))
+
+
+def distance(a: np.ndarray, b: np.ndarray) -> float:
+    """Returns the cosine distance of two unit vectors."""
+    # Rounded: the live vector and its stored copy differ in the last bits,
+    # and the live path and the replay must agree.
+    product = np.dot(np.asarray(a, np.float64), np.asarray(b, np.float64))
+    return round(float(1.0 - product), DISTANCE_DIGITS)
 
 
 def domain_scope(cluster_id: int | None) -> str:
@@ -69,7 +85,7 @@ async def memberships(
     """Returns a topic's soft membership in every domain (sums to 1).
 
     A softmax of the cosine similarities: a topic between two domains
-    belongs to both, so nothing learned has a hard frontier (SPEC 6.5).
+    belongs to both, so nothing learned has a hard frontier.
     """
     clusters = (
         await session.execute(

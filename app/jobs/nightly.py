@@ -1,17 +1,20 @@
-"""Nightly job (SPEC 6): refit every noise model, hyperparameter and topic
-cluster, then rebuild the derived state by replaying the events."""
+"""Nightly job: delete text past its retention, refit every noise model,
+hyperparameter and topic cluster, then rebuild the derived state by
+replaying the events."""
 
 import asyncio
 import collections
+import datetime
 import logging
 import math
 
 import numpy as np
 import pandas as pd
+from sklearn import linear_model
 import sqlalchemy as sa
-from sqlalchemy import orm
 from sqlalchemy.ext import asyncio as sa_asyncio
 
+from app.core import config
 from app.core import db
 from app.core import vocab
 from app.model import family
@@ -22,8 +25,8 @@ from app.model import stats
 from app.model import theta
 from app import models
 from app.services import engine
+from app.services import metrics
 from app.services import params as params_lib
-from app.services import questions
 from app.services import topics
 
 Session = sa_asyncio.AsyncSession
@@ -44,9 +47,11 @@ TURN_COLUMNS = [
     "exact",
     "verdict",
     "self_report",
-    "click",
-    "any_shown",
     "gold",
+    "distance",
+    "ambiguity",
+    "reaction_probs",
+    "satisfaction",
 ]
 NUMERIC = [
     "needed_words",
@@ -58,12 +63,45 @@ NUMERIC = [
     "duration",
     "exact",
     "self_report",
+    "distance",
+    "ambiguity",
 ]
 MIN_WEIGHT = 20.0  # Evidence needed before a parameter leaves its prior.
 MIN_ITEMS = 50  # Turns needed before Dawid-Skene runs.
 MIN_USERS = 5  # Users needed before the hyperparameters are refit.
 MIN_VAR = 0.01
 HOST_SMOOTHING = 0.5
+NONCOMPLIANT_RATE = 0.2  # Below it, a class stops being asked.
+REQUESTED_FIELDS = {
+    vocab.Requested.USER_MESSAGE: "user_message_when_asked",
+    vocab.Requested.CHOICES: "choices_when_asked",
+}
+# A chat ends after the gap that this share of the gaps between its calls
+# stays under.
+CHAT_END_QUANTILE = 0.95
+MIN_CHAT_END_DAYS = 1.0
+
+
+async def late_evidence(session: Session) -> dict[int, dict]:
+    """Returns, per turn, the evidence known only after it closed.
+
+    The ground-truth answer is about the turn its survey's call closed.
+    """
+    out = collections.defaultdict(dict)
+    answers = await session.execute(
+        sa.select(
+            models.Turn.follows, models.WidgetEvent.value["value"].as_string()
+        )
+        .join(models.Turn, models.Turn.id == models.WidgetEvent.turn_id)
+        .where(
+            models.WidgetEvent.kind == vocab.WidgetEvent.SATISFACTION,
+            models.Turn.follows.is_not(None),
+        )
+        .order_by(models.WidgetEvent.id)
+    )
+    for turn_id, answer in answers:
+        out[turn_id]["satisfaction"] = answer
+    return out
 
 
 async def finalized_turns(session: Session) -> pd.DataFrame:
@@ -86,11 +124,11 @@ async def finalized_turns(session: Session) -> pd.DataFrame:
             )
         )
     ).all()
+    late = await late_evidence(session)
     out = []
     for turn, inference, state in rows:
         reply = engine.first(turn.replies)
         verdict = engine.first(turn.outcomes, source=vocab.Source.ASSISTANT)
-        click = engine.last(turn.clicks)
         out.append(
             {
                 "user_id": turn.user_id,
@@ -111,11 +149,13 @@ async def finalized_turns(session: Session) -> pd.DataFrame:
                 "exact": reply.reply_words_exact if reply else None,
                 "verdict": verdict.observed if verdict else None,
                 "self_report": verdict.last_reply_words if verdict else None,
-                "click": (click.button, click.position) if click else None,
-                "any_shown": bool(turn.buttons_shown),
                 "gold": turn.gold_labels[-1].outcome
                 if turn.gold_labels
                 else None,
+                "distance": inference.next_topic_distance,
+                "ambiguity": turn.ambiguity,
+                "reaction_probs": inference.reaction_probs,
+                "satisfaction": late.get(turn.id, {}).get("satisfaction"),
             }
         )
     frame = pd.DataFrame(out, columns=TURN_COLUMNS)
@@ -130,9 +170,13 @@ def refit_reactions(turns: pd.DataFrame, p: params_lib.Params) -> None:
             engine.observations(
                 t["verdict"],
                 t["family_probs"],
-                t["click"],
-                t["any_shown"],
                 [t["reading_probs"][c] for c in reading.COMPONENTS],
+                (
+                    None
+                    if pd.isna(t["distance"])
+                    else t["distance"] < p.rephrase_distance
+                ),
+                t["satisfaction"],
             ),
             t["gold"],
         )
@@ -153,7 +197,7 @@ def _log_speed(turns: pd.DataFrame, p: params_lib.Params) -> pd.Series:
 
 
 def refit_sensors(turns: pd.DataFrame, p: params_lib.Params) -> None:
-    """Refits the length sensors' noise and the timing overhead (SPEC 6.2)."""
+    """Refits the length sensors' noise and the timing overhead."""
     truth = np.log(turns.exact)
     exact = turns.exact.notna()
     s2 = truth - _log_speed(turns, p) + turns.speed_mean
@@ -184,7 +228,7 @@ def refit_families(
     conversations: pd.DataFrame,
     p: params_lib.Params,
 ) -> None:
-    """Refits the behaviour classes and the host priors (SPEC 6.3).
+    """Refits the behaviour classes and the host priors.
 
     Each conversation with measured writing speeds is placed by its mean log
     speed and its compliance; the classes found keep their names across
@@ -235,7 +279,7 @@ def refit_families(
 def refit_reading(
     turns: pd.DataFrame, rho: dict[int, float], p: params_lib.Params
 ) -> None:
-    """Refits the population reading mixture (SPEC 6.6)."""
+    """Refits the population reading mixture."""
     seconds = turns.reading_probs.map(lambda r: r["seconds"])
     full_read = turns.length_mean - turns.user_id.map(rho).fillna(0.0)
     if len(turns) >= MIN_WEIGHT:
@@ -245,7 +289,7 @@ def refit_reading(
 
 
 def refit_prior(beliefs: list[theta.Belief], p: params_lib.Params) -> None:
-    """Refits the population prior of the length weights (SPEC 6.5).
+    """Refits the population prior of the length weights.
 
     Empirical Bayes per feature: the mean of the users' posterior means, and
     their spread plus the mean posterior variance (the part of each user the
@@ -280,6 +324,8 @@ async def save_params(session: Session, p: params_lib.Params) -> None:
     hyper |= {f"{params_lib.PRIOR_VAR}{f}": v for f, v in p.prior.var.items()}
     hyper["tau"] = p.prior.tau
     hyper["overhead"] = p.overhead
+    hyper |= {name: getattr(p, name) for name in params_lib.SCALARS}
+    hyper |= {f"{params_lib.NONCOMPLIANT}{k}": 1.0 for k in p.noncompliant}
     session.add_all(
         [
             *(
@@ -316,8 +362,125 @@ async def save_params(session: Session, p: params_lib.Params) -> None:
     await session.flush()
 
 
+def refit_rephrase(turns: pd.DataFrame, p: params_lib.Params) -> None:
+    """Learns under which topic distance the next request asks the same.
+
+    The threshold that best tells the turns the assistant judged
+    misunderstood (F1), among the consecutive requests' distances.
+    """
+    known = turns[turns.distance.notna() & turns.verdict.notna()]
+    missed = (known.verdict == vocab.Outcome.MISUNDERSTOOD).to_numpy()
+    if missed.sum() < MIN_WEIGHT:
+        return
+    distances = known.distance.to_numpy()
+    best, best_f1 = p.rephrase_distance, -1.0
+    for threshold in np.quantile(distances, np.linspace(0.01, 0.5, 50)):
+        said = distances < threshold
+        hits = (said & missed).sum()
+        f1 = 2 * hits / (said.sum() + missed.sum())
+        if f1 > best_f1:
+            best, best_f1 = float(threshold), f1
+    p.rephrase_distance = best
+
+
+def refit_ambiguity(turns: pd.DataFrame, p: params_lib.Params) -> None:
+    """Platt-scales the assistant's ambiguity on what followed.
+
+    The target is whether the reply missed: P(misunderstood) or a rephrased
+    next request, as soft labels.
+    """
+    sent = turns[turns.ambiguity.notna()]
+    if len(sent) < MIN_WEIGHT:
+        return
+    missed = np.array(
+        [
+            max(
+                r[vocab.Outcome.MISUNDERSTOOD],
+                float(not pd.isna(d) and d < p.rephrase_distance),
+            )
+            for r, d in zip(sent.reaction_probs, sent.distance)
+        ]
+    )
+    clipped = np.clip(sent.ambiguity.to_numpy(), 1e-4, 1 - 1e-4)
+    logits = np.log(clipped / (1 - clipped)).reshape(-1, 1)
+    model = linear_model.LogisticRegression()
+    model.fit(
+        np.vstack([logits, logits]),
+        np.r_[np.ones(len(sent)), np.zeros(len(sent))],
+        sample_weight=np.r_[missed, 1 - missed] + 1e-6,
+    )
+    p.ambiguity_a = float(model.coef_[0, 0])
+    p.ambiguity_b = float(model.intercept_[0])
+
+
+async def refit_compliance(session: Session, p: params_lib.Params) -> None:
+    """Finds what each behaviour class does not do when the instruction asks.
+
+    Its instruction then stops asking for it.
+    """
+    every = pd.DataFrame(await metrics.turns(session, p))
+    p.noncompliant = set()
+    if every.empty:
+        return
+    for behaviour, group in every.groupby("family"):
+        for requested, name in REQUESTED_FIELDS.items():
+            sent, due = metrics.FIELDS[name]
+            if group[due].sum() >= MIN_WEIGHT:
+                if group[sent].sum() / group[due].sum() < NONCOMPLIANT_RATE:
+                    p.noncompliant.add(f"{behaviour}:{requested}")
+
+
+async def refit_chat_end(session: Session, p: params_lib.Params) -> None:
+    """Learns after how many days without a call a chat is over.
+
+    The gap between consecutive calls of a chat that almost none exceeds:
+    past it, the chat is almost never reopened.
+    """
+    t = models.Turn
+    gap = t.created_at - sa.func.lag(t.created_at).over(
+        partition_by=t.conversation_id, order_by=t.turn_index
+    )
+    gaps = sa.select(sa.func.extract("epoch", gap).label("seconds")).subquery()
+    seconds = list(
+        await session.scalars(
+            sa.select(gaps.c.seconds).where(gaps.c.seconds.is_not(None))
+        )
+    )
+    if len(seconds) >= MIN_WEIGHT:
+        days = float(np.quantile(seconds, CHAT_END_QUANTILE)) / 86_400
+        p.chat_end_days = max(days, MIN_CHAT_END_DAYS)
+
+
+async def purge(session: Session) -> int:
+    """Deletes the stored texts older than the retention; returns how many.
+
+    Word counts stay: they are not text. Each purge is recorded.
+    """
+    before = await session.scalar(sa.select(sa.func.now())) - (
+        datetime.timedelta(days=config.settings.retention_days)
+    )
+    replies = await session.execute(
+        sa.update(models.Reply)
+        .where(models.Reply.created_at < before, models.Reply.text.is_not(None))
+        .values(text=None)
+    )
+    messages = await session.execute(
+        sa.update(models.Message)
+        .where(
+            models.Message.created_at < before, models.Message.text.is_not(None)
+        )
+        .values(text=None)
+    )
+    rows = replies.rowcount + messages.rowcount
+    session.add(models.Purge(before=before, rows=rows))
+    await session.flush()
+    return rows
+
+
 async def replay(session: Session, p: params_lib.Params) -> int:
     """Rebuilds every derived table from the events, in their live order.
+
+    A turn closes at the first call that follows it.
 
     Args:
         session: The session, inside the nightly transaction.
@@ -328,35 +491,44 @@ async def replay(session: Session, p: params_lib.Params) -> int:
     """
     for model in DERIVED:
         await session.execute(sa.delete(model))
+    late = await late_evidence(session)
     session.expunge_all()
-    nxt = orm.aliased(models.Turn)
+    first = (
+        sa.select(
+            models.Turn.follows,
+            models.Turn.created_at,
+            models.TopicEmbedding.embedding,
+            sa.func.row_number()
+            .over(
+                partition_by=models.Turn.follows,
+                order_by=(models.Turn.created_at, models.Turn.id),
+            )
+            .label("rank"),
+        )
+        .join(
+            models.TopicEmbedding,
+            models.TopicEmbedding.turn_id == models.Turn.id,
+        )
+        .where(models.Turn.follows.is_not(None))
+        .subquery()
+    )
     closes = (
         await session.execute(
-            sa.select(models.Turn.id, nxt.created_at).join(
-                nxt,
-                sa.and_(
-                    nxt.conversation_id == models.Turn.conversation_id,
-                    nxt.turn_index == models.Turn.turn_index + 1,
-                ),
-            )
+            sa.select(first.c.follows, first.c.created_at, first.c.embedding)
+            .where(first.c.rank == 1)
+            .order_by(first.c.created_at, first.c.follows)
         )
     ).all()
-    edits = list(await session.scalars(sa.select(models.ProfileEdit)))
-    events = sorted(
-        [(at, 0, turn_id, None) for turn_id, at in closes]
-        + [(e.created_at, 1, e.id, e) for e in edits],
-        key=lambda e: e[:3],
-    )
-    for at, _, turn_id, edit in events:
-        if edit:
-            await engine.apply_edit(session, edit, p)
-        else:
-            await engine.finalize_turn(session, turn_id, at, p)
+    for turn_id, at, embedding in closes:
+        await engine.finalize_turn(
+            session, turn_id, at, p, embedding, late.get(turn_id)
+        )
     return len(closes)
 
 
 async def run(session: Session) -> int:
-    """Refits everything, then replays; returns the number of turns closed."""
+    """Purges, refits everything, then replays; returns the turns closed."""
+    log.info("nightly: purged %d texts", await purge(session))
     p = await params_lib.load_params(session)
     turns = await finalized_turns(session)
     conversations = pd.DataFrame(
@@ -388,9 +560,12 @@ async def run(session: Session) -> int:
     refit_families(turns, conversations, p)
     refit_reading(turns, rho, p)
     refit_prior(beliefs, p)
+    refit_rephrase(turns, p)
+    refit_ambiguity(turns, p)
+    await refit_compliance(session, p)
+    await refit_chat_end(session, p)
     await save_params(session, p)
     await topics.recluster(session)
-    await questions.rebuild(session)
     params_lib.cache.invalidate()
     return await replay(session, p)
 

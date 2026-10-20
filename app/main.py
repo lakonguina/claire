@@ -11,6 +11,7 @@ from mcp.server import transport_security
 import sqlalchemy as sa
 
 from app.core import config
+from app.core import crypto
 from app.core import db
 from app import mcp_server
 from app.routers import admin
@@ -47,7 +48,7 @@ async def _unauthorized(send, invalid: bool) -> None:
 
 
 class McpAuth:
-    """Serves /mcp to the user behind an OAuth access token (SPEC 4.7).
+    """Serves /mcp to the user behind an OAuth access token.
 
     Every other path goes to the API. The user id travels in a header that
     only this wrapper sets: any copy sent by the client is dropped.
@@ -101,6 +102,7 @@ class AccessLog:
 
 @contextlib.asynccontextmanager
 async def lifespan(_):
+    crypto.check_key()
     await db.migrate()
     async with mcp_server.mcp.session_manager.run():
         yield

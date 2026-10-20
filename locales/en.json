@@ -3,28 +3,18 @@
     "reply_in_words": "Reply in about {words} words.",
     "no_preamble": "No preamble, no recap.",
     "widget_mode": "Write the reply only in show_reply.",
-    "buttons": "In show_reply, pass suggestions: {count} button labels, max 6 words each, in the user's language, worded as the user's next message, for: {intents}.",
-    "intents": {
-      "shorter": "a shorter version",
-      "more_detail": "more depth on one point",
-      "one_line": "a one-sentence summary",
-      "example": "a concrete example",
-      "simpler": "a simpler explanation",
-      "as_list": "a list version",
-      "as_prose": "a version without lists",
-      "not_this": "what the user may have meant instead",
-      "related": "the user's likely next question"
-    },
-    "clarify": "Ask one short question to clarify, nothing else.",
+    "clarify": "Ask one short question to clarify, with 2 to 4 numbered answer options, nothing else.",
     "arms": {
-      "control": "Reply normally.",
+      "holdout": "Reply normally.",
       "concise": "Be concise."
     },
     "fragments": {
       "format": {
         "bullets": "Use a bulleted list.",
         "prose": "Write in prose, no lists.",
-        "table": "Use a table where it fits."
+        "table": "Use a table where it fits.",
+        "prose_bullets": "Write in prose, with one short list where it helps.",
+        "prose_table": "Write in prose, with one table where it fits."
       },
       "level": {
         "simple": "Use simple words, no jargon.",
@@ -41,56 +31,36 @@
         "yes": "Use short headings.",
         "no": "No headings."
       }
-    }
-  },
-  "buttons": {
-    "shorter": {
-      "label": "Shorter",
-      "message": "Make it shorter, please."
     },
-    "more_detail": {
-      "label": "More detail",
-      "message": "Give me more detail."
-    },
-    "one_line": {
-      "label": "In one sentence",
-      "message": "Sum it up in one sentence."
-    },
-    "example": {
-      "label": "An example",
-      "message": "Give me a concrete example."
-    },
-    "simpler": {
-      "label": "Simpler",
-      "message": "Explain it more simply."
-    },
-    "as_list": {
-      "label": "As a list",
-      "message": "Put it as a list."
-    },
-    "as_prose": {
-      "label": "No lists",
-      "message": "Rewrite it in paragraphs, without lists."
-    },
-    "not_this": {
-      "label": "Not what I wanted",
-      "message": "That's not what I wanted. Ask me one short question to understand what I need."
-    },
-    "related": {
-      "label": "Follow-up question",
-      "message": ""
-    }
+    "clarify_widget": "Ask one short question to clarify, nothing else. In show_reply, pass 2 to 4 short answer options as choices.",
+    "expertise": "If one point the user has not raised blocks their goal, add it in one sentence, and name the 2 or 3 reference works of the field that develop it; otherwise add nothing.",
+    "send_message": "On your next plan_reply call, include user_message.",
+    "omit_field": "Never send {field} in plan_reply."
   },
   "widget": {
     "copy": "Copy",
     "copied": "Copied ✓",
-    "copy_reply": "Copy reply"
+    "copy_reply": "Copy reply",
+    "free": "Or type your answer…",
+    "send": "Send",
+    "survey": "Did you get what you needed?",
+    "satisfaction": {
+      "yes": "Yes",
+      "partly": "Partly",
+      "no": "No"
+    },
+    "thanks": "Thanks!",
+    "privacy": "My data",
+    "privacy_subject": "Claire data request",
+    "privacy_body": "Please delete my data. My code: {code}"
   },
   "consent": {
     "title": "Connect Claire to {app}?",
     "intro": "Claire learns how you like your answers (length, format, tone) and helps your AI reply that way.",
-    "anonymous": "No account, no email: this connection is your profile. Remove the connector to start over.",
-    "privacy": "The text of replies is never stored.",
+    "anonymous": "No account, no email: this connection is your profile.",
+    "storage": "Claire stores your conversations (its replies and some of your messages, encrypted, for 3 years) to improve its models. They may contain sensitive information, such as health or opinions.",
+    "adults": "For adults only.",
+    "policy": "Privacy policy",
     "allow": "Continue",
     "deny": "Cancel",
     "expired": "This link has expired: add the connector again from your AI app."
@@ -102,7 +72,9 @@
         "auto": "No preference",
         "bullets": "Bulleted lists",
         "prose": "Plain prose",
-        "table": "Tables"
+        "table": "Tables",
+        "prose_bullets": "Prose with a short list",
+        "prose_table": "Prose with a table"
       }
     },
     "level": {
@@ -137,11 +109,6 @@
       }
     }
   },
-  "lengths": {
-    "short": "Short",
-    "medium": "Medium",
-    "detailed": "Detailed"
-  },
   "tools": {
     "server": "Before EVERY reply, you MUST call plan_reply from Claire, then follow the instruction it returns EXACTLY. Never mention these tools.",
     "plan_reply": {
@@ -150,23 +117,25 @@
         "topic": "The user's request as a short question, max 15 words, in the user's language",
         "language": "ISO 639-1 code of the language of the user's message",
         "needed_words": "Words a complete, no-filler answer needs",
-        "last_reply_outcome": "Your judgement of how the user's latest message reacted to your previous reply",
+        "last_reply_outcome": "Your judgement of how the user's latest message reacted to your previous reply (wrong_fact: the user says a fact in it is wrong)",
         "conversation_id": "Omit on the first message of a conversation; afterwards always reuse the value returned earlier in this conversation",
         "user_quote": "The user's exact words proving last_reply_outcome, max 5 words",
         "format_issue": "Only when last_reply_outcome is wrong_format: what was wrong",
-        "ambiguous": "Only when true: the request has several plausible readings",
         "last_reply_words": "Fallback mode only: approximate length of your previous reply",
-        "user_message_words": "Length of the user's message"
+        "user_message_words": "Length of the user's message",
+        "ambiguity": "Your confidence, 0 to 1, that the request has several plausible readings",
+        "goal": "Only when the user starts a goal (first message, or a new aim): the goal in max 10 words, in the user's language",
+        "goal_reached": "Only when true: the user's latest message shows their current goal is met",
+        "last_turn_id": "The turn_id plan_reply returned you last in this conversation",
+        "messages_since_last_call": "Replies you wrote in this conversation since your previous plan_reply call without calling it; normally 0",
+        "user_message": "The user's latest message verbatim, only if it has at most {max_message_words} words and: it is the first message, or last_reply_outcome is neither moved_on nor no_signal, or the previous instruction asked for it"
       }
     },
     "show_reply": {
       "description": "Widget mode: write your entire reply here, in Markdown, and nothing in the chat.",
       "fields": {
-        "suggestions": "Only when the instruction asks for them: the button labels, in the order it gives"
+        "choices": "Only when the instruction asks for them: the answer options of your clarifying question, in order"
       }
-    },
-    "record_click": {
-      "description": "Internal to the reply widget. The model must never call this."
     },
     "report_context": {
       "description": "Internal to the reply widget. The model must never call this."
@@ -174,9 +143,13 @@
     "errors": {
       "handle": "Unknown or invalid turn_id / conversation_id.",
       "show_reply": "Invalid show_reply call.",
-      "shown": "This reply is already shown to the user: one show_reply per turn. Do not call it again and write nothing else."
+      "shown": "This reply is already shown to the user: one show_reply per turn. Do not call it again and write nothing else.",
+      "plan_reply": "Invalid plan_reply call: check the types and values of the fields."
     },
-    "shown": "The user now sees your reply. Do not call show_reply again and write nothing else."
+    "shown": "The user now sees your reply. Do not call show_reply again and write nothing else.",
+    "record_event": {
+      "description": "Internal to the reply widget. The model must never call this."
+    }
   },
   "dashboard": {
     "title": "Claire Admin",
@@ -207,7 +180,6 @@
       "in_arms": "{p} in comparison groups",
       "turns_n": "{n} replies",
       "of_widget": "when the widget was available",
-      "clicks_of": "{a} of {b} replies",
       "gold_n": "{n} labelled by hand",
       "run_nightly": "Relearn now",
       "running": "learning…",
@@ -228,7 +200,6 @@
       "needs_clusters": "Needs at least 2 people or conversations in each group (CONTROL_SHARE / CONCISE_SHARE).",
       "domains_until": "Learned once there are 20 different topics; until then, a single domain.",
       "host_prior_until": "Even split until learned (needs 20 conversations per app).",
-      "ignored_clicked": "(ignored: a button was clicked)",
       "words": "{n} words",
       "wps": "{n} words/s",
       "of_complete": "{p} of a complete answer",
@@ -236,17 +207,18 @@
       "general": "In general",
       "domain": "Topic domain {n}",
       "mobile": "on mobile",
-      "button_pref": "Button “{name}”",
       "clarify_pref": "Clarifying question first",
       "reading_shares": "How the reply was read",
       "reaction_shares": "Probability of each reaction (all signals combined)",
       "class_shares": "Which behaviour class this assistant belongs to",
       "scale": "10 % ← shorter · longer → 200 %",
       "classes_until": "None yet: every assistant counts as one class until there are 10 conversations per class.",
-      "no_click": "no click",
-      "click_at": "button {n}: {outcome}",
       "help": "What does this mean?",
-    "questions_until": "None yet: a question is shown once 5 different people asked it."
+      "expertise_pref": "Raise a blocking point",
+      "goal_reached": "goal reached",
+      "erase": "Erase",
+      "erased": "erased · person {user}",
+      "unknown_code": "unknown code"
     },
     "outcomes": {
       "moved_on": "moved on (fine)",
@@ -255,7 +227,8 @@
       "missing_info": "missing information",
       "misunderstood": "misunderstood",
       "wrong_format": "wrong format",
-      "no_signal": "no signal"
+      "no_signal": "no signal",
+      "wrong_fact": "wrong fact"
     },
     "format_issues": {
       "too_technical": "too technical",
@@ -276,7 +249,7 @@
     },
     "groups": {
       "treatment": "adapted replies",
-      "control": "normal replies",
+      "holdout": "normal replies (holdout)",
       "concise": "“be concise”"
     },
     "clarify": {
@@ -286,134 +259,494 @@
     "timeline": {
       "plan_reply": "request",
       "writing": "writing",
-      "click": "click",
       "reading": "reading"
     },
     "terms": {
-      "turns": {"name": "Replies", "help": "Every AI reply that went through Claire."},
-      "conversations": {"name": "Conversations", "help": "Chats with an AI. A conversation contains several replies."},
-      "users": {"name": "People", "help": "People who have a connector link."},
-      "widget_mode": {"name": "Shown in the widget", "help": "Share of replies shown in our reply box, with its buttons, instead of plain chat text. Depends on the app."},
-      "show_reply_coverage": {"name": "Widget really used", "help": "When the widget was available, how often the AI actually wrote its reply inside it. Below 100 % = the AI sometimes ignores the instruction."},
-      "click_rate": {"name": "Button clicks", "help": "How often people click one of the suggestion buttons under a reply (“Make it shorter”…)."},
-      "finalized": {"name": "Analysed replies", "help": "Replies whose reaction is known: the person wrote their next message, so we can tell how the reply was received."},
-      "last_nightly": {"name": "Last relearning", "help": "Every night the model relearns from all the data. You can also start it by hand from the “What the model learned” tab."},
-      "hosts": {"name": "Apps", "help": "AI apps that connect (claude.ai, ChatGPT…), the protocol version they speak, and whether they can show our widget."},
-      "protocol": {"name": "protocol"},
-      "apps": {"name": "widget possible"},
-      "last": {"name": "last"},
-      "topic_domains": {"name": "Topic domains", "help": "Groups of similar topics, found automatically, so that preferences can differ by subject (e.g. code vs. cooking). The quote is the most typical topic of each group."},
-      "tool_calls": {"name": "Tool calls · 24 h", "help": "How many times the AI called each of our tools in the last 24 hours."},
-      "settings": {"name": "Settings", "help": "Server configuration, from the .env file."},
-      "policy": {"name": "decision method", "help": "bayes: learns the right length for each person. ratio: always a fixed share of a complete answer."},
-      "control_unit": {"name": "comparison unit", "help": "Whether a whole person or a single conversation is put in a comparison group."},
-      "arm_shares": {"name": "comparison groups", "help": "Share of conversations that get normal or “be concise” replies, to measure what Claire saves. Off by default."},
-      "q": {"name": "safety margin", "help": "0.8 = aim long enough to satisfy the person 80 % of the time. Higher = longer, safer replies."},
-      "cache_ttl_ms": {"name": "tool list cache (ms)", "help": "How long apps may keep our tool list without asking again."},
-      "shadow_policies": {"name": "methods tested in the shadow", "help": "Other decision methods computed on every reply but never applied, to compare them."},
-      "turns_table": {"name": "Replies", "help": "Click a row for every detail. The coloured bar on the left is the reaction we inferred."},
-      "time": {"name": "time"},
-      "turn": {"name": "reply"},
-      "user_conv": {"name": "person · conversation"},
-      "mode": {"name": "display", "help": "widget: shown in our reply box. plain text: the app cannot show the widget."},
-      "topic": {"name": "topic"},
-      "words": {"name": "words", "help": "complete → target → asked → written. Complete: what a full answer needs, according to the AI. Target: the length we chose for this person. Asked: what we told the AI to write (corrected for its habits). Written: what it really wrote."},
-      "verdict": {"name": "AI's verdict", "help": "How the AI judged the person's reaction to its previous reply, from their next message."},
-      "inferred": {"name": "inferred reaction", "help": "What we conclude after combining every signal (AI verdict, buttons, reading time), with its probability."},
-      "buttons": {"name": "buttons", "help": "Suggestion buttons shown under the reply. Filled = clicked."},
-      "write": {"name": "writing time", "help": "Time the AI took to write the reply."},
-      "timeline": {"name": "Timeline", "help": "From the request to the person's next message."},
-      "decision": {"name": "Decision", "help": "How the length and style of this reply were chosen."},
-      "theta_sample": {"name": "length aimed for this time", "symbol": "θ̃", "help": "Share of a complete answer we bet this person wants here. It is drawn at random around what we believe, so the system keeps trying slightly different lengths and keeps learning."},
-      "post_mean": {"name": "what we believe", "symbol": "E[θ]", "help": "Our best guess of the share of a complete answer this person wants for this kind of request. The ×factor after it is the uncertainty: ×1.10 = quite sure, ×2 = still guessing."},
-      "b_sample": {"name": "correction for this assistant", "symbol": "b̃", "help": "Some assistants over- or underestimate what a complete answer needs. ×1.20 = we lengthen by 20 % to compensate. ×1 = no correction."},
-      "propensity": {"name": "probability of this choice", "symbol": "propensity", "help": "Probability that this exact decision would be drawn. It lets us evaluate other methods fairly on past data."},
-      "form": {"name": "style chosen", "help": "Format, level, tone… chosen for this reply. “auto” = left free to the AI."},
-      "clarify": {"name": "clarifying question", "help": "Whether the AI was told to ask one short question first, or to answer directly."},
-      "cell": {"name": "topic domain · device", "help": "Style preferences are learned per topic domain. The length depends on how much the request belongs to each domain, and on whether it comes from a phone."},
-      "language": {"name": "language"},
-      "shadow": {"name": "shadow method {name}", "help": "What another method would have chosen. Never applied, only compared."},
-      "reaction": {"name": "Reaction", "help": "How the person reacted to this reply, according to each signal."},
-      "assistant_verdict": {"name": "AI's verdict"},
-      "buttons_shown": {"name": "buttons shown"},
-      "gold_label": {"name": "hand label"},
-      "gold": {"name": "Label by hand", "help": "If you know the real reaction, click it. It helps measure how reliable each signal is."},
-      "length_reading": {"name": "Length & reading"},
-      "fused_length": {"name": "estimated length", "help": "Length of the reply, combining the AI's own count, our exact count (widget) and the writing time. The ± is the uncertainty."},
-      "reading_time": {"name": "reading time", "help": "Time between the reply and the next message."},
-      "conversation": {"name": "Conversation"},
-      "host_protocol": {"name": "app · protocol"},
-      "group_apps": {"name": "group · widget possible", "help": "Comparison group of this conversation, and whether the app can show the widget."},
-      "platform_locale": {"name": "device · language"},
-      "compliance": {"name": "follows the asked length", "symbol": "κ", "help": "Written length ÷ asked length in this conversation. 100 % = obeys exactly; 150 % = writes half as much again."},
-      "writing_speed": {"name": "writing speed", "help": "Words per second the AI writes. Used to recognise which kind of assistant it is, without asking it."},
-      "raw": {"name": "Raw data"},
-      "users_table": {"name": "People", "help": "Click someone to see what was learned about them."},
-      "user": {"name": "person"},
-      "created": {"name": "created"},
-      "last_seen": {"name": "last seen"},
-      "alpha": {"name": "preferred length", "symbol": "θ", "help": "Share of a complete answer this person generally wants. 100 % = the full answer; 50 % = half as long."},
-      "reading_speed": {"name": "reading speed", "help": "Words per second this person reads."},
-      "user_lengths": {"name": "Preferred length", "help": "In general, on a phone, and for the topic domains learned for this person. Dot = best guess, band = uncertainty. Left: shorter than a complete answer, right: longer."},
-      "share": {"name": "share of a complete answer"},
-      "user_reading": {"name": "Reading", "help": "How fast this person reads, and how they usually read."},
-      "reaction_prior": {"name": "Usual reactions", "help": "How this person usually reacts to replies, before any signal about the current one."},
-      "preferences": {"name": "Style, buttons & questions", "help": "What was learned about format, level, tone…, which buttons help this person, and whether they like a clarifying question first."},
-      "scope": {"name": "where"},
-      "dimension": {"name": "what"},
-      "means": {"name": "probabilities"},
-      "evidence": {"name": "evidence", "help": "Roughly how many observations back it up. Below 1 = still mostly a guess."},
-      "nightly": {"name": "Relearning", "help": "Relearns every setting below from all the data, then replays every reply with them. Runs by itself every night."},
-      "hyper": {"name": "How preferred lengths vary", "help": "Settings of the length model, learned on everyone. The ×factors read like this: ×1.5 = typically between 1.5 times shorter and 1.5 times longer."},
-      "mu0": {"name": "typical preferred length", "symbol": "μ₀", "help": "Share of a complete answer the average person wants. The starting point for a new person."},
-      "sigma_alpha": {"name": "difference between people", "symbol": "σ_α", "help": "How much people differ from the average. ×1.6 = a typical person wants between 1.6 times shorter and 1.6 times longer than average."},
-      "sigma_eta": {"name": "effect of a new topic domain", "symbol": "σ_d", "help": "How much a topic domain not learned yet can change the preferred length, as a ×factor."},
-      "mobile_effect": {"name": "on a phone", "symbol": "w_mobile", "help": "Preferred length on a phone compared with elsewhere, for everyone. ×0.80 = 20 % shorter. The second ×factor is how much people differ on it."},
-      "tau": {"name": "variation from one reply to the next", "symbol": "τ", "help": "How fuzzy “long enough” is: the same person can find a length fine one time and too short the next. ×1.4 = varies about 40 % either way."},
-      "overhead": {"name": "AI start-up delay", "help": "Seconds before the AI starts writing. Subtracted from the writing time to estimate length."},
-      "gamma": {"name": "topics like “{type}”", "symbol": "w_d", "help": "Preferred length for this topic domain compared with the average, for everyone. ×0.80 = 20 % shorter. The second ×factor is how much people differ on it."},
-      "noise": {"name": "Precision of the length measures", "help": "Typical error of each way of measuring how long a reply is. ±10 % = precise, ±50 % = rough."},
-      "self_report": {"name": "AI's own word count", "symbol": "σ", "help": "Error of the length the AI says it wrote (used when there is no widget to count exactly)."},
-      "writing_time": {"name": "guess from writing time", "symbol": "σ", "help": "Error when guessing the length from how long the AI took to write."},
-      "requested": {"name": "deviation from asked length", "symbol": "σ", "help": "How far the AI typically strays from the length it was asked for."},
-      "reading_mixture": {"name": "How people read", "help": "Used to tell, from the time before the next message, whether the person read the reply, skimmed it, or left."},
-      "s_r": {"name": "variation of a full read", "symbol": "s_r", "help": "How much the time of a full read varies around the expected time (length ÷ reading speed)."},
-      "mu_away": {"name": "typical absence", "symbol": "μ_away", "help": "Usual time before the next message when the person left and came back later."},
-      "s_away": {"name": "variation of absences", "symbol": "s_away", "help": "How much those absences vary."},
-      "classes": {"name": "Assistant behaviour classes", "help": "Groups of assistants that behave alike, found from measurements only (writing speed, obedience), never from what the AI says it is."},
-      "class": {"name": "class"},
-      "speed": {"name": "writing speed"},
-      "b": {"name": "estimate correction", "symbol": "b", "help": "×1.20 = this kind of assistant underestimates what a complete answer needs by about 20 %; we correct for it."},
-      "w": {"name": "certainty of the correction", "symbol": "w", "help": "Uncertainty of the correction, as a ×factor. ×1.05 = sure, ×1.5 = unsure."},
-      "kappa": {"name": "follows the asked length", "symbol": "κ", "help": "Written length ÷ asked length. 100 % = obeys exactly."},
-      "assistant_confusion": {"name": "Reliability of the AI's verdict", "help": "Row = the real reaction, column = what the AI reported. Dark diagonal = reliable. Learned per behaviour class (menu)."},
-      "button_confusion": {"name": "Reliability of the buttons", "help": "Row = the real reaction, column = what the clicked button suggests."},
-      "reading_confusion": {"name": "Reliability of the reading time", "help": "Row = the real reaction, column = what the reading time suggests."},
-      "host_prior": {"name": "App → behaviour class", "help": "For each app, the chance its assistant belongs to each class, before measuring anything."},
-      "by_group": {"name": "{group}", "help": "Results for this group. In brackets: the 95 % confidence interval (the true value is very likely inside)."},
-      "words_per_step": {"name": "words read per step forward", "help": "Words read (replies + our tools) for each reply that let the person move on. Lower = less reading for the same progress. The key figure."},
-      "repair_rate": {"name": "replies needing a fix", "help": "Share of replies followed by “too long”, “too short”, “misunderstood” or “wrong format”."},
-      "missing_info_rate": {"name": "replies missing information", "help": "Share of replies after which the person had to ask for what was missing."},
-      "tool_words": {"name": "tool cost per reply (words)", "help": "Words spent on our own tools for each reply."},
-      "saving": {"name": "Saving vs {arm}", "help": "Words read per step forward saved compared with this group, measured by random assignment. Positive = Claire does better."},
-      "saving_row": {"name": "words saved per step"},
-      "ci95": {"name": "95 % confidence interval"},
-      "tool_coverage": {"name": "Tool usage", "help": "Whether the AI uses our tools as expected."},
-      "widget_share": {"name": "shown in the widget"},
-      "widget_turns_with_show_reply": {"name": "widget really used"},
-      "conversation_id_reused": {"name": "conversations with several replies", "help": "If low, the AI may be forgetting to reuse the conversation id between messages."},
-      "clicks": {"name": "Button clicks", "help": "For each button and position: how often it was shown and clicked."},
-      "button": {"name": "button"},
-      "position": {"name": "position"},
-      "shown": {"name": "shown"},
-      "clicked": {"name": "clicked"},
-      "rate": {"name": "rate"},
-      "compliance_table": {"name": "Does the AI follow the asked length?", "help": "Median of written length ÷ asked length, per behaviour class and app. 1.00 = exactly."},
-      "written_asked": {"name": "written ÷ asked"},
-    "questions": {"name": "Frequent questions", "help": "Questions people ask, grouped by meaning, with how many different people asked each and how many follow-ups were seen after it. Shown under replies only from 5 people on, in their typical wording."},
-    "question": {"name": "question"},
-    "asked_by": {"name": "people"},
-    "follows": {"name": "follow-ups"}
+      "turns": {
+        "name": "Replies",
+        "help": "Every AI reply that went through Claire."
+      },
+      "conversations": {
+        "name": "Conversations",
+        "help": "Chats with an AI. A conversation contains several replies."
+      },
+      "users": {
+        "name": "People",
+        "help": "People who have a connector link."
+      },
+      "widget_mode": {
+        "name": "Shown in the widget",
+        "help": "Share of replies shown in our reply box, with its buttons, instead of plain chat text. Depends on the app."
+      },
+      "show_reply_coverage": {
+        "name": "Widget really used",
+        "help": "When the widget was available, how often the AI actually wrote its reply inside it. Below 100 % = the AI sometimes ignores the instruction."
+      },
+      "finalized": {
+        "name": "Analysed replies",
+        "help": "Replies whose reaction is known: the person wrote their next message, so we can tell how the reply was received."
+      },
+      "last_nightly": {
+        "name": "Last relearning",
+        "help": "Every night the model relearns from all the data. You can also start it by hand from the “What the model learned” tab."
+      },
+      "hosts": {
+        "name": "Apps",
+        "help": "AI apps that connect (claude.ai, ChatGPT…), the protocol version they speak, and whether they can show our widget."
+      },
+      "protocol": {
+        "name": "protocol"
+      },
+      "apps": {
+        "name": "widget possible"
+      },
+      "last": {
+        "name": "last"
+      },
+      "topic_domains": {
+        "name": "Topic domains",
+        "help": "Groups of similar topics, found automatically, so that preferences can differ by subject (e.g. code vs. cooking). The quote is the most typical topic of each group."
+      },
+      "tool_calls": {
+        "name": "Tool calls · 24 h",
+        "help": "How many times the AI called each of our tools in the last 24 hours."
+      },
+      "settings": {
+        "name": "Settings",
+        "help": "Server configuration, from the .env file."
+      },
+      "policy": {
+        "name": "decision method",
+        "help": "bayes: learns the right length for each person. ratio: always a fixed share of a complete answer."
+      },
+      "control_unit": {
+        "name": "comparison unit",
+        "help": "Whether a whole person or a single conversation is put in a comparison group."
+      },
+      "arm_shares": {
+        "name": "comparison groups",
+        "help": "Share of conversations that get normal or “be concise” replies, to measure what Claire saves. Off by default."
+      },
+      "q": {
+        "name": "safety margin",
+        "help": "0.8 = aim long enough to satisfy the person 80 % of the time. Higher = longer, safer replies."
+      },
+      "cache_ttl_ms": {
+        "name": "tool list cache (ms)",
+        "help": "How long apps may keep our tool list without asking again."
+      },
+      "shadow_policies": {
+        "name": "methods tested in the shadow",
+        "help": "Other decision methods computed on every reply but never applied, to compare them."
+      },
+      "turns_table": {
+        "name": "Replies",
+        "help": "Click a row for every detail. The coloured bar on the left is the reaction we inferred."
+      },
+      "time": {
+        "name": "time"
+      },
+      "turn": {
+        "name": "reply"
+      },
+      "user_conv": {
+        "name": "person · conversation"
+      },
+      "mode": {
+        "name": "display",
+        "help": "widget: shown in our reply box. plain text: the app cannot show the widget."
+      },
+      "topic": {
+        "name": "topic"
+      },
+      "words": {
+        "name": "words",
+        "help": "complete → target → asked → written. Complete: what a full answer needs, according to the AI. Target: the length we chose for this person. Asked: what we told the AI to write (corrected for its habits). Written: what it really wrote."
+      },
+      "verdict": {
+        "name": "AI's verdict",
+        "help": "How the AI judged the person's reaction to its previous reply, from their next message."
+      },
+      "inferred": {
+        "name": "inferred reaction",
+        "help": "What we conclude after combining every signal (AI verdict, buttons, reading time), with its probability."
+      },
+      "write": {
+        "name": "writing time",
+        "help": "Time the AI took to write the reply."
+      },
+      "timeline": {
+        "name": "Timeline",
+        "help": "From the request to the person's next message."
+      },
+      "decision": {
+        "name": "Decision",
+        "help": "How the length and style of this reply were chosen."
+      },
+      "theta_sample": {
+        "name": "length aimed for this time",
+        "symbol": "θ̃",
+        "help": "Share of a complete answer we bet this person wants here. It is drawn at random around what we believe, so the system keeps trying slightly different lengths and keeps learning."
+      },
+      "post_mean": {
+        "name": "what we believe",
+        "symbol": "E[θ]",
+        "help": "Our best guess of the share of a complete answer this person wants for this kind of request. The ×factor after it is the uncertainty: ×1.10 = quite sure, ×2 = still guessing."
+      },
+      "b_sample": {
+        "name": "correction for this assistant",
+        "symbol": "b̃",
+        "help": "Some assistants over- or underestimate what a complete answer needs. ×1.20 = we lengthen by 20 % to compensate. ×1 = no correction."
+      },
+      "propensity": {
+        "name": "probability of this choice",
+        "symbol": "propensity",
+        "help": "Probability that this exact decision would be drawn. It lets us evaluate other methods fairly on past data."
+      },
+      "form": {
+        "name": "style chosen",
+        "help": "Format, level, tone… chosen for this reply. “auto” = left free to the AI."
+      },
+      "clarify": {
+        "name": "clarifying question",
+        "help": "Whether the AI was told to ask one short question first, or to answer directly."
+      },
+      "cell": {
+        "name": "topic domain · device",
+        "help": "Style preferences are learned per topic domain. The length depends on how much the request belongs to each domain, and on whether it comes from a phone."
+      },
+      "language": {
+        "name": "language"
+      },
+      "shadow": {
+        "name": "shadow method {name}",
+        "help": "What another method would have chosen. Never applied, only compared."
+      },
+      "reaction": {
+        "name": "Reaction",
+        "help": "How the person reacted to this reply, according to each signal."
+      },
+      "assistant_verdict": {
+        "name": "AI's verdict"
+      },
+      "gold_label": {
+        "name": "hand label"
+      },
+      "gold": {
+        "name": "Label by hand",
+        "help": "If you know the real reaction, click it. It helps measure how reliable each signal is."
+      },
+      "length_reading": {
+        "name": "Length & reading"
+      },
+      "fused_length": {
+        "name": "estimated length",
+        "help": "Length of the reply, combining the AI's own count, our exact count (widget) and the writing time. The ± is the uncertainty."
+      },
+      "reading_time": {
+        "name": "reading time",
+        "help": "Time between the reply and the next message."
+      },
+      "conversation": {
+        "name": "Conversation"
+      },
+      "host_protocol": {
+        "name": "app · protocol"
+      },
+      "group_apps": {
+        "name": "group · widget possible",
+        "help": "Comparison group of this conversation, and whether the app can show the widget."
+      },
+      "platform_locale": {
+        "name": "device · language"
+      },
+      "compliance": {
+        "name": "follows the asked length",
+        "symbol": "κ",
+        "help": "Written length ÷ asked length in this conversation. 100 % = obeys exactly; 150 % = writes half as much again."
+      },
+      "writing_speed": {
+        "name": "writing speed",
+        "help": "Words per second the AI writes. Used to recognise which kind of assistant it is, without asking it."
+      },
+      "raw": {
+        "name": "Raw data"
+      },
+      "users_table": {
+        "name": "People",
+        "help": "Click someone to see what was learned about them."
+      },
+      "user": {
+        "name": "person"
+      },
+      "created": {
+        "name": "created"
+      },
+      "last_seen": {
+        "name": "last seen"
+      },
+      "alpha": {
+        "name": "preferred length",
+        "symbol": "θ",
+        "help": "Share of a complete answer this person generally wants. 100 % = the full answer; 50 % = half as long."
+      },
+      "reading_speed": {
+        "name": "reading speed",
+        "help": "Words per second this person reads."
+      },
+      "user_lengths": {
+        "name": "Preferred length",
+        "help": "In general, on a phone, and for the topic domains learned for this person. Dot = best guess, band = uncertainty. Left: shorter than a complete answer, right: longer."
+      },
+      "share": {
+        "name": "share of a complete answer"
+      },
+      "user_reading": {
+        "name": "Reading",
+        "help": "How fast this person reads, and how they usually read."
+      },
+      "reaction_prior": {
+        "name": "Usual reactions",
+        "help": "How this person usually reacts to replies, before any signal about the current one."
+      },
+      "preferences": {
+        "name": "Style, buttons & questions",
+        "help": "What was learned about format, level, tone…, which buttons help this person, and whether they like a clarifying question first."
+      },
+      "scope": {
+        "name": "where"
+      },
+      "dimension": {
+        "name": "what"
+      },
+      "means": {
+        "name": "probabilities"
+      },
+      "evidence": {
+        "name": "evidence",
+        "help": "Roughly how many observations back it up. Below 1 = still mostly a guess."
+      },
+      "nightly": {
+        "name": "Relearning",
+        "help": "Relearns every setting below from all the data, then replays every reply with them. Runs by itself every night."
+      },
+      "hyper": {
+        "name": "How preferred lengths vary",
+        "help": "Settings of the length model, learned on everyone. The ×factors read like this: ×1.5 = typically between 1.5 times shorter and 1.5 times longer."
+      },
+      "mu0": {
+        "name": "typical preferred length",
+        "symbol": "μ₀",
+        "help": "Share of a complete answer the average person wants. The starting point for a new person."
+      },
+      "sigma_alpha": {
+        "name": "difference between people",
+        "symbol": "σ_α",
+        "help": "How much people differ from the average. ×1.6 = a typical person wants between 1.6 times shorter and 1.6 times longer than average."
+      },
+      "sigma_eta": {
+        "name": "effect of a new topic domain",
+        "symbol": "σ_d",
+        "help": "How much a topic domain not learned yet can change the preferred length, as a ×factor."
+      },
+      "mobile_effect": {
+        "name": "on a phone",
+        "symbol": "w_mobile",
+        "help": "Preferred length on a phone compared with elsewhere, for everyone. ×0.80 = 20 % shorter. The second ×factor is how much people differ on it."
+      },
+      "tau": {
+        "name": "variation from one reply to the next",
+        "symbol": "τ",
+        "help": "How fuzzy “long enough” is: the same person can find a length fine one time and too short the next. ×1.4 = varies about 40 % either way."
+      },
+      "overhead": {
+        "name": "AI start-up delay",
+        "help": "Seconds before the AI starts writing. Subtracted from the writing time to estimate length."
+      },
+      "gamma": {
+        "name": "topics like “{type}”",
+        "symbol": "w_d",
+        "help": "Preferred length for this topic domain compared with the average, for everyone. ×0.80 = 20 % shorter. The second ×factor is how much people differ on it."
+      },
+      "noise": {
+        "name": "Precision of the length measures",
+        "help": "Typical error of each way of measuring how long a reply is. ±10 % = precise, ±50 % = rough."
+      },
+      "self_report": {
+        "name": "AI's own word count",
+        "symbol": "σ",
+        "help": "Error of the length the AI says it wrote (used when there is no widget to count exactly)."
+      },
+      "writing_time": {
+        "name": "guess from writing time",
+        "symbol": "σ",
+        "help": "Error when guessing the length from how long the AI took to write."
+      },
+      "requested": {
+        "name": "deviation from asked length",
+        "symbol": "σ",
+        "help": "How far the AI typically strays from the length it was asked for."
+      },
+      "reading_mixture": {
+        "name": "How people read",
+        "help": "Used to tell, from the time before the next message, whether the person read the reply, skimmed it, or left."
+      },
+      "s_r": {
+        "name": "variation of a full read",
+        "symbol": "s_r",
+        "help": "How much the time of a full read varies around the expected time (length ÷ reading speed)."
+      },
+      "mu_away": {
+        "name": "typical absence",
+        "symbol": "μ_away",
+        "help": "Usual time before the next message when the person left and came back later."
+      },
+      "s_away": {
+        "name": "variation of absences",
+        "symbol": "s_away",
+        "help": "How much those absences vary."
+      },
+      "classes": {
+        "name": "Assistant behaviour classes",
+        "help": "Groups of assistants that behave alike, found from measurements only (writing speed, obedience), never from what the AI says it is."
+      },
+      "class": {
+        "name": "class"
+      },
+      "speed": {
+        "name": "writing speed"
+      },
+      "b": {
+        "name": "estimate correction",
+        "symbol": "b",
+        "help": "×1.20 = this kind of assistant underestimates what a complete answer needs by about 20 %; we correct for it."
+      },
+      "w": {
+        "name": "certainty of the correction",
+        "symbol": "w",
+        "help": "Uncertainty of the correction, as a ×factor. ×1.05 = sure, ×1.5 = unsure."
+      },
+      "kappa": {
+        "name": "follows the asked length",
+        "symbol": "κ",
+        "help": "Written length ÷ asked length. 100 % = obeys exactly."
+      },
+      "assistant_confusion": {
+        "name": "Reliability of the AI's verdict",
+        "help": "Row = the real reaction, column = what the AI reported. Dark diagonal = reliable. Learned per behaviour class (menu)."
+      },
+      "reading_confusion": {
+        "name": "Reliability of the reading time",
+        "help": "Row = the real reaction, column = what the reading time suggests."
+      },
+      "host_prior": {
+        "name": "App → behaviour class",
+        "help": "For each app, the chance its assistant belongs to each class, before measuring anything."
+      },
+      "by_group": {
+        "name": "{group}",
+        "help": "Results for this group. In brackets: the 95 % confidence interval (the true value is very likely inside)."
+      },
+      "words_per_step": {
+        "name": "words read per step forward",
+        "help": "Words read (replies + our tools) for each reply that let the person move on. Lower = less reading for the same progress. The key figure."
+      },
+      "repair_rate": {
+        "name": "replies needing a fix",
+        "help": "Share of replies followed by “too long”, “too short”, “misunderstood” or “wrong format”."
+      },
+      "missing_info_rate": {
+        "name": "replies missing information",
+        "help": "Share of replies after which the person had to ask for what was missing."
+      },
+      "tool_words": {
+        "name": "tool cost per reply (words)",
+        "help": "Words spent on our own tools for each reply."
+      },
+      "saving": {
+        "name": "Saving vs {arm}",
+        "help": "Words read per step forward saved compared with this group, measured by random assignment. Positive = Claire does better."
+      },
+      "saving_row": {
+        "name": "words saved per step"
+      },
+      "ci95": {
+        "name": "95 % confidence interval"
+      },
+      "tool_coverage": {
+        "name": "Tool usage",
+        "help": "Whether the AI uses our tools as expected."
+      },
+      "widget_share": {
+        "name": "shown in the widget"
+      },
+      "widget_turns_with_show_reply": {
+        "name": "widget really used"
+      },
+      "conversation_id_reused": {
+        "name": "conversations with several replies",
+        "help": "If low, the AI may be forgetting to reuse the conversation id between messages."
+      },
+      "compliance_table": {
+        "name": "Does the AI follow the asked length?",
+        "help": "Median of written length ÷ asked length, per behaviour class and app. 1.00 = exactly."
+      },
+      "written_asked": {
+        "name": "written ÷ asked"
+      },
+      "widget_events": {
+        "name": "Widget",
+        "help": "What the widget saw: reply copied, time on screen, answers to questions."
+      },
+      "erase": {
+        "name": "Data request",
+        "help": "Paste the code from a person's email (“My data” link) to erase everything about them."
+      },
+      "expertise": {
+        "name": "blocking point",
+        "help": "Whether the AI was told to raise the one point the person had not seen that blocks their goal."
+      },
+      "instruction": {
+        "name": "instruction",
+        "help": "Exactly what plan_reply returned to the AI."
+      },
+      "words_per_goal": {
+        "name": "words per goal reached",
+        "help": "Words read (replies + our tools) for each goal the person reached. Lower = less reading for the same result. The key figure."
+      },
+      "questions_per_goal": {
+        "name": "questions per goal",
+        "help": "Clarifying questions asked for each goal reached. Keeps asking from becoming free."
+      },
+      "wrong_fact_rate": {
+        "name": "replies with a wrong fact",
+        "help": "Share of replies the person said held a wrong fact."
+      },
+      "replies_without_call": {
+        "name": "replies without plan_reply",
+        "help": "Replies the AI wrote without calling plan_reply first, as it reports them."
+      },
+      "fields": {
+        "name": "Fields sent",
+        "help": "How often the AI sends each field when it should."
+      },
+      "funnel": {
+        "name": "Funnel",
+        "help": "From page views to people active on two days."
+      }
+    },
+    "widget_events": {
+      "visible": "on screen",
+      "copy": "copied",
+      "choice": "answered",
+      "satisfaction": "satisfaction",
+      "privacy_link": "data link",
+      "render_error": "render error",
+      "cancelled": "cancelled"
+    },
+    "expertise": {
+      "raise": "raise a point",
+      "skip": "no point"
     }
   },
   "landing": {
@@ -440,7 +773,7 @@
       "old_label": "Today",
       "old": "You type “shorter” in every conversation. It pollutes its context, and tomorrow it has forgotten it all.",
       "new_label": "With Claire",
-      "new": "You react with one click. Claire remembers, and reminds your AI before every reply, in all your conversations."
+      "new": "You just react, as usual. Claire remembers, and reminds your AI before every reply, in all your conversations."
     },
     "demo": {
       "title": "Same question.",
@@ -453,11 +786,6 @@
       "window": "Your AI",
       "input": "Ask anything…",
       "copy_reply": "Copy reply",
-      "buttons": [
-        "Show me a concrete example",
-        "Explain it without lists",
-        "Explain it more simply"
-      ],
       "replies": {
         "before": "An index in SQL is a separate data structure that the database maintains alongside a table so it can find rows quickly without scanning the entire table. It works like the index at the back of a book: instead of reading every page to find a topic, you look it up in a sorted list that points you to the right page.\n\n### How it works\n\nWithout an index, a query like `WHERE email = 'a@b.com'` forces a full table scan: the database reads every row. With an index on `email`, the database searches a sorted structure (usually a B-tree) in logarithmic time, then jumps directly to the matching row(s).\n\n### Creating an index\n\n```sql\nCREATE INDEX idx_users_email ON users (email);\n```\n\nUnique index (also enforces no duplicates):\n\n```sql\nCREATE UNIQUE INDEX idx_users_email ON users (email);\n```\n\nComposite index (multiple columns):\n\n```sql\nCREATE INDEX idx_orders_user_date ON orders (user_id, created_at);\n```\n\nDropping an index:\n\n```sql\nDROP INDEX idx_users_email;\n```\n\n### Common types\n\n- **B-tree:** the default in most databases; good for equality, ranges, and sorting.\n- **Hash:** fast for exact equality lookups only.\n- **Full-text:** for searching words within text.\n- **GIN / GiST** (PostgreSQL): for arrays, JSON, geospatial data, etc.\n- **Clustered vs. non-clustered** (SQL Server, MySQL/InnoDB): a clustered index determines the physical order of rows (one per table); non-clustered indexes are separate structures pointing back to the rows.\n\n### When indexes help\n\n- Columns used in `WHERE`, `JOIN`, `ORDER BY`, or `GROUP BY`\n- Foreign key columns\n- Columns with high selectivity (many distinct values)\n\n### Trade-offs\n\n- **Slower writes:** every `INSERT`, `UPDATE`, and `DELETE` must also update the indexes.\n- **Extra storage:** each index takes disk space.\n- **Not always used:** on tiny tables or low-selectivity columns (e.g., a boolean), the planner may ignore the index.\n- **Column order matters in composite indexes:** an index on `(user_id, created_at)` helps queries filtering on `user_id` or on both, but generally not on `created_at` alone.\n\n### Checking usage\n\nUse `EXPLAIN` (or `EXPLAIN ANALYZE`) to see whether a query uses an index:\n\n```sql\nEXPLAIN SELECT * FROM users WHERE email = 'a@b.com';\n```\n\n**Rule of thumb:** index the columns you frequently search, join, or sort on, but don’t index everything.",
         "after": "An index is a separate data structure that lets the database find rows quickly without scanning the whole table — like the index at the back of a book.\n\n- **How it works:** usually a B-tree that keeps column values sorted, with pointers to the matching rows.\n- **Benefit:** speeds up `WHERE`, `JOIN`, `ORDER BY` and lookups on the indexed columns.\n- **Cost:** uses extra storage and slows down `INSERT`, `UPDATE` and `DELETE`, since the index must be updated too.\n- **Creating one:** `CREATE INDEX idx_users_email ON users(email);`\n- **Types:** primary key and unique indexes, composite (multi-column), clustered vs. non-clustered."
@@ -469,8 +797,8 @@
         "The right length, for you",
         "Your format: lists or prose",
         "Your level: simple or technical",
-        "One-click buttons under every reply",
-        "A page to see and correct what it knows about you"
+        "One short question with ready answers when your request is unclear",
+        "Your data encrypted, deleted on request"
       ],
       "guarantee": "Don't like it? Remove the connector: your AI goes back to how it was."
     },
@@ -516,5 +844,39 @@
       "text": "The answer is the right length, in your format, the first time. Never type “SHORTER.” again.",
       "ps": "P.S. It takes 2 minutes. Worst case, you remove the connector."
     }
+  },
+  "privacy": {
+    "title": "Claire privacy policy",
+    "updated": "Updated {date}",
+    "sections": [
+      {
+        "title": "Who we are",
+        "body": "Claire is a connector between you and your AI assistant. Contact: {email}."
+      },
+      {
+        "title": "What we store",
+        "body": "No name, no email, no address. An internal number for your connection; the short facts your assistant sends before each reply (topic, language, how you reacted, your goal in a few words); measurements (lengths, timings, which device); the assistant's replies and some of your messages (at most 150 words each). Every text is encrypted."
+      },
+      {
+        "title": "Why",
+        "body": "To fit each reply to you, and to improve and test Claire's models. Your consent, given when connecting, is the legal basis; conversations may contain sensitive data."
+      },
+      {
+        "title": "How long",
+        "body": "Stored conversations are deleted after 3 years. Statistics that identify no one are kept."
+      },
+      {
+        "title": "Security",
+        "body": "Every text is encrypted in the database. Access tokens are stored only as hashes. Texts never appear in logs."
+      },
+      {
+        "title": "Your rights",
+        "body": "To access or delete your data, click “My data” under any reply: it opens an email to {email} with your code, which tells us which data is yours. We answer within a month. Ask before removing the connector: without it, we cannot tell which data is yours."
+      },
+      {
+        "title": "Adults only",
+        "body": "Claire is for adults."
+      }
+    ]
   }
 }

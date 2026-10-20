@@ -1,4 +1,4 @@
-"""Model behaviour and recovery on synthetic data (SPEC 12)."""
+"""Model behaviour and recovery on synthetic data."""
 
 import json
 import math
@@ -7,10 +7,10 @@ import random
 import numpy as np
 import pytest
 
+from app.core import crypto
 from app.core import i18n
 from app.core import text
 from app.core import vocab
-from app.model import bandits
 from app.model import family
 from app.model import length
 from app.model import matching
@@ -285,34 +285,35 @@ def test_wrong_tone_spreads_over_the_other_tones():
     assert signal[(vocab.Dimension.TONE, vocab.PrefValue.DIRECT)] > 0
 
 
-def test_buttons_are_distinct_and_positioned():
-    shown = bandits.choose({}, random.Random(2))
-    assert len({s.button for s in shown}) == bandits.SHOWN
-    assert [s.position for s in shown] == list(range(bandits.SHOWN))
-    assert all(s.button in vocab.Button for s in shown)
+def test_assistant_choices_are_checked():
+    choice = replies._choice  # pylint: disable=protected-access
+    assert choice("  Le   budget marketing ") == "Le budget marketing"
+    assert choice("word " * (replies.MAX_CHOICE_WORDS + 1)) is None
+    assert choice("x" * (replies.MAX_CHOICE_CHARS + 1)) is None
+    assert choice("") is None and choice(3) is None
 
 
-def test_assistant_labels_are_checked():
-    label = replies._label  # pylint: disable=protected-access
-    assert label("  Un   exemple de budget ") == "Un exemple de budget"
-    assert label("word " * (replies.MAX_LABEL_WORDS + 1)) is None
-    assert label("x" * (replies.MAX_LABEL_CHARS + 1)) is None
-    assert label("") is None and label(3) is None
+def test_propensity_is_the_chance_of_the_same_draw():
+    rng = random.Random(3)
+    assert prefs.with_propensity(lambda: "always") == ("always", 1.0)
+    coin, p = prefs.with_propensity(lambda: rng.choice("ab"))
+    assert coin in "ab" and 0.4 < p < 0.6
+
+
+def test_privacy_codes_cannot_be_forged():
+    code = crypto.privacy_code(42)
+    assert crypto.user_of_code(code) == 42
+    assert crypto.user_of_code(f"43{code[2:]}") is None
+    assert (
+        crypto.user_of_code("42-") is None and crypto.user_of_code("x") is None
+    )
+    assert crypto.decrypt(crypto.encrypt("é texte")) == "é texte"
+    assert crypto.encrypt("same") != crypto.encrypt("same")
 
 
 def test_stable_ids_refuse_distant_matches():
     similarity = np.array([[0.9, 0.1], [0.2, 0.3]])
     assert matching.stable_ids(similarity, [7, 8], minimum=0.5) == [7, 9]
-
-
-def test_profile_edits_reach_their_scope():
-    prior, belief = theta.Prior(), theta.Belief.empty()
-    mobile = theta.edit_features(theta.MOBILE, topics.DOMAIN_PREFIX)
-    assert theta.edit_features("code@mobile", topics.DOMAIN_PREFIX) == mobile
-    theta.edit(belief, mobile, vocab.LengthChoice.SHORT, prior)
-    assert math.exp(belief.predict(mobile, prior)[0]) < 0.45
-    general = theta.edit_features("*", topics.DOMAIN_PREFIX)
-    assert belief.predict(general, prior)[0] > belief.predict(mobile, prior)[0]
 
 
 def test_word_count_parses_markdown():
@@ -331,8 +332,7 @@ def test_catalogs_cover_every_identifier():
     english = i18n.catalog(i18n.FALLBACK)
     for language in ("en", "fr"):
         texts = i18n.catalog(language)
-        assert set(texts["buttons"]) == set(vocab.Button)
-        assert set(texts["lengths"]) == set(vocab.LengthChoice)
+        assert set(texts["widget"]["satisfaction"]) == set(vocab.Satisfaction)
         for dimension, values in vocab.DIMENSION_VALUES.items():
             assert set(texts["dimensions"][dimension]["values"]) == set(values)
         dashboard = texts["dashboard"]
@@ -342,6 +342,8 @@ def test_catalogs_cover_every_identifier():
             ("groups", vocab.Arm),
             ("modes", vocab.ReplyMode),
             ("clarify", vocab.Clarify),
+            ("expertise", vocab.Expertise),
+            ("widget_events", vocab.WidgetEvent),
             ("reading", reading.COMPONENTS),
         ):
             assert set(dashboard[section]) == set(identifiers)
@@ -352,7 +354,6 @@ def test_catalogs_cover_every_identifier():
     fragments = english["prompts"]["fragments"]
     for dimension, values in vocab.DIMENSION_VALUES.items():
         assert set(fragments[dimension]) == set(values) - {vocab.PrefValue.AUTO}
-    assert set(english["prompts"]["intents"]) == set(vocab.Button)
     assert set(english["prompts"]["arms"]) == set(vocab.Arm) - {
         vocab.Arm.TREATMENT
     }

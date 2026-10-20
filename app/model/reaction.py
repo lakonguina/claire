@@ -1,27 +1,27 @@
-"""User reaction (SPEC section 6.4): noisy annotators and Dawid-Skene."""
+"""User reaction: noisy annotators and Dawid-Skene."""
 
 import dataclasses
 
 from app.core import vocab
-from app.model import bandits
 from app.model import stats
 
 OUTCOMES = [o for o in vocab.Outcome if o != vocab.Outcome.NO_SIGNAL]
 POOLED = "all"  # The stratum shared by every observation of an annotator.
 NO_INFO = "_none"  # An observation with P = 1 under every true outcome.
-POSITIONS = bandits.SHOWN
-# The button annotator observes one joint token per turn:
-# "<position>:<outcome>" for a click, or "no_click".
-BUTTON_OBS = ["no_click"] + [
-    f"{p}:{o}"
-    for p in range(POSITIONS)
-    for o in sorted({e.outcome for e in bandits.EFFECTS.values()})
-]
+REPHRASED, KEPT = "rephrased", "kept"
 ALPHABETS = {
     vocab.Source.ASSISTANT: OUTCOMES,
-    vocab.Source.BUTTON: BUTTON_OBS,
     vocab.Source.READING: ["read", "skim"],
+    vocab.Source.REPHRASE: [REPHRASED, KEPT],
+    vocab.Source.SATISFACTION: list(vocab.Satisfaction),
 }
+# Initial P(rephrased | true outcome): asking again means the reply missed.
+REPHRASE_PRIOR = {
+    vocab.Outcome.MISUNDERSTOOD: 0.5,
+    vocab.Outcome.MISSING_INFO: 0.2,
+    vocab.Outcome.WRONG_FACT: 0.15,
+}
+REPHRASE_OTHERWISE = 0.05
 
 # Stratum -> true outcome -> observed value -> probability.
 Confusion = dict[str, dict[str, dict[str, float]]]
@@ -63,21 +63,6 @@ def _rows(diagonal: dict[str, float]) -> dict[str, dict[str, float]]:
     }
 
 
-def _button_row(outcome: str) -> dict[str, float]:
-    no_click = 0.9 if outcome == vocab.Outcome.MOVED_ON else 0.6
-    clicks = BUTTON_OBS[1:]
-    matching = [o for o in clicks if o.endswith(":" + outcome)]
-    row = {"no_click": no_click}
-    for o in clicks:
-        if not matching:
-            row[o] = (1 - no_click) / len(clicks)
-        elif o in matching:
-            row[o] = (1 - no_click) * 0.95 / len(matching)
-        else:
-            row[o] = (1 - no_click) * 0.05 / (len(clicks) - len(matching))
-    return row
-
-
 def default_confusions() -> dict[str, Confusion]:
     """Returns the initial confusion matrices of every annotator.
 
@@ -88,9 +73,23 @@ def default_confusions() -> dict[str, Confusion]:
         y: 0.7 if y == vocab.Outcome.MOVED_ON else 0.8 for y in OUTCOMES
     }
     skim = {y: 0.5 if y == vocab.Outcome.TOO_LONG else 0.25 for y in OUTCOMES}
+    rephrase = {y: REPHRASE_PRIOR.get(y, REPHRASE_OTHERWISE) for y in OUTCOMES}
+    satisfied = {
+        y: (
+            {"yes": 0.85, "partly": 0.1, "no": 0.05}
+            if y == vocab.Outcome.MOVED_ON
+            else {"yes": 0.15, "partly": 0.45, "no": 0.4}
+        )
+        for y in OUTCOMES
+    }
     return {
+        vocab.Source.REPHRASE: {
+            POOLED: {
+                y: {REPHRASED: p, KEPT: 1 - p} for y, p in rephrase.items()
+            }
+        },
+        vocab.Source.SATISFACTION: {POOLED: satisfied},
         vocab.Source.ASSISTANT: {POOLED: _rows(assistant)},
-        vocab.Source.BUTTON: {POOLED: {y: _button_row(y) for y in OUTCOMES}},
         vocab.Source.READING: {
             POOLED: {y: {"skim": p, "read": 1 - p} for y, p in skim.items()}
         },

@@ -1,4 +1,4 @@
-"""OAuth connectors without accounts, end to end (SPEC 4.7)."""
+"""OAuth connectors without accounts, end to end."""
 
 from urllib import parse
 

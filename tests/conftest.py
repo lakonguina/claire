@@ -15,6 +15,12 @@ os.environ.setdefault(
     "DATABASE_URL", "postgresql://claire:claire@localhost:55432/claire"
 )
 os.environ.setdefault("ADMIN_TOKEN", "admin-secret")
+# Random draws the tests decide themselves, through the settings.
+for name in ("HOLDOUT_SHARE", "ABLATION_SHARE", "MESSAGE_SAMPLE"):
+    os.environ.setdefault(name, "0")
+os.environ.setdefault(
+    "DATA_KEY", base64.b64encode(b"test-key-of-thirty-two-bytes!!!!").decode()
+)
 
 # pylint: disable=wrong-import-position
 import httpx
@@ -192,7 +198,10 @@ async def authorize(http: httpx.AsyncClient) -> tuple[str, str, str]:
     allowed = await http.post(
         oauth.CONSENT_PATH,
         content=parse.urlencode(
-            {"request": query(consent)["request"], "action": oauth.ALLOW}
+            {
+                "request": query(consent)["request"],
+                "action": oauth.ALLOW,
+            }
         ),
         headers=FORM,
     )
@@ -273,7 +282,9 @@ def make_client(http):
     """Returns a factory of MCP clients, each a new connector and user."""
 
     async def make(
-        apps: bool = True, version: str = MODERN, host: str = "claude-ai"
+        apps: bool = True,
+        version: str = MODERN,
+        host: str = "claude-ai",
     ) -> McpClient:
         _, tokens = await redeem(http, *await authorize(http))
         return McpClient(http, tokens["access_token"], apps, version, host)

@@ -1,4 +1,4 @@
-"""Assistant behaviour (SPEC 6.3): latent behaviour classes.
+"""Assistant behaviour: latent behaviour classes.
 
 What an assistant says about itself is never trusted, nor even asked. A
 "family" is a class of assistants that behave alike, learned nightly from what

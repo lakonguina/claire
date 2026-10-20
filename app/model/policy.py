@@ -1,4 +1,4 @@
-"""Length policies (SPEC 5.4 and 6.7): decide(context) -> decision."""
+"""Length policies: decide(context) -> decision."""
 
 import dataclasses
 import math

@@ -1,11 +1,12 @@
-"""Form preferences and two-value bandits (SPEC sections 4.1, 7 and 8).
+"""Form preferences and two-value bandits.
 
 Every preference is a categorical dimension with a hierarchical Dirichlet
-posterior: population -> user -> user x scope. A yes/no choice (a button
-clicked or not, a clarification arm that worked or not) is the two-value case
-of the same model.
+posterior: population -> user -> user x scope. A yes/no choice (whether
+asking first, or raising a blocking point, worked) is the two-value case of
+the same model.
 """
 
+from collections.abc import Callable
 import random
 
 from app.core import vocab
@@ -13,9 +14,21 @@ from app.core import vocab
 POPULATION = 0
 USER_SCOPE = "*"
 STRENGTH = 4.0  # Pseudo-counts each level borrows from the level above.
-EXPLICIT = 3.0  # Count added by a button or a format issue.
+EXPLICIT = 3.0  # Count added by a format issue.
 IMPLICIT = 0.3  # Scale of the counts added by the turn's reaction.
-EDIT = 10.0  # Count added by a correction on the profile page.
+PROPENSITY_SAMPLES = 200
+DEVICE_SEPARATOR = "@"
+
+
+def scope_of(domain: str, mobile: bool) -> str:
+    """Returns the preference scope of a request: its domain and device.
+
+    A table reads badly on a phone: form is learned per domain on each
+    device, shrunk toward the person's overall preference.
+    """
+    return f"{domain}{DEVICE_SEPARATOR}mobile" if mobile else domain
+
+
 BINARY = (vocab.PrefValue.YES, vocab.PrefValue.NO)
 AUTO_PRIOR, OTHER_PRIOR = 4.0, 0.25
 
@@ -83,6 +96,27 @@ def thompson(counts: Counts, dimension: str, rng: random.Random) -> str:
     return max(sample, key=sample.get)
 
 
+def best_arm(
+    counts: Counts, kind: str, arms: list[str], rng: random.Random
+) -> str:
+    """Returns the arm of a two-value bandit with the highest draw of yes."""
+    draws = {
+        a: draw(posterior(counts, arm(kind, a)), rng)[vocab.PrefValue.YES]
+        for a in arms
+    }
+    return max(draws, key=draws.get)
+
+
+def with_propensity(choose: Callable[[], str]) -> tuple[str, float]:
+    """Returns a random choice and the probability of drawing it again.
+
+    The propensity lets a future policy be evaluated on the logged turns.
+    """
+    choice = choose()
+    same = sum(choose() == choice for _ in range(PROPENSITY_SAMPLES))
+    return choice, same / PROPENSITY_SAMPLES
+
+
 def signals(
     used: dict[str, str],
     explicit: list[tuple[str, str | None]],
@@ -93,7 +127,7 @@ def signals(
 
     Args:
         used: The value drawn for each form dimension on the turn.
-        explicit: (dimension, value) pairs from a button or a format issue;
+        explicit: (dimension, value) pairs from a format issue;
             a None value spreads over every value but the one used.
         p_moved_on: The turn's posterior probability of moved_on.
         p_wrong_format: The turn's posterior probability of wrong_format.

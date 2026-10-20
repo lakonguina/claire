@@ -1,8 +1,9 @@
-"""Derived-state updates (SPEC 6 and 7).
+"""Derived-state updates: length, assistant behaviour, reaction, form.
 
-The live service and the nightly replay both go through finalize_turn and
-apply_edit, which read only events recorded up to the moment they happened,
-so a replay reproduces the live state.
+The live service and the nightly replay both go through finalize_turn, which
+reads only events recorded up to the moment the turn closed, so a replay
+reproduces the live state; the replay adds the evidence that comes later
+(the ground-truth answer), the nightly refit's part.
 """
 
 import collections
@@ -18,7 +19,6 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext import asyncio as sa_asyncio
 
 from app.core import vocab
-from app.model import bandits
 from app.model import length
 from app.model import prefs
 from app.model import reaction
@@ -32,7 +32,6 @@ from app.services import topics
 Session = sa_asyncio.AsyncSession
 KAPPA_PRIOR_VAR = 0.3**2
 LENGTH_PRIOR_VAR = 1.0
-NO_CLICK = "no_click"
 
 
 async def conversation_state(
@@ -77,7 +76,7 @@ def belief_of(row: models.LengthPosterior | None) -> theta.Belief:
 
 
 async def length_belief(session: Session, user_id: int) -> theta.Belief:
-    """Returns the user's belief about their preferred length (SPEC 6.5)."""
+    """Returns the user's belief about their preferred length."""
     return belief_of(await session.get(models.LengthPosterior, user_id))
 
 
@@ -187,36 +186,38 @@ async def add_prefs(
 def observations(
     verdict: str | None,
     family_probs: dict,
-    click: tuple[str, int] | None,
-    any_shown: bool,
     reading_probs: list[float] | None,
+    rephrased: bool | None = None,
+    satisfaction: str | None = None,
 ) -> list[reaction.Observation]:
     """Returns the annotator observations of one turn.
-
-    A click makes the assistant verdict dependent (SPEC 6.4), so the verdict
-    is dropped when there is one. A click on a retired button tells nothing.
 
     Args:
         verdict: The assistant verdict, if any.
         family_probs: The conversation's model-family probabilities.
-        click: The clicked button and its position, if any.
-        any_shown: Whether buttons were shown.
         reading_probs: P(read), P(skim), P(away), if known.
+        rephrased: Whether the next request asked the same thing, if known.
+        satisfaction: The person's answer to the ground-truth question. It
+            arrives after the turn closed: the nightly replay adds it, the
+            live path never has it.
 
     Returns:
         The observations.
     """
     obs = []
-    if verdict and verdict != vocab.Outcome.NO_SIGNAL and click is None:
+    if rephrased is not None:
+        token = reaction.REPHRASED if rephrased else reaction.KEPT
+        obs.append(reaction.Observation(vocab.Source.REPHRASE, {token: 1.0}))
+    if satisfaction:
+        obs.append(
+            reaction.Observation(vocab.Source.SATISFACTION, {satisfaction: 1.0})
+        )
+    if verdict and verdict != vocab.Outcome.NO_SIGNAL:
         obs.append(
             reaction.Observation(
                 vocab.Source.ASSISTANT, {verdict: 1.0}, dict(family_probs)
             )
         )
-    effect = bandits.EFFECTS.get(click[0]) if click else None
-    if any_shown and (click is None or effect):
-        token = f"{click[1]}:{effect.outcome}" if click else NO_CLICK
-        obs.append(reaction.Observation(vocab.Source.BUTTON, {token: 1.0}))
     if reading_probs is not None:
         read, skim, away = reading_probs
         obs.append(
@@ -231,8 +232,7 @@ def observations(
 TURN_EVENTS = (
     models.Turn.replies,
     models.Turn.outcomes,
-    models.Turn.clicks,
-    models.Turn.buttons_shown,
+    models.Turn.widget_events,
     models.Turn.gold_labels,
     models.Turn.contexts,
     models.Turn.embeddings,
@@ -272,12 +272,9 @@ class _TurnEvents:
     turn: models.Turn
     reply: models.Reply | None
     verdict: models.Outcome | None
-    click: models.Click | None
     domain: str
     features: dict[str, float]
-    # The button clicked on the previous turn, which this turn answers, and
-    # that turn's domain: this turn's reaction tells whether it helped.
-    answered: tuple[str, str] | None
+    embedding: object  # The topic's, or None.
 
 
 async def _turn_events(
@@ -292,49 +289,27 @@ async def _turn_events(
         turn=turn,
         reply=first(turn.replies, at),
         verdict=first(turn.outcomes, at, source=vocab.Source.ASSISTANT),
-        click=last(turn.clicks, at),  # A second click corrects the first.
         domain=(
             await topics.domain_of(session, embedding)
             if embedding is not None
             else topics.ANY_DOMAIN
         ),
         features=await request_features(session, turn, embedding),
-        answered=await _answered_click(session, turn),
+        embedding=embedding,
     )
-
-
-async def _answered_click(
-    session: Session, turn: models.Turn
-) -> tuple[str, str] | None:
-    previous = await session.scalar(
-        with_events(
-            sa.select(models.Turn).where(
-                models.Turn.conversation_id == turn.conversation_id,
-                models.Turn.turn_index == turn.turn_index - 1,
-            )
-        )
-    )
-    click = last(previous.clicks, turn.created_at) if previous else None
-    if click is None:
-        return None
-    scope = (
-        await topics.domain_of(session, previous.embeddings[0].embedding)
-        if previous.embeddings
-        else topics.ANY_DOMAIN
-    )
-    return click.button, scope
 
 
 def style_of(turn: models.Turn) -> dict:
-    """Returns the decisions logged on a turn (SPEC 5.5)."""
+    """Returns the decisions logged on a turn, with their propensities."""
     style = turn.style if isinstance(turn.style, dict) else {}
-    legacy_cell = style.get("scope", "")  # "<type>@mobile" before SPEC 6.5.
     return {
         "form": {},
         "clarify": None,
-        "mobile": legacy_cell.endswith("@" + theta.MOBILE),
+        "expertise": None,
+        "survey": False,
+        "mobile": False,
         "domain": topics.ANY_DOMAIN,
-        "buttons": [],
+        "propensities": {},
         **style,
     }
 
@@ -344,6 +319,8 @@ async def finalize_turn(
     turn_id: int,
     at: datetime.datetime,
     p: params_lib.Params,
+    next_embedding=None,
+    late: dict | None = None,
 ) -> None:
     """Closes a turn when the next plan_reply of its conversation arrives.
 
@@ -352,13 +329,16 @@ async def finalize_turn(
         turn_id: The turn to close.
         at: When the next plan_reply arrived.
         p: The global parameters.
+        next_embedding: The topic embedding of that next request.
+        late: Evidence known only after the turn closed, which the nightly
+            replay adds: "satisfaction".
     """
     ev = await _turn_events(session, turn_id, at)
     turn, reply, verdict = ev.turn, ev.reply, ev.verdict
     style = style_of(turn)
     conv = await conversation_state(session, turn.conversation_id, p)
 
-    # Length (6.2) and assistant behaviour (6.3).
+    # Length and assistant behaviour.
     duration = (
         (reply.created_at - turn.created_at).total_seconds() if reply else None
     )
@@ -384,7 +364,7 @@ async def finalize_turn(
     conv.kappa_mean, conv.kappa_var = post.mean[1], post.cov[1][1]
     conv.speed_mean, conv.speed_var = post.mean[2], post.cov[2][2]
 
-    # Reading behaviour (6.6).
+    # Reading behaviour.
     ur = await user_reading(session, turn.user_id)
     reply_end = (
         reply.created_at
@@ -407,16 +387,20 @@ async def finalize_turn(
     )
     ur.mixture = [m + r for m, r in zip(ur.mixture, resp)]
 
-    # Reaction (6.4), then the censored length update (6.5).
-    click = (ev.click.button, ev.click.position) if ev.click else None
+    # Reaction, then the censored length update.
+    distance = (
+        topics.distance(ev.embedding, next_embedding)
+        if ev.embedding is not None and next_embedding is not None
+        else None
+    )
     outcome_probs = reaction.posterior(
         stats.normalize(ur.reaction_prior),
         observations(
             verdict.observed if verdict else None,
             conv.family_probs,
-            click,
-            bool(ev.turn.buttons_shown),
             resp,
+            None if distance is None else distance < p.rephrase_distance,
+            **(late or {}),
         ),
         p.confusions,
     )
@@ -436,7 +420,7 @@ async def finalize_turn(
     )
     await save_belief(session, turn.user_id, belief)
 
-    # Form preferences (7), buttons (8) and clarification (4.1).
+    # Form preferences, clarification and expertise.
     await _learn_preferences(
         session, ev, style, dict(zip(reaction.OUTCOMES, outcome_probs))
     )
@@ -452,6 +436,7 @@ async def finalize_turn(
                 **dict(zip(reading.COMPONENTS, resp)),
                 "seconds": math.exp(log_t),
             },
+            next_topic_distance=distance,
         )
     )
     await session.flush()
@@ -460,56 +445,32 @@ async def finalize_turn(
 async def _learn_preferences(
     session: Session, ev: _TurnEvents, style: dict, probs: dict[str, float]
 ) -> None:
-    turn, click, verdict = ev.turn, ev.click, ev.verdict
-    effect = bandits.EFFECTS.get(click.button) if click else None
-    explicit = []
-    if effect and effect.preference:
-        explicit.append(effect.preference)
-    elif not click and verdict and verdict.format_issue:
-        explicit.append(vocab.FORMAT_ISSUES[verdict.format_issue])
-    by_scope = collections.defaultdict(lambda: collections.defaultdict(float))
+    verdict = ev.verdict
+    explicit = (
+        [vocab.FORMAT_ISSUES[verdict.format_issue]]
+        if verdict and verdict.format_issue
+        else []
+    )
+    counts = collections.defaultdict(float)
     signals = prefs.signals(
         style["form"],
         explicit,
         probs[vocab.Outcome.MOVED_ON],
         probs[vocab.Outcome.WRONG_FORMAT],
     )
-    for (dimension, value), count in signals.items():
-        by_scope[ev.domain][(dimension, value)] += count
+    for key, count in signals.items():
+        counts[key] += count
+    # Asking first, or raising a blocking point, worked when the person
+    # moved on.
     moved_on = probs[vocab.Outcome.MOVED_ON]
-    # A button helped when clicked and the reply it asked for was fine, which
-    # the next turn tells; a button not clicked did not help (SPEC 8).
-    for shown in ev.turn.buttons_shown:
-        if not click or click.position != shown.position:
-            dimension = prefs.arm(vocab.ArmKind.BUTTON, shown.button)
-            by_scope[ev.domain][(dimension, vocab.PrefValue.NO)] += 1.0
-    if ev.answered:
-        button, scope = ev.answered
-        dimension = prefs.arm(vocab.ArmKind.BUTTON, button)
-        by_scope[scope][(dimension, vocab.PrefValue.YES)] += moved_on
-        by_scope[scope][(dimension, vocab.PrefValue.NO)] += 1 - moved_on
-    if style["clarify"]:
-        dimension = prefs.arm(vocab.ArmKind.CLARIFY, style["clarify"])
-        by_scope[ev.domain][(dimension, vocab.PrefValue.YES)] += moved_on
-        by_scope[ev.domain][(dimension, vocab.PrefValue.NO)] += 1 - moved_on
-    for scope, counts in by_scope.items():
-        await add_prefs(session, turn.user_id, scope, counts)
-
-
-async def apply_edit(
-    session: Session, edit: models.ProfileEdit, p: params_lib.Params
-) -> None:
-    """Applies a profile-page correction (SPEC 4.6), a very strong signal."""
-    if edit.dimension == vocab.LENGTH:
-        belief = await length_belief(session, edit.user_id)
-        x = theta.edit_features(edit.scope, topics.DOMAIN_PREFIX)
-        theta.edit(belief, x, edit.value, p.prior)
-        await save_belief(session, edit.user_id, belief)
-        await session.flush()
-        return
+    for kind in (vocab.ArmKind.CLARIFY, vocab.ArmKind.EXPERTISE):
+        if style[kind]:
+            dimension = prefs.arm(kind, style[kind])
+            counts[(dimension, vocab.PrefValue.YES)] += moved_on
+            counts[(dimension, vocab.PrefValue.NO)] += 1 - moved_on
     await add_prefs(
         session,
-        edit.user_id,
-        edit.scope,
-        {(edit.dimension, edit.value): prefs.EDIT},
+        ev.turn.user_id,
+        prefs.scope_of(ev.domain, style["mobile"]),
+        counts,
     )

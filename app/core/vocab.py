@@ -10,6 +10,7 @@ class Outcome(enum.StrEnum):
     MISSING_INFO = enum.auto()
     MISUNDERSTOOD = enum.auto()
     WRONG_FORMAT = enum.auto()
+    WRONG_FACT = enum.auto()
     NO_SIGNAL = enum.auto()
 
 
@@ -31,10 +32,14 @@ class Dimension(enum.StrEnum):
 
 
 class PrefValue(enum.StrEnum):
+    """The values of the form dimensions (DIMENSION_VALUES)."""
+
     AUTO = enum.auto()
     BULLETS = enum.auto()
     PROSE = enum.auto()
     TABLE = enum.auto()
+    PROSE_BULLETS = enum.auto()  # Prose, with one short list where it helps.
+    PROSE_TABLE = enum.auto()  # Prose, with one table where it fits.
     SIMPLE = enum.auto()
     TECHNICAL = enum.auto()
     DIRECT = enum.auto()
@@ -43,21 +48,9 @@ class PrefValue(enum.StrEnum):
     NO = enum.auto()
 
 
-class Button(enum.StrEnum):
-    SHORTER = enum.auto()
-    MORE_DETAIL = enum.auto()
-    ONE_LINE = enum.auto()
-    EXAMPLE = enum.auto()
-    SIMPLER = enum.auto()
-    AS_LIST = enum.auto()
-    AS_PROSE = enum.auto()
-    NOT_THIS = enum.auto()
-    RELATED = enum.auto()  # A follow-up question (SPEC 4.8).
-
-
 class Arm(enum.StrEnum):
     TREATMENT = enum.auto()
-    CONTROL = enum.auto()
+    HOLDOUT = enum.auto()  # The assistant's normal behaviour: the baseline.
     CONCISE = enum.auto()
 
 
@@ -72,18 +65,14 @@ class Platform(enum.StrEnum):
     MOBILE = enum.auto()
 
 
-class LengthChoice(enum.StrEnum):
-    SHORT = enum.auto()
-    MEDIUM = enum.auto()
-    DETAILED = enum.auto()
-
-
 DIMENSION_VALUES = {
     Dimension.FORMAT: (
         PrefValue.AUTO,
         PrefValue.BULLETS,
         PrefValue.PROSE,
         PrefValue.TABLE,
+        PrefValue.PROSE_BULLETS,
+        PrefValue.PROSE_TABLE,
     ),
     Dimension.LEVEL: (PrefValue.AUTO, PrefValue.SIMPLE, PrefValue.TECHNICAL),
     Dimension.EXAMPLES: (PrefValue.AUTO, PrefValue.YES),
@@ -104,36 +93,78 @@ FORMAT_ISSUES = {
 class RandomizationUnit(enum.StrEnum):
     CONVERSATION = enum.auto()
     USER = enum.auto()
+    # Per conversation while there are few active people, then per person.
+    AUTO = enum.auto()
 
 
 class Clarify(enum.StrEnum):
-    """The two arms of the clarification bandit (SPEC 4.1)."""
+    """The two arms of the clarification bandit."""
 
     ASK = enum.auto()
     ANSWER = enum.auto()
 
 
+class Expertise(enum.StrEnum):
+    """The two arms of the expertise bandit: raise a blocking point or not."""
+
+    RAISE = enum.auto()
+    SKIP = enum.auto()
+
+
 class ArmKind(enum.StrEnum):
     """Two-value bandits stored as preference dimensions "<kind>:<arm>"."""
 
-    BUTTON = enum.auto()
     CLARIFY = enum.auto()
-
-
-# The profile-page dimension that edits the preferred length (SPEC 6.5).
-LENGTH = "length"
+    EXPERTISE = enum.auto()
 
 
 class Source(enum.StrEnum):
-    """Who observed a turn's outcome: the annotators of SPEC 6.4."""
+    """Who observed a turn's outcome: the annotators of the reaction model."""
 
     ASSISTANT = enum.auto()
-    BUTTON = enum.auto()
     READING = enum.auto()
+    REPHRASE = enum.auto()  # The next request asks the same thing again.
+    # The person's answer to "did you get what you needed?": nightly only,
+    # it calibrates the other annotators.
+    SATISFACTION = enum.auto()
+
+
+class Catalog(enum.StrEnum):
+    """The prompt catalogs: the current one, and a candidate being launched."""
+
+    CURRENT = enum.auto()
+    CANDIDATE = enum.auto()
+
+
+class Requested(enum.StrEnum):
+    """What an instruction may ask the assistant for, beyond the reply."""
+
+    USER_MESSAGE = enum.auto()
+    CHOICES = enum.auto()
+
+
+class WidgetEvent(enum.StrEnum):
+    """What the widget reports about a shown reply."""
+
+    VISIBLE = enum.auto()  # Seconds the reply was on screen.
+    COPY = enum.auto()  # "Copy reply" clicked.
+    CHOICE = enum.auto()  # An option of the choice question picked.
+    SATISFACTION = enum.auto()  # The answer to "did you get what you needed?".
+    PRIVACY_LINK = enum.auto()  # The data request link opened.
+    RENDER_ERROR = enum.auto()
+    CANCELLED = enum.auto()  # The host cancelled the tool call.
+
+
+class Satisfaction(enum.StrEnum):
+    """The answers to the ground-truth question."""
+
+    YES = enum.auto()
+    PARTLY = enum.auto()
+    NO = enum.auto()
 
 
 class Credential(enum.StrEnum):
-    """The OAuth credentials the server issues (SPEC 4.7)."""
+    """The OAuth credentials the server issues."""
 
     REQUEST = enum.auto()  # A pending authorization, until the consent.
     CODE = enum.auto()

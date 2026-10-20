@@ -1,10 +1,11 @@
-"""Admin dashboard: the page at /admin and its JSON API (SPEC 11)."""
+"""Admin dashboard: the page at /admin and its JSON API."""
 
 import datetime
 import math
 
 import fastapi
 from fastapi import responses
+import pydantic
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
@@ -21,15 +22,14 @@ from app.model import theta
 from app import models
 from app.services import engine
 from app.services import params as params_lib
-from app.services import questions
+from app.services import privacy
 from app.services import topics
 
 PAGE = i18n.TEMPLATES.get_template("dashboard.html")
 # The catalog sections the page reads.
-PAGE_TEXTS = ("dashboard", "buttons", "dimensions", "lengths")
+PAGE_TEXTS = ("dashboard", "dimensions")
 MAX_TURNS = 500
 GENERAL = theta.features({}, mobile=False)
-MAX_QUESTIONS = 10
 DAY = datetime.timedelta(hours=24)
 BEARER = "Bearer "
 FILTERS = {
@@ -38,7 +38,6 @@ FILTERS = {
     "host": lambda v: models.Conversation.host == v,
     "mode": lambda v: models.Turn.reply_mode == v,
     "group": lambda v: models.Conversation.grp == v,
-    "q": models.Turn.topic.icontains,
     "before": lambda v: models.Turn.id < int(v),
 }
 Session = sa_asyncio.AsyncSession
@@ -91,8 +90,7 @@ async def overview() -> dict:
         distinct_turns = {
             name: sa.select(model.turn_id).distinct()
             for name, model in (
-                ("turns_with_buttons", models.ButtonShown),
-                ("turns_with_click", models.Click),
+                ("turns_with_copy", models.WidgetEvent),
                 ("finalized_turns", models.TurnInference),
             )
         }
@@ -145,21 +143,6 @@ async def overview() -> dict:
         clusters = await session.scalars(
             sa.select(models.TopicCluster).order_by(models.TopicCluster.id)
         )
-        q, f = models.Question, models.QuestionFollow
-        frequent = (
-            await session.execute(
-                sa.select(
-                    q.text,
-                    q.language,
-                    q.users,
-                    sa.func.coalesce(sa.func.sum(f.users), 0).label("follows"),
-                )
-                .outerjoin(f, f.question_id == q.id)
-                .group_by(q.id)
-                .order_by(q.users.desc(), q.id)
-                .limit(MAX_QUESTIONS)
-            )
-        ).mappings()
         return {
             "counts": counts,
             "hosts": [dict(r) for r in hosts],
@@ -168,8 +151,6 @@ async def overview() -> dict:
                 {"id": k.id, "medoid_topic": k.medoid_topic, "size": k.size}
                 for k in clusters
             ],
-            "questions": [dict(r) for r in frequent],
-            "min_users": questions.MIN_USERS,
             "settings": {
                 "policy": settings.policy,
                 "control_unit": settings.control_unit,
@@ -182,7 +163,9 @@ async def overview() -> dict:
 
 
 @api.get("/turns")
-async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
+async def turns(
+    request: fastapi.Request, limit: int = 100, q: str = ""
+) -> list[dict]:
     where = [
         build(value)
         for key, build in FILTERS.items()
@@ -202,15 +185,17 @@ async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
                     )
                     .where(*where)
                     .order_by(models.Turn.id.desc())
-                    .limit(min(limit, MAX_TURNS))
+                    # Topics are encrypted: a search reads the latest turns.
+                    .limit(MAX_TURNS if q else min(limit, MAX_TURNS))
                 )
             )
         ).all()
+    if q:
+        rows = [r for r in rows if q.lower() in r[0].topic.lower()][:limit]
     out = []
     for turn, conv, inference in rows:
         reply = engine.first(turn.replies)
         verdict = engine.first(turn.outcomes, source=vocab.Source.ASSISTANT)
-        click = engine.last(turn.clicks)
         probs = inference.reaction_probs if inference else {}
         out.append(
             {
@@ -226,11 +211,8 @@ async def turns(request: fastapi.Request, limit: int = 100) -> list[dict]:
                 "verdict": verdict.observed if verdict else None,
                 "user_quote": verdict.user_quote if verdict else None,
                 "format_issue": verdict.format_issue if verdict else None,
-                "clicked": click.position if click else None,
-                "buttons": [
-                    {"id": b.button, "label": b.label, "position": b.position}
-                    for b in turn.buttons_shown
-                ],
+                "goal_reached": verdict.goal_reached if verdict else None,
+                "events": sorted({e.kind for e in turn.widget_events}),
                 "inferred": max(probs, key=probs.get, default=None),
                 "inferred_p": max(probs.values(), default=None),
             }
@@ -253,10 +235,10 @@ async def turn_detail(turn_id: int) -> dict:
         )
         inference = await session.get(models.TurnInference, turn_id)
         next_turn = await session.scalar(
-            sa.select(models.Turn).where(
-                models.Turn.conversation_id == turn.conversation_id,
-                models.Turn.turn_index == turn.turn_index + 1,
-            )
+            sa.select(models.Turn)
+            .where(models.Turn.follows == turn.id)
+            .order_by(models.Turn.created_at)
+            .limit(1)
         )
         conversation = await session.get(
             models.Conversation, turn.conversation_id
@@ -356,7 +338,7 @@ async def user_detail(user_id: int) -> dict:
         )
     lengths = []
     for scope in [prefs.USER_SCOPE, *theta.informed(belief, p.prior)]:
-        x = theta.edit_features(scope, topics.DOMAIN_PREFIX)
+        x = GENERAL if scope == prefs.USER_SCOPE else {**GENERAL, scope: 1.0}
         mean, var = belief.predict(x, p.prior)
         lengths.append(
             {"scope": scope, "ratio": math.exp(mean), "sd": math.sqrt(var)}
@@ -421,3 +403,18 @@ async def run_nightly() -> dict:
     async with db.session() as session, session.begin():
         await nightly.lock_derived(session)
         return {"replayed_turns": await nightly.run(session)}
+
+
+class DataRequest(pydantic.BaseModel):
+    code: str = pydantic.Field(max_length=64)
+
+
+@api.post("/privacy/erase")
+async def erase(request: DataRequest) -> dict:
+    """Erases the person a data request's code names."""
+    async with db.session() as session, session.begin():
+        try:
+            user_id = await privacy.erase(session, request.code)
+        except privacy.UnknownCodeError:
+            raise fastapi.HTTPException(status_code=404) from None
+    return {"erased_user": user_id}

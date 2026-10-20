@@ -1,4 +1,4 @@
-"""Reading behaviour (SPEC 6.6): read fully / skimmed / away mixture."""
+"""Reading behaviour: read fully / skimmed / away mixture."""
 
 import dataclasses
 import math

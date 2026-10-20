@@ -46,14 +46,25 @@ ANNOTATIONS = mcp_types.ToolAnnotations(
 
 
 def _field(name: str, **kwargs: Any) -> pydantic.fields.FieldInfo:
-    return pydantic.Field(description=FIELDS[name], **kwargs)
+    description = FIELDS[name].format(
+        max_message_words=config.settings.max_message_words
+    )
+    return pydantic.Field(description=description, **kwargs)
+
+
+# The tools whose arguments carry a person's text: an error never echoes it.
+TEXT_TOOLS = ("plan_reply", "show_reply")
+
+
+class ClaireError(exceptions.ToolError):
+    """An error whose message is ours, holding none of the arguments."""
 
 
 class ClaireServer(mcpserver.MCPServer):
-    """MCPServer that hides reply text in errors and outlives cached widgets.
+    """MCPServer that hides texts in errors and outlives cached widgets.
 
     Hosts cache tool definitions: a host may still ask for the widget at an
-    older address, which serves the current widget (SPEC 3).
+    older address, which serves the current widget.
     """
 
     async def read_resource(
@@ -69,16 +80,18 @@ class ClaireServer(mcpserver.MCPServer):
         arguments: dict[str, Any],
         context: mcpserver.Context | None = None,
     ):
-        if name != "show_reply":
+        if name not in TEXT_TOOLS:
             return await super().call_tool(name, arguments, context)
         try:
             return await super().call_tool(name, arguments, context)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             cause = exc.__cause__ or exc
-            log.info("show_reply failed: %s", type(cause).__name__)
+            log.info("%s failed: %s", name, type(cause).__name__)
+            if isinstance(cause, ClaireError):
+                raise ClaireError(str(cause)) from None
             if isinstance(cause, replies.ReplyShownError):
-                raise exceptions.ToolError(TOOLS["errors"]["shown"]) from None
-            raise exceptions.ToolError(TOOLS["errors"]["show_reply"]) from None
+                raise ClaireError(TOOLS["errors"]["shown"]) from None
+            raise ClaireError(TOOLS["errors"][name]) from None
 
 
 def caller(ctx: mcpserver.Context) -> replies.Caller:
@@ -93,12 +106,15 @@ def caller(ctx: mcpserver.Context) -> replies.Caller:
     ui = config.settings.host_ui_override.get(
         host, mcp_apps.client_supports_apps(ctx)
     )
+    capabilities = client.capabilities if client else None
+    version = (
+        client.client_info.version if client and client.client_info else None
+    )
     if not ui:
-        capabilities = client.capabilities if client else None
         log.info(
             "No MCP Apps for %s %s: extensions=%s",
             host,
-            client.client_info.version if client and client.client_info else "",
+            version or "",
             capabilities.extensions if capabilities else None,
         )
     return replies.Caller(
@@ -107,6 +123,10 @@ def caller(ctx: mcpserver.Context) -> replies.Caller:
         ui,
         ctx.protocol_version,
         headers.get(SESSION_HEADER),
+        version,
+        capabilities.model_dump(mode="json", exclude_none=True)
+        if capabilities
+        else {},
     )
 
 
@@ -120,7 +140,7 @@ def _handled(
         try:
             return await fn(*args, **kwargs)
         except replies.HandleError:
-            raise exceptions.ToolError(TOOLS["errors"]["handle"]) from None
+            raise ClaireError(TOOLS["errors"]["handle"]) from None
 
     return wrapper
 
@@ -137,17 +157,15 @@ async def show_reply(
     ctx: mcpserver.Context,
     turn_id: str,
     text: str,
-    # A field is never renamed nor removed: hosts keep old schemas (SPEC 3).
-    # No max_length: an extra label must not lose the reply.
-    suggestions: Annotated[
+    # A field is never renamed nor removed: hosts keep old schemas.
+    # No max_length: an extra option must not lose the reply.
+    choices: Annotated[
         list[str] | None,
-        pydantic.Field(
-            description=TOOLS["show_reply"]["fields"]["suggestions"]
-        ),
+        pydantic.Field(description=TOOLS["show_reply"]["fields"]["choices"]),
     ] = None,
 ) -> mcp_types.CallToolResult:
     data = await _handled(replies.show_reply)(
-        caller(ctx), turn_id, text, suggestions
+        caller(ctx), turn_id, text, choices
     )
     return mcp_types.CallToolResult(content=SHOWN, structured_content=data)
 
@@ -155,13 +173,16 @@ async def show_reply(
 @apps.tool(
     resource_uri=UI_URI,
     visibility=["app"],
-    description=TOOLS["record_click"]["description"],
+    description=TOOLS["record_event"]["description"],
     annotations=ANNOTATIONS,
 )
-async def record_click(
-    ctx: mcpserver.Context, turn_id: str, button: str, position: int
+async def record_event(
+    ctx: mcpserver.Context,
+    turn_id: str,
+    kind: str,
+    value: str | int | float | None = None,
 ) -> mcp_types.CallToolResult:
-    await _handled(replies.record_click)(caller(ctx), turn_id, button, position)
+    await _handled(replies.record_event)(caller(ctx), turn_id, kind, value)
     return mcp_types.CallToolResult(content=OK)
 
 
@@ -176,9 +197,10 @@ async def report_context(
     turn_id: str,
     platform: str | None = None,
     locale: str | None = None,
+    time_zone: str | None = None,
 ) -> mcp_types.CallToolResult:
     await _handled(replies.report_context)(
-        caller(ctx), turn_id, platform, locale
+        caller(ctx), turn_id, platform, locale, time_zone
     )
     return mcp_types.CallToolResult(content=OK)
 
@@ -221,14 +243,23 @@ async def plan_reply(
     format_issue: Annotated[
         vocab.FormatIssue | None, _field("format_issue")
     ] = None,
-    ambiguous: Annotated[bool | None, _field("ambiguous")] = None,
+    ambiguity: Annotated[
+        float | None, _field("ambiguity", ge=0.0, le=1.0)
+    ] = None,
     last_reply_words: Annotated[int | None, _field("last_reply_words")] = None,
     user_message_words: Annotated[
         int | None, _field("user_message_words")
     ] = None,
+    goal: Annotated[str | None, _field("goal")] = None,
+    goal_reached: Annotated[bool | None, _field("goal_reached")] = None,
+    last_turn_id: Annotated[str | None, _field("last_turn_id")] = None,
+    messages_since_last_call: Annotated[
+        int | None, _field("messages_since_last_call", ge=0)
+    ] = None,
+    user_message: Annotated[str | None, _field("user_message")] = None,
 ) -> str:
     # The signature is the tool schema; the arguments sent are kept as the raw
-    # payload (SPEC 5.4), so they are collected as received.
+    # payload, so they are collected as received.
     args = {k: v for k, v in locals().items() if k != "ctx" and v is not None}
     plan = await _handled(replies.plan_reply)(caller(ctx), args)
     return replies.compact(plan)

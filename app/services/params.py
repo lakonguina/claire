@@ -30,6 +30,15 @@ class Params:
         default_factory=reading_lib.ReadingParams
     )
     overhead: float = 3.0
+    # Days without a call after which a chat is over.
+    chat_end_days: float = 7.0
+    # Cosine distance under which the next request asks the same thing.
+    rephrase_distance: float = 0.15
+    # Platt scaling of the assistant's ambiguity: logit -> a logit + b.
+    ambiguity_a: float = 1.0
+    ambiguity_b: float = 0.0
+    # "<behaviour class>:<requested>" the class does not do when asked.
+    noncompliant: set[str] = dataclasses.field(default_factory=set)
     families: family_lib.Families = dataclasses.field(
         default_factory=family_lib.Families
     )
@@ -48,6 +57,8 @@ READING_NAMES = {
 }
 # Hyperparameter names of the length prior: "<prefix><feature>".
 PRIOR_MEAN, PRIOR_VAR = "prior_mean:", "prior_var:"
+NONCOMPLIANT = "noncompliant:"
+SCALARS = ("chat_end_days", "rephrase_distance", "ambiguity_a", "ambiguity_b")
 
 
 def _prefixed(values: dict[str, float], prefix: str) -> dict[str, float]:
@@ -70,6 +81,9 @@ async def load_params(session: sa_asyncio.AsyncSession) -> Params:
     p.prior.var |= _prefixed(hyper, PRIOR_VAR)
     p.prior.tau = hyper.get("tau", p.prior.tau)
     p.overhead = hyper.get("overhead", p.overhead)
+    for name in SCALARS:
+        setattr(p, name, hyper.get(name, getattr(p, name)))
+    p.noncompliant = set(_prefixed(hyper, NONCOMPLIANT))
     p.reading = dataclasses.replace(
         p.reading,
         **{f: hyper[n] for n, f in READING_NAMES.items() if n in hyper},

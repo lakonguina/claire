@@ -1,0 +1,32 @@
+[
+  {
+    "name": "shorter",
+    "messages": [
+      "What is an index in SQL?",
+      "Too long. Shorter please.",
+      "OK, and how do I see if a query uses it?"
+    ]
+  },
+  {
+    "name": "ambiguous",
+    "messages": [
+      "How do I deploy it?",
+      "The Python web app, on a small VPS."
+    ]
+  },
+  {
+    "name": "wrong_fact",
+    "messages": [
+      "In Thinking, Fast and Slow, what are the two systems?",
+      "That's wrong, System 1 is the fast one.",
+      "Thanks, that's what I needed."
+    ]
+  },
+  {
+    "name": "french",
+    "messages": [
+      "Comment négocier une augmentation ?",
+      "Plus simple, sans liste."
+    ]
+  }
+]

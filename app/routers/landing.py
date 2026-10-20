@@ -6,14 +6,17 @@ import pathlib
 import fastapi
 from fastapi import responses
 
+from app.core import config
 from app.core import i18n
 from app.core import text
 from app.core import vocab
 from app.routers import oauth
+from app.services import visits
 
 ASSETS = pathlib.Path(__file__).resolve().parents[1] / "assets"
 SCREEN_SUFFIXES = (".webp", ".png", ".jpg")
 CONNECTOR_NAME = "Claire"
+POLICY_DATE = "2026-10-20"  # Change it with the policy's wording.
 # Brand names, never translated; the logos are logos/<key>.svg.
 ASSISTANTS = {
     vocab.Assistant.CLAUDE: "Claude",
@@ -87,6 +90,9 @@ DEMO_SCREENS = {side: _screen("demo", side) for side in vocab.DemoSide}
 async def page(request: fastapi.Request) -> str:
     """Renders the landing page in the browser's language."""
     language = i18n.preferred(request.headers.get("accept-language"))
+    await visits.record(
+        "landing", request.headers.get("referer"), dict(request.query_params)
+    )
     return i18n.TEMPLATES.get_template("landing.html").render(
         language=language,
         texts=i18n.catalog(language)["landing"],
@@ -100,4 +106,21 @@ async def page(request: fastapi.Request) -> str:
         replies=_replies(language),
         SetupStep=vocab.SetupStep,
         DemoSide=vocab.DemoSide,
+    )
+
+
+@router.get(oauth.PRIVACY_PATH, response_class=responses.HTMLResponse)
+async def privacy(request: fastapi.Request) -> str:
+    """Renders the privacy policy in the browser's language."""
+    language = i18n.preferred(request.headers.get("accept-language"))
+    texts = i18n.catalog(language)["privacy"]
+    email = config.settings.privacy_email
+    return i18n.TEMPLATES.get_template("privacy.html").render(
+        language=language,
+        title=texts["title"],
+        updated=texts["updated"].format(date=POLICY_DATE),
+        sections=[
+            {"title": s["title"], "body": s["body"].format(email=email)}
+            for s in texts["sections"]
+        ],
     )

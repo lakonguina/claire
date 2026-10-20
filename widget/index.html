@@ -8,9 +8,20 @@
   <body>
     <main>
       <article id="reply"></article>
+      <form id="choices" hidden>
+        <ol id="options"></ol>
+        <div class="free">
+          <input id="free" type="text" />
+          <button id="send" type="submit"></button>
+        </div>
+      </form>
+      <div id="survey" hidden>
+        <span id="survey-question"></span>
+        <span id="survey-answers"></span>
+      </div>
       <div id="actions">
-        <div id="buttons"></div>
         <button id="copy-reply" class="ghost" hidden></button>
+        <button id="privacy" class="ghost link" hidden></button>
       </div>
     </main>
     <script type="module" src="/src/main.js"></script>

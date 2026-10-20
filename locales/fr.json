@@ -1,64 +1,76 @@
 {
-  "buttons": {
-    "shorter": {
-      "label": "Plus court",
-      "message": "Fais plus court, s'il te plaît."
-    },
-    "more_detail": {
-      "label": "Plus de détails",
-      "message": "Donne-moi plus de détails."
-    },
-    "one_line": {
-      "label": "En une phrase",
-      "message": "Résume ça en une phrase."
-    },
-    "example": {
-      "label": "Un exemple",
-      "message": "Donne-moi un exemple concret."
-    },
-    "simpler": {
-      "label": "Plus simple",
-      "message": "Explique-moi ça plus simplement."
-    },
-    "as_list": {
-      "label": "En liste",
-      "message": "Présente ça sous forme de liste."
-    },
-    "as_prose": {
-      "label": "Sans liste",
-      "message": "Réécris ça en paragraphes, sans liste."
-    },
-    "not_this": {
-      "label": "Pas ce que je voulais",
-      "message": "Ce n'est pas ce que je voulais. Pose-moi une seule question courte pour comprendre ce dont j'ai besoin."
-    },
-    "related": {
-      "label": "Question liée",
-      "message": ""
-    }
-  },
   "widget": {
     "copy": "Copier",
     "copied": "Copié ✓",
-    "copy_reply": "Copier la réponse"
+    "copy_reply": "Copier la réponse",
+    "free": "Ou écris ta réponse…",
+    "send": "Envoyer",
+    "survey": "Tu as eu ce qu'il te fallait ?",
+    "satisfaction": {
+      "yes": "Oui",
+      "partly": "En partie",
+      "no": "Non"
+    },
+    "thanks": "Merci !",
+    "privacy": "Mes données",
+    "privacy_subject": "Demande sur mes données Claire",
+    "privacy_body": "Merci de supprimer mes données. Mon code : {code}"
   },
   "consent": {
     "title": "Connecter Claire à {app} ?",
     "intro": "Claire apprend comment tu aimes tes réponses (longueur, format, ton) et aide ton IA à répondre comme ça.",
-    "anonymous": "Pas de compte, pas d'email : cette connexion est ton profil. Supprime le connecteur pour repartir de zéro.",
-    "privacy": "Le texte des réponses n'est jamais stocké.",
+    "anonymous": "Pas de compte, pas d'email : cette connexion est ton profil.",
+    "storage": "Claire stocke tes conversations (ses réponses et certains de tes messages, chiffrés, pendant 3 ans) pour améliorer ses modèles. Elles peuvent contenir des informations sensibles, comme la santé ou des opinions.",
+    "adults": "Réservé aux adultes.",
+    "policy": "Politique de confidentialité",
     "allow": "Continuer",
     "deny": "Annuler",
     "expired": "Ce lien a expiré : ajoute à nouveau le connecteur depuis ton appli d'IA."
   },
   "dimensions": {
-    "format": {"name": "Format", "values": {"auto": "Pas de préférence", "bullets": "Listes à puces", "prose": "Texte suivi", "table": "Tableaux"}},
-    "level": {"name": "Niveau", "values": {"auto": "Pas de préférence", "simple": "Simple", "technical": "Technique"}},
-    "examples": {"name": "Exemples", "values": {"auto": "Si utile", "yes": "Toujours"}},
-    "tone": {"name": "Ton", "values": {"auto": "Pas de préférence", "direct": "Direct", "warm": "Chaleureux"}},
-    "headings": {"name": "Titres", "values": {"auto": "Pas de préférence", "yes": "Oui", "no": "Non"}}
+    "format": {
+      "name": "Format",
+      "values": {
+        "auto": "Pas de préférence",
+        "bullets": "Listes à puces",
+        "prose": "Texte suivi",
+        "table": "Tableaux",
+        "prose_bullets": "Texte avec une courte liste",
+        "prose_table": "Texte avec un tableau"
+      }
+    },
+    "level": {
+      "name": "Niveau",
+      "values": {
+        "auto": "Pas de préférence",
+        "simple": "Simple",
+        "technical": "Technique"
+      }
+    },
+    "examples": {
+      "name": "Exemples",
+      "values": {
+        "auto": "Si utile",
+        "yes": "Toujours"
+      }
+    },
+    "tone": {
+      "name": "Ton",
+      "values": {
+        "auto": "Pas de préférence",
+        "direct": "Direct",
+        "warm": "Chaleureux"
+      }
+    },
+    "headings": {
+      "name": "Titres",
+      "values": {
+        "auto": "Pas de préférence",
+        "yes": "Oui",
+        "no": "Non"
+      }
+    }
   },
-  "lengths": {"short": "Courte", "medium": "Moyenne", "detailed": "Détaillée"},
   "dashboard": {
     "title": "Claire Admin",
     "tabs": {
@@ -88,7 +100,6 @@
       "in_arms": "{p} dans des groupes de comparaison",
       "turns_n": "{n} réponses",
       "of_widget": "quand le widget était disponible",
-      "clicks_of": "{a} réponses sur {b}",
       "gold_n": "{n} étiquetées à la main",
       "run_nightly": "Réapprendre maintenant",
       "running": "apprentissage…",
@@ -109,7 +120,6 @@
       "needs_clusters": "Il faut au moins 2 personnes ou conversations dans chaque groupe (CONTROL_SHARE / CONCISE_SHARE).",
       "domains_until": "Appris dès qu'il y a 20 sujets différents ; d'ici là, un seul domaine.",
       "host_prior_until": "Répartition égale tant que ce n'est pas appris (il faut 20 conversations par appli).",
-      "ignored_clicked": "(ignoré : un bouton a été cliqué)",
       "words": "{n} mots",
       "wps": "{n} mots/s",
       "of_complete": "{p} d'une réponse complète",
@@ -117,17 +127,18 @@
       "general": "En général",
       "domain": "Domaine de sujets {n}",
       "mobile": "sur mobile",
-      "button_pref": "Bouton « {name} »",
       "clarify_pref": "Question de clarification d'abord",
       "reading_shares": "Comment la réponse a été lue",
       "reaction_shares": "Probabilité de chaque réaction (tous signaux combinés)",
       "class_shares": "À quelle classe de comportement appartient cet assistant",
       "scale": "10 % ← plus court · plus long → 200 %",
       "classes_until": "Aucune pour l'instant : tous les assistants comptent comme une seule classe jusqu'à 10 conversations par classe.",
-      "no_click": "pas de clic",
-      "click_at": "bouton {n} : {outcome}",
       "help": "Qu'est-ce que ça veut dire ?",
-    "questions_until": "Aucune pour l'instant : une question n'est proposée qu'une fois posée par 5 personnes différentes."
+      "expertise_pref": "Signaler un point bloquant",
+      "goal_reached": "objectif atteint",
+      "erase": "Effacer",
+      "erased": "effacé · personne {user}",
+      "unknown_code": "code inconnu"
     },
     "outcomes": {
       "moved_on": "a continué (ok)",
@@ -136,7 +147,8 @@
       "missing_info": "info manquante",
       "misunderstood": "mal compris",
       "wrong_format": "mauvais format",
-      "no_signal": "aucun signal"
+      "no_signal": "aucun signal",
+      "wrong_fact": "fait faux"
     },
     "format_issues": {
       "too_technical": "trop technique",
@@ -157,7 +169,7 @@
     },
     "groups": {
       "treatment": "réponses adaptées",
-      "control": "réponses normales",
+      "holdout": "réponses normales (holdout)",
       "concise": "« sois concis »"
     },
     "clarify": {
@@ -167,134 +179,494 @@
     "timeline": {
       "plan_reply": "demande",
       "writing": "écriture",
-      "click": "clic",
       "reading": "lecture"
     },
     "terms": {
-      "turns": {"name": "Réponses", "help": "Chaque réponse d'IA passée par Claire."},
-      "conversations": {"name": "Conversations", "help": "Discussions avec une IA. Une conversation contient plusieurs réponses."},
-      "users": {"name": "Personnes", "help": "Personnes qui ont un lien de connecteur."},
-      "widget_mode": {"name": "Affichées dans le widget", "help": "Part des réponses affichées dans notre encadré, avec ses boutons, plutôt qu'en texte simple dans le chat. Dépend de l'appli."},
-      "show_reply_coverage": {"name": "Widget vraiment utilisé", "help": "Quand le widget était disponible, à quelle fréquence l'IA a vraiment écrit sa réponse dedans. Moins de 100 % = l'IA ignore parfois la consigne."},
-      "click_rate": {"name": "Clics sur les boutons", "help": "À quelle fréquence les gens cliquent sur un des boutons proposés sous une réponse (« Fais plus court »…)."},
-      "finalized": {"name": "Réponses analysées", "help": "Réponses dont la réaction est connue : la personne a écrit son message suivant, on peut donc savoir comment la réponse a été reçue."},
-      "last_nightly": {"name": "Dernier réapprentissage", "help": "Chaque nuit, le modèle réapprend à partir de toutes les données. On peut aussi le lancer à la main depuis l'onglet « Ce que le modèle a appris »."},
-      "hosts": {"name": "Applis", "help": "Les applis d'IA qui se connectent (claude.ai, ChatGPT…), la version du protocole qu'elles parlent, et si elles peuvent afficher notre widget."},
-      "protocol": {"name": "protocole"},
-      "apps": {"name": "widget possible"},
-      "last": {"name": "dernière"},
-      "topic_domains": {"name": "Domaines de sujets", "help": "Groupes de sujets proches, trouvés automatiquement, pour que les préférences puissent changer selon le sujet (ex. code vs cuisine). La citation est le sujet le plus typique de chaque groupe."},
-      "tool_calls": {"name": "Appels d'outils · 24 h", "help": "Combien de fois l'IA a appelé chacun de nos outils ces dernières 24 heures."},
-      "settings": {"name": "Réglages", "help": "Configuration du serveur, lue dans le fichier .env."},
-      "policy": {"name": "méthode de décision", "help": "bayes : apprend la bonne longueur pour chaque personne. ratio : toujours une part fixe d'une réponse complète."},
-      "control_unit": {"name": "unité de comparaison", "help": "Si c'est une personne entière ou une seule conversation qu'on place dans un groupe de comparaison."},
-      "arm_shares": {"name": "groupes de comparaison", "help": "Part des conversations qui reçoivent des réponses normales ou « sois concis », pour mesurer ce que Claire fait économiser. Désactivé par défaut."},
-      "q": {"name": "marge de sécurité", "help": "0,8 = viser assez long pour satisfaire la personne 80 % du temps. Plus haut = réponses plus longues, plus sûres."},
-      "cache_ttl_ms": {"name": "cache de la liste d'outils (ms)", "help": "Combien de temps les applis peuvent garder notre liste d'outils sans la redemander."},
-      "shadow_policies": {"name": "méthodes testées en coulisse", "help": "D'autres méthodes de décision calculées à chaque réponse mais jamais appliquées, pour les comparer."},
-      "turns_table": {"name": "Réponses", "help": "Clique sur une ligne pour tous les détails. La barre de couleur à gauche est la réaction déduite."},
-      "time": {"name": "heure"},
-      "turn": {"name": "réponse"},
-      "user_conv": {"name": "personne · conversation"},
-      "mode": {"name": "affichage", "help": "widget : affichée dans notre encadré. texte simple : l'appli ne peut pas afficher le widget."},
-      "topic": {"name": "sujet"},
-      "words": {"name": "mots", "help": "complète → visée → demandée → écrite. Complète : ce qu'il faut pour une réponse complète, selon l'IA. Visée : la longueur choisie pour cette personne. Demandée : ce qu'on a demandé à l'IA d'écrire (corrigé selon ses habitudes). Écrite : ce qu'elle a vraiment écrit."},
-      "verdict": {"name": "avis de l'IA", "help": "Comment l'IA a jugé la réaction de la personne à sa réponse précédente, d'après son message suivant."},
-      "inferred": {"name": "réaction déduite", "help": "Ce qu'on conclut en combinant tous les signaux (avis de l'IA, boutons, temps de lecture), avec sa probabilité."},
-      "buttons": {"name": "boutons", "help": "Boutons proposés sous la réponse. Plein = cliqué."},
-      "write": {"name": "temps d'écriture", "help": "Temps mis par l'IA pour écrire la réponse."},
-      "timeline": {"name": "Chronologie", "help": "De la demande jusqu'au message suivant de la personne."},
-      "decision": {"name": "Décision", "help": "Comment la longueur et le style de cette réponse ont été choisis."},
-      "theta_sample": {"name": "longueur visée cette fois", "symbol": "θ̃", "help": "Part d'une réponse complète qu'on parie que cette personne veut ici. Elle est tirée au hasard autour de ce qu'on croit, pour que le système continue d'essayer des longueurs un peu différentes et d'apprendre."},
-      "post_mean": {"name": "ce qu'on croit", "symbol": "E[θ]", "help": "Notre meilleure estimation de la part d'une réponse complète que cette personne veut pour ce type de demande. Le ×facteur après est l'incertitude : ×1,10 = assez sûr, ×2 = on devine encore."},
-      "b_sample": {"name": "correction pour cet assistant", "symbol": "b̃", "help": "Certains assistants sur- ou sous-estiment ce qu'il faut pour une réponse complète. ×1,20 = on allonge de 20 % pour compenser. ×1 = aucune correction."},
-      "propensity": {"name": "probabilité de ce choix", "symbol": "propensity", "help": "Probabilité que cette décision précise soit tirée. Permet d'évaluer équitablement d'autres méthodes sur les données passées."},
-      "form": {"name": "style choisi", "help": "Format, niveau, ton… choisis pour cette réponse. « auto » = laissé libre à l'IA."},
-      "clarify": {"name": "question de clarification", "help": "Si l'IA devait d'abord poser une courte question, ou répondre directement."},
-      "cell": {"name": "domaine de sujets · appareil", "help": "Les préférences de style sont apprises par domaine de sujets. La longueur dépend de combien la demande appartient à chaque domaine, et du fait qu'elle vienne d'un téléphone."},
-      "language": {"name": "langue"},
-      "shadow": {"name": "méthode en coulisse {name}", "help": "Ce qu'une autre méthode aurait choisi. Jamais appliqué, seulement comparé."},
-      "reaction": {"name": "Réaction", "help": "Comment la personne a réagi à cette réponse, selon chaque signal."},
-      "assistant_verdict": {"name": "avis de l'IA"},
-      "buttons_shown": {"name": "boutons affichés"},
-      "gold_label": {"name": "étiquette manuelle"},
-      "gold": {"name": "Étiqueter à la main", "help": "Si tu connais la vraie réaction, clique dessus. Ça aide à mesurer la fiabilité de chaque signal."},
-      "length_reading": {"name": "Longueur et lecture"},
-      "fused_length": {"name": "longueur estimée", "help": "Longueur de la réponse, en combinant le compte de l'IA, notre compte exact (widget) et le temps d'écriture. Le ± est l'incertitude."},
-      "reading_time": {"name": "temps de lecture", "help": "Temps entre la réponse et le message suivant."},
-      "conversation": {"name": "Conversation"},
-      "host_protocol": {"name": "appli · protocole"},
-      "group_apps": {"name": "groupe · widget possible", "help": "Groupe de comparaison de cette conversation, et si l'appli peut afficher le widget."},
-      "platform_locale": {"name": "appareil · langue"},
-      "compliance": {"name": "respecte la longueur demandée", "symbol": "κ", "help": "Longueur écrite ÷ longueur demandée dans cette conversation. 100 % = obéit exactement ; 150 % = écrit moitié plus."},
-      "writing_speed": {"name": "vitesse d'écriture", "help": "Mots par seconde écrits par l'IA. Sert à reconnaître de quel genre d'assistant il s'agit, sans le lui demander."},
-      "raw": {"name": "Données brutes"},
-      "users_table": {"name": "Personnes", "help": "Clique sur quelqu'un pour voir ce qui a été appris sur lui ou elle."},
-      "user": {"name": "personne"},
-      "created": {"name": "créé"},
-      "last_seen": {"name": "vu en dernier"},
-      "alpha": {"name": "longueur préférée", "symbol": "θ", "help": "Part d'une réponse complète que cette personne veut en général. 100 % = la réponse entière ; 50 % = deux fois plus court."},
-      "reading_speed": {"name": "vitesse de lecture", "help": "Mots par seconde lus par cette personne."},
-      "user_lengths": {"name": "Longueur préférée", "help": "En général, sur téléphone, et pour les domaines de sujets appris pour cette personne. Point = meilleure estimation, bande = incertitude. À gauche : plus court qu'une réponse complète, à droite : plus long."},
-      "share": {"name": "part d'une réponse complète"},
-      "user_reading": {"name": "Lecture", "help": "À quelle vitesse cette personne lit, et comment elle lit d'habitude."},
-      "reaction_prior": {"name": "Réactions habituelles", "help": "Comment cette personne réagit d'habitude aux réponses, avant tout signal sur la réponse en cours."},
-      "preferences": {"name": "Style, boutons et questions", "help": "Ce qui a été appris sur le format, le niveau, le ton…, les boutons utiles à cette personne, et si elle aime une question de clarification d'abord."},
-      "scope": {"name": "où"},
-      "dimension": {"name": "quoi"},
-      "means": {"name": "probabilités"},
-      "evidence": {"name": "preuves", "help": "À peu près combien d'observations le confirment. Moins de 1 = encore surtout une supposition."},
-      "nightly": {"name": "Réapprentissage", "help": "Réapprend tous les réglages ci-dessous à partir de toutes les données, puis rejoue chaque réponse avec eux. Se lance tout seul chaque nuit."},
-      "hyper": {"name": "Comment varient les longueurs préférées", "help": "Réglages du modèle de longueur, appris sur tout le monde. Les ×facteurs se lisent ainsi : ×1,5 = en général entre 1,5 fois plus court et 1,5 fois plus long."},
-      "mu0": {"name": "longueur préférée typique", "symbol": "μ₀", "help": "Part d'une réponse complète que veut la personne moyenne. Le point de départ pour une nouvelle personne."},
-      "sigma_alpha": {"name": "écart entre les personnes", "symbol": "σ_α", "help": "À quel point les gens diffèrent de la moyenne. ×1,6 = une personne typique veut entre 1,6 fois plus court et 1,6 fois plus long que la moyenne."},
-      "sigma_eta": {"name": "effet d'un nouveau domaine", "symbol": "σ_d", "help": "De combien un domaine de sujets pas encore appris peut changer la longueur préférée, en ×facteur."},
-      "mobile_effect": {"name": "sur téléphone", "symbol": "w_mobile", "help": "Longueur préférée sur téléphone par rapport à ailleurs, pour tout le monde. ×0,80 = 20 % plus court. Le second ×facteur indique à quel point les gens diffèrent là-dessus."},
-      "tau": {"name": "variation d'une réponse à l'autre", "symbol": "τ", "help": "À quel point « assez long » est flou : la même personne peut trouver une longueur bien une fois et trop courte la suivante. ×1,4 = varie d'environ 40 % dans un sens ou l'autre."},
-      "overhead": {"name": "délai de démarrage de l'IA", "help": "Secondes avant que l'IA commence à écrire. Retiré du temps d'écriture pour estimer la longueur."},
-      "gamma": {"name": "sujets comme « {type} »", "symbol": "w_d", "help": "Longueur préférée pour ce domaine de sujets par rapport à la moyenne, pour tout le monde. ×0,80 = 20 % plus court. Le second ×facteur indique à quel point les gens diffèrent là-dessus."},
-      "noise": {"name": "Précision des mesures de longueur", "help": "Erreur typique de chaque façon de mesurer la longueur d'une réponse. ±10 % = précis, ±50 % = approximatif."},
-      "self_report": {"name": "compte de mots de l'IA", "symbol": "σ", "help": "Erreur de la longueur que l'IA dit avoir écrite (utilisée quand il n'y a pas de widget pour compter exactement)."},
-      "writing_time": {"name": "estimation par le temps d'écriture", "symbol": "σ", "help": "Erreur quand on devine la longueur d'après le temps mis par l'IA pour écrire."},
-      "requested": {"name": "écart à la longueur demandée", "symbol": "σ", "help": "De combien l'IA s'écarte en général de la longueur qu'on lui a demandée."},
-      "reading_mixture": {"name": "Comment les gens lisent", "help": "Sert à savoir, d'après le temps avant le message suivant, si la personne a lu la réponse, l'a survolée, ou est partie."},
-      "s_r": {"name": "variation d'une lecture complète", "symbol": "s_r", "help": "À quel point le temps d'une lecture complète varie autour du temps attendu (longueur ÷ vitesse de lecture)."},
-      "mu_away": {"name": "absence typique", "symbol": "μ_away", "help": "Temps habituel avant le message suivant quand la personne est partie puis revenue plus tard."},
-      "s_away": {"name": "variation des absences", "symbol": "s_away", "help": "À quel point ces absences varient."},
-      "classes": {"name": "Classes de comportement des assistants", "help": "Groupes d'assistants qui se comportent pareil, trouvés uniquement à partir de mesures (vitesse d'écriture, obéissance), jamais à partir de ce que l'IA dit être."},
-      "class": {"name": "classe"},
-      "speed": {"name": "vitesse d'écriture"},
-      "b": {"name": "correction d'estimation", "symbol": "b", "help": "×1,20 = ce genre d'assistant sous-estime d'environ 20 % ce qu'il faut pour une réponse complète ; on corrige."},
-      "w": {"name": "certitude de la correction", "symbol": "w", "help": "Incertitude de la correction, en ×facteur. ×1,05 = sûr, ×1,5 = incertain."},
-      "kappa": {"name": "respecte la longueur demandée", "symbol": "κ", "help": "Longueur écrite ÷ longueur demandée. 100 % = obéit exactement."},
-      "assistant_confusion": {"name": "Fiabilité de l'avis de l'IA", "help": "Ligne = la vraie réaction, colonne = ce que l'IA a signalé. Diagonale foncée = fiable. Appris par classe de comportement (menu)."},
-      "button_confusion": {"name": "Fiabilité des boutons", "help": "Ligne = la vraie réaction, colonne = ce que suggère le bouton cliqué."},
-      "reading_confusion": {"name": "Fiabilité du temps de lecture", "help": "Ligne = la vraie réaction, colonne = ce que suggère le temps de lecture."},
-      "host_prior": {"name": "Appli → classe de comportement", "help": "Pour chaque appli, la probabilité que son assistant appartienne à chaque classe, avant toute mesure."},
-      "by_group": {"name": "{group}", "help": "Résultats de ce groupe. Entre crochets : l'intervalle de confiance à 95 % (la vraie valeur est très probablement dedans)."},
-      "words_per_step": {"name": "mots lus par pas en avant", "help": "Mots lus (réponses + nos outils) pour chaque réponse qui a permis à la personne d'avancer. Plus bas = moins de lecture pour le même progrès. Le chiffre clé."},
-      "repair_rate": {"name": "réponses à corriger", "help": "Part des réponses suivies de « trop long », « trop court », « mal compris » ou « mauvais format »."},
-      "missing_info_rate": {"name": "réponses incomplètes", "help": "Part des réponses après lesquelles la personne a dû demander ce qui manquait."},
-      "tool_words": {"name": "coût des outils par réponse (mots)", "help": "Mots dépensés dans nos propres outils pour chaque réponse."},
-      "saving": {"name": "Économie vs {arm}", "help": "Mots lus par pas en avant économisés par rapport à ce groupe, mesuré par tirage au sort. Positif = Claire fait mieux."},
-      "saving_row": {"name": "mots économisés par pas"},
-      "ci95": {"name": "intervalle de confiance à 95 %"},
-      "tool_coverage": {"name": "Utilisation des outils", "help": "Si l'IA utilise nos outils comme prévu."},
-      "widget_share": {"name": "affichées dans le widget"},
-      "widget_turns_with_show_reply": {"name": "widget vraiment utilisé"},
-      "conversation_id_reused": {"name": "conversations à plusieurs réponses", "help": "Si c'est bas, l'IA oublie peut-être de réutiliser l'id de conversation d'un message à l'autre."},
-      "clicks": {"name": "Clics sur les boutons", "help": "Pour chaque bouton et position : combien de fois il a été affiché et cliqué."},
-      "button": {"name": "bouton"},
-      "position": {"name": "position"},
-      "shown": {"name": "affiché"},
-      "clicked": {"name": "cliqué"},
-      "rate": {"name": "taux"},
-      "compliance_table": {"name": "L'IA respecte-t-elle la longueur demandée ?", "help": "Médiane de longueur écrite ÷ longueur demandée, par classe de comportement et appli. 1,00 = exactement."},
-      "written_asked": {"name": "écrit ÷ demandé"},
-    "questions": {"name": "Questions fréquentes", "help": "Les questions que les gens posent, regroupées par sens, avec combien de personnes différentes l'ont posée et combien de suites ont été vues après. Proposées sous les réponses seulement à partir de 5 personnes, dans leur formulation typique."},
-    "question": {"name": "question"},
-    "asked_by": {"name": "personnes"},
-    "follows": {"name": "suites"}
+      "turns": {
+        "name": "Réponses",
+        "help": "Chaque réponse d'IA passée par Claire."
+      },
+      "conversations": {
+        "name": "Conversations",
+        "help": "Discussions avec une IA. Une conversation contient plusieurs réponses."
+      },
+      "users": {
+        "name": "Personnes",
+        "help": "Personnes qui ont un lien de connecteur."
+      },
+      "widget_mode": {
+        "name": "Affichées dans le widget",
+        "help": "Part des réponses affichées dans notre encadré, avec ses boutons, plutôt qu'en texte simple dans le chat. Dépend de l'appli."
+      },
+      "show_reply_coverage": {
+        "name": "Widget vraiment utilisé",
+        "help": "Quand le widget était disponible, à quelle fréquence l'IA a vraiment écrit sa réponse dedans. Moins de 100 % = l'IA ignore parfois la consigne."
+      },
+      "finalized": {
+        "name": "Réponses analysées",
+        "help": "Réponses dont la réaction est connue : la personne a écrit son message suivant, on peut donc savoir comment la réponse a été reçue."
+      },
+      "last_nightly": {
+        "name": "Dernier réapprentissage",
+        "help": "Chaque nuit, le modèle réapprend à partir de toutes les données. On peut aussi le lancer à la main depuis l'onglet « Ce que le modèle a appris »."
+      },
+      "hosts": {
+        "name": "Applis",
+        "help": "Les applis d'IA qui se connectent (claude.ai, ChatGPT…), la version du protocole qu'elles parlent, et si elles peuvent afficher notre widget."
+      },
+      "protocol": {
+        "name": "protocole"
+      },
+      "apps": {
+        "name": "widget possible"
+      },
+      "last": {
+        "name": "dernière"
+      },
+      "topic_domains": {
+        "name": "Domaines de sujets",
+        "help": "Groupes de sujets proches, trouvés automatiquement, pour que les préférences puissent changer selon le sujet (ex. code vs cuisine). La citation est le sujet le plus typique de chaque groupe."
+      },
+      "tool_calls": {
+        "name": "Appels d'outils · 24 h",
+        "help": "Combien de fois l'IA a appelé chacun de nos outils ces dernières 24 heures."
+      },
+      "settings": {
+        "name": "Réglages",
+        "help": "Configuration du serveur, lue dans le fichier .env."
+      },
+      "policy": {
+        "name": "méthode de décision",
+        "help": "bayes : apprend la bonne longueur pour chaque personne. ratio : toujours une part fixe d'une réponse complète."
+      },
+      "control_unit": {
+        "name": "unité de comparaison",
+        "help": "Si c'est une personne entière ou une seule conversation qu'on place dans un groupe de comparaison."
+      },
+      "arm_shares": {
+        "name": "groupes de comparaison",
+        "help": "Part des conversations qui reçoivent des réponses normales ou « sois concis », pour mesurer ce que Claire fait économiser. Désactivé par défaut."
+      },
+      "q": {
+        "name": "marge de sécurité",
+        "help": "0,8 = viser assez long pour satisfaire la personne 80 % du temps. Plus haut = réponses plus longues, plus sûres."
+      },
+      "cache_ttl_ms": {
+        "name": "cache de la liste d'outils (ms)",
+        "help": "Combien de temps les applis peuvent garder notre liste d'outils sans la redemander."
+      },
+      "shadow_policies": {
+        "name": "méthodes testées en coulisse",
+        "help": "D'autres méthodes de décision calculées à chaque réponse mais jamais appliquées, pour les comparer."
+      },
+      "turns_table": {
+        "name": "Réponses",
+        "help": "Clique sur une ligne pour tous les détails. La barre de couleur à gauche est la réaction déduite."
+      },
+      "time": {
+        "name": "heure"
+      },
+      "turn": {
+        "name": "réponse"
+      },
+      "user_conv": {
+        "name": "personne · conversation"
+      },
+      "mode": {
+        "name": "affichage",
+        "help": "widget : affichée dans notre encadré. texte simple : l'appli ne peut pas afficher le widget."
+      },
+      "topic": {
+        "name": "sujet"
+      },
+      "words": {
+        "name": "mots",
+        "help": "complète → visée → demandée → écrite. Complète : ce qu'il faut pour une réponse complète, selon l'IA. Visée : la longueur choisie pour cette personne. Demandée : ce qu'on a demandé à l'IA d'écrire (corrigé selon ses habitudes). Écrite : ce qu'elle a vraiment écrit."
+      },
+      "verdict": {
+        "name": "avis de l'IA",
+        "help": "Comment l'IA a jugé la réaction de la personne à sa réponse précédente, d'après son message suivant."
+      },
+      "inferred": {
+        "name": "réaction déduite",
+        "help": "Ce qu'on conclut en combinant tous les signaux (avis de l'IA, boutons, temps de lecture), avec sa probabilité."
+      },
+      "write": {
+        "name": "temps d'écriture",
+        "help": "Temps mis par l'IA pour écrire la réponse."
+      },
+      "timeline": {
+        "name": "Chronologie",
+        "help": "De la demande jusqu'au message suivant de la personne."
+      },
+      "decision": {
+        "name": "Décision",
+        "help": "Comment la longueur et le style de cette réponse ont été choisis."
+      },
+      "theta_sample": {
+        "name": "longueur visée cette fois",
+        "symbol": "θ̃",
+        "help": "Part d'une réponse complète qu'on parie que cette personne veut ici. Elle est tirée au hasard autour de ce qu'on croit, pour que le système continue d'essayer des longueurs un peu différentes et d'apprendre."
+      },
+      "post_mean": {
+        "name": "ce qu'on croit",
+        "symbol": "E[θ]",
+        "help": "Notre meilleure estimation de la part d'une réponse complète que cette personne veut pour ce type de demande. Le ×facteur après est l'incertitude : ×1,10 = assez sûr, ×2 = on devine encore."
+      },
+      "b_sample": {
+        "name": "correction pour cet assistant",
+        "symbol": "b̃",
+        "help": "Certains assistants sur- ou sous-estiment ce qu'il faut pour une réponse complète. ×1,20 = on allonge de 20 % pour compenser. ×1 = aucune correction."
+      },
+      "propensity": {
+        "name": "probabilité de ce choix",
+        "symbol": "propensity",
+        "help": "Probabilité que cette décision précise soit tirée. Permet d'évaluer équitablement d'autres méthodes sur les données passées."
+      },
+      "form": {
+        "name": "style choisi",
+        "help": "Format, niveau, ton… choisis pour cette réponse. « auto » = laissé libre à l'IA."
+      },
+      "clarify": {
+        "name": "question de clarification",
+        "help": "Si l'IA devait d'abord poser une courte question, ou répondre directement."
+      },
+      "cell": {
+        "name": "domaine de sujets · appareil",
+        "help": "Les préférences de style sont apprises par domaine de sujets. La longueur dépend de combien la demande appartient à chaque domaine, et du fait qu'elle vienne d'un téléphone."
+      },
+      "language": {
+        "name": "langue"
+      },
+      "shadow": {
+        "name": "méthode en coulisse {name}",
+        "help": "Ce qu'une autre méthode aurait choisi. Jamais appliqué, seulement comparé."
+      },
+      "reaction": {
+        "name": "Réaction",
+        "help": "Comment la personne a réagi à cette réponse, selon chaque signal."
+      },
+      "assistant_verdict": {
+        "name": "avis de l'IA"
+      },
+      "gold_label": {
+        "name": "étiquette manuelle"
+      },
+      "gold": {
+        "name": "Étiqueter à la main",
+        "help": "Si tu connais la vraie réaction, clique dessus. Ça aide à mesurer la fiabilité de chaque signal."
+      },
+      "length_reading": {
+        "name": "Longueur et lecture"
+      },
+      "fused_length": {
+        "name": "longueur estimée",
+        "help": "Longueur de la réponse, en combinant le compte de l'IA, notre compte exact (widget) et le temps d'écriture. Le ± est l'incertitude."
+      },
+      "reading_time": {
+        "name": "temps de lecture",
+        "help": "Temps entre la réponse et le message suivant."
+      },
+      "conversation": {
+        "name": "Conversation"
+      },
+      "host_protocol": {
+        "name": "appli · protocole"
+      },
+      "group_apps": {
+        "name": "groupe · widget possible",
+        "help": "Groupe de comparaison de cette conversation, et si l'appli peut afficher le widget."
+      },
+      "platform_locale": {
+        "name": "appareil · langue"
+      },
+      "compliance": {
+        "name": "respecte la longueur demandée",
+        "symbol": "κ",
+        "help": "Longueur écrite ÷ longueur demandée dans cette conversation. 100 % = obéit exactement ; 150 % = écrit moitié plus."
+      },
+      "writing_speed": {
+        "name": "vitesse d'écriture",
+        "help": "Mots par seconde écrits par l'IA. Sert à reconnaître de quel genre d'assistant il s'agit, sans le lui demander."
+      },
+      "raw": {
+        "name": "Données brutes"
+      },
+      "users_table": {
+        "name": "Personnes",
+        "help": "Clique sur quelqu'un pour voir ce qui a été appris sur lui ou elle."
+      },
+      "user": {
+        "name": "personne"
+      },
+      "created": {
+        "name": "créé"
+      },
+      "last_seen": {
+        "name": "vu en dernier"
+      },
+      "alpha": {
+        "name": "longueur préférée",
+        "symbol": "θ",
+        "help": "Part d'une réponse complète que cette personne veut en général. 100 % = la réponse entière ; 50 % = deux fois plus court."
+      },
+      "reading_speed": {
+        "name": "vitesse de lecture",
+        "help": "Mots par seconde lus par cette personne."
+      },
+      "user_lengths": {
+        "name": "Longueur préférée",
+        "help": "En général, sur téléphone, et pour les domaines de sujets appris pour cette personne. Point = meilleure estimation, bande = incertitude. À gauche : plus court qu'une réponse complète, à droite : plus long."
+      },
+      "share": {
+        "name": "part d'une réponse complète"
+      },
+      "user_reading": {
+        "name": "Lecture",
+        "help": "À quelle vitesse cette personne lit, et comment elle lit d'habitude."
+      },
+      "reaction_prior": {
+        "name": "Réactions habituelles",
+        "help": "Comment cette personne réagit d'habitude aux réponses, avant tout signal sur la réponse en cours."
+      },
+      "preferences": {
+        "name": "Style, boutons et questions",
+        "help": "Ce qui a été appris sur le format, le niveau, le ton…, les boutons utiles à cette personne, et si elle aime une question de clarification d'abord."
+      },
+      "scope": {
+        "name": "où"
+      },
+      "dimension": {
+        "name": "quoi"
+      },
+      "means": {
+        "name": "probabilités"
+      },
+      "evidence": {
+        "name": "preuves",
+        "help": "À peu près combien d'observations le confirment. Moins de 1 = encore surtout une supposition."
+      },
+      "nightly": {
+        "name": "Réapprentissage",
+        "help": "Réapprend tous les réglages ci-dessous à partir de toutes les données, puis rejoue chaque réponse avec eux. Se lance tout seul chaque nuit."
+      },
+      "hyper": {
+        "name": "Comment varient les longueurs préférées",
+        "help": "Réglages du modèle de longueur, appris sur tout le monde. Les ×facteurs se lisent ainsi : ×1,5 = en général entre 1,5 fois plus court et 1,5 fois plus long."
+      },
+      "mu0": {
+        "name": "longueur préférée typique",
+        "symbol": "μ₀",
+        "help": "Part d'une réponse complète que veut la personne moyenne. Le point de départ pour une nouvelle personne."
+      },
+      "sigma_alpha": {
+        "name": "écart entre les personnes",
+        "symbol": "σ_α",
+        "help": "À quel point les gens diffèrent de la moyenne. ×1,6 = une personne typique veut entre 1,6 fois plus court et 1,6 fois plus long que la moyenne."
+      },
+      "sigma_eta": {
+        "name": "effet d'un nouveau domaine",
+        "symbol": "σ_d",
+        "help": "De combien un domaine de sujets pas encore appris peut changer la longueur préférée, en ×facteur."
+      },
+      "mobile_effect": {
+        "name": "sur téléphone",
+        "symbol": "w_mobile",
+        "help": "Longueur préférée sur téléphone par rapport à ailleurs, pour tout le monde. ×0,80 = 20 % plus court. Le second ×facteur indique à quel point les gens diffèrent là-dessus."
+      },
+      "tau": {
+        "name": "variation d'une réponse à l'autre",
+        "symbol": "τ",
+        "help": "À quel point « assez long » est flou : la même personne peut trouver une longueur bien une fois et trop courte la suivante. ×1,4 = varie d'environ 40 % dans un sens ou l'autre."
+      },
+      "overhead": {
+        "name": "délai de démarrage de l'IA",
+        "help": "Secondes avant que l'IA commence à écrire. Retiré du temps d'écriture pour estimer la longueur."
+      },
+      "gamma": {
+        "name": "sujets comme « {type} »",
+        "symbol": "w_d",
+        "help": "Longueur préférée pour ce domaine de sujets par rapport à la moyenne, pour tout le monde. ×0,80 = 20 % plus court. Le second ×facteur indique à quel point les gens diffèrent là-dessus."
+      },
+      "noise": {
+        "name": "Précision des mesures de longueur",
+        "help": "Erreur typique de chaque façon de mesurer la longueur d'une réponse. ±10 % = précis, ±50 % = approximatif."
+      },
+      "self_report": {
+        "name": "compte de mots de l'IA",
+        "symbol": "σ",
+        "help": "Erreur de la longueur que l'IA dit avoir écrite (utilisée quand il n'y a pas de widget pour compter exactement)."
+      },
+      "writing_time": {
+        "name": "estimation par le temps d'écriture",
+        "symbol": "σ",
+        "help": "Erreur quand on devine la longueur d'après le temps mis par l'IA pour écrire."
+      },
+      "requested": {
+        "name": "écart à la longueur demandée",
+        "symbol": "σ",
+        "help": "De combien l'IA s'écarte en général de la longueur qu'on lui a demandée."
+      },
+      "reading_mixture": {
+        "name": "Comment les gens lisent",
+        "help": "Sert à savoir, d'après le temps avant le message suivant, si la personne a lu la réponse, l'a survolée, ou est partie."
+      },
+      "s_r": {
+        "name": "variation d'une lecture complète",
+        "symbol": "s_r",
+        "help": "À quel point le temps d'une lecture complète varie autour du temps attendu (longueur ÷ vitesse de lecture)."
+      },
+      "mu_away": {
+        "name": "absence typique",
+        "symbol": "μ_away",
+        "help": "Temps habituel avant le message suivant quand la personne est partie puis revenue plus tard."
+      },
+      "s_away": {
+        "name": "variation des absences",
+        "symbol": "s_away",
+        "help": "À quel point ces absences varient."
+      },
+      "classes": {
+        "name": "Classes de comportement des assistants",
+        "help": "Groupes d'assistants qui se comportent pareil, trouvés uniquement à partir de mesures (vitesse d'écriture, obéissance), jamais à partir de ce que l'IA dit être."
+      },
+      "class": {
+        "name": "classe"
+      },
+      "speed": {
+        "name": "vitesse d'écriture"
+      },
+      "b": {
+        "name": "correction d'estimation",
+        "symbol": "b",
+        "help": "×1,20 = ce genre d'assistant sous-estime d'environ 20 % ce qu'il faut pour une réponse complète ; on corrige."
+      },
+      "w": {
+        "name": "certitude de la correction",
+        "symbol": "w",
+        "help": "Incertitude de la correction, en ×facteur. ×1,05 = sûr, ×1,5 = incertain."
+      },
+      "kappa": {
+        "name": "respecte la longueur demandée",
+        "symbol": "κ",
+        "help": "Longueur écrite ÷ longueur demandée. 100 % = obéit exactement."
+      },
+      "assistant_confusion": {
+        "name": "Fiabilité de l'avis de l'IA",
+        "help": "Ligne = la vraie réaction, colonne = ce que l'IA a signalé. Diagonale foncée = fiable. Appris par classe de comportement (menu)."
+      },
+      "reading_confusion": {
+        "name": "Fiabilité du temps de lecture",
+        "help": "Ligne = la vraie réaction, colonne = ce que suggère le temps de lecture."
+      },
+      "host_prior": {
+        "name": "Appli → classe de comportement",
+        "help": "Pour chaque appli, la probabilité que son assistant appartienne à chaque classe, avant toute mesure."
+      },
+      "by_group": {
+        "name": "{group}",
+        "help": "Résultats de ce groupe. Entre crochets : l'intervalle de confiance à 95 % (la vraie valeur est très probablement dedans)."
+      },
+      "words_per_step": {
+        "name": "mots lus par pas en avant",
+        "help": "Mots lus (réponses + nos outils) pour chaque réponse qui a permis à la personne d'avancer. Plus bas = moins de lecture pour le même progrès. Le chiffre clé."
+      },
+      "repair_rate": {
+        "name": "réponses à corriger",
+        "help": "Part des réponses suivies de « trop long », « trop court », « mal compris » ou « mauvais format »."
+      },
+      "missing_info_rate": {
+        "name": "réponses incomplètes",
+        "help": "Part des réponses après lesquelles la personne a dû demander ce qui manquait."
+      },
+      "tool_words": {
+        "name": "coût des outils par réponse (mots)",
+        "help": "Mots dépensés dans nos propres outils pour chaque réponse."
+      },
+      "saving": {
+        "name": "Économie vs {arm}",
+        "help": "Mots lus par pas en avant économisés par rapport à ce groupe, mesuré par tirage au sort. Positif = Claire fait mieux."
+      },
+      "saving_row": {
+        "name": "mots économisés par pas"
+      },
+      "ci95": {
+        "name": "intervalle de confiance à 95 %"
+      },
+      "tool_coverage": {
+        "name": "Utilisation des outils",
+        "help": "Si l'IA utilise nos outils comme prévu."
+      },
+      "widget_share": {
+        "name": "affichées dans le widget"
+      },
+      "widget_turns_with_show_reply": {
+        "name": "widget vraiment utilisé"
+      },
+      "conversation_id_reused": {
+        "name": "conversations à plusieurs réponses",
+        "help": "Si c'est bas, l'IA oublie peut-être de réutiliser l'id de conversation d'un message à l'autre."
+      },
+      "compliance_table": {
+        "name": "L'IA respecte-t-elle la longueur demandée ?",
+        "help": "Médiane de longueur écrite ÷ longueur demandée, par classe de comportement et appli. 1,00 = exactement."
+      },
+      "written_asked": {
+        "name": "écrit ÷ demandé"
+      },
+      "widget_events": {
+        "name": "Widget",
+        "help": "Ce que le widget a vu : réponse copiée, temps à l'écran, réponses aux questions."
+      },
+      "erase": {
+        "name": "Demande sur les données",
+        "help": "Colle le code reçu par email (lien « Mes données ») pour tout effacer sur cette personne."
+      },
+      "expertise": {
+        "name": "point bloquant",
+        "help": "Si l'IA devait signaler le point que la personne n'avait pas vu et qui bloque son objectif."
+      },
+      "instruction": {
+        "name": "instruction",
+        "help": "Exactement ce que plan_reply a renvoyé à l'IA."
+      },
+      "words_per_goal": {
+        "name": "mots par objectif atteint",
+        "help": "Mots lus (réponses + nos outils) pour chaque objectif atteint. Plus bas = moins de lecture pour le même résultat. Le chiffre clé."
+      },
+      "questions_per_goal": {
+        "name": "questions par objectif",
+        "help": "Questions de clarification posées pour chaque objectif atteint. Empêche que poser des questions devienne gratuit."
+      },
+      "wrong_fact_rate": {
+        "name": "réponses avec un fait faux",
+        "help": "Part des réponses dont la personne a dit qu'elles contenaient un fait faux."
+      },
+      "replies_without_call": {
+        "name": "réponses sans plan_reply",
+        "help": "Réponses écrites par l'IA sans appeler plan_reply avant, d'après ce qu'elle déclare."
+      },
+      "fields": {
+        "name": "Champs envoyés",
+        "help": "À quelle fréquence l'IA envoie chaque champ quand elle le doit."
+      },
+      "funnel": {
+        "name": "Funnel",
+        "help": "Des visites de page aux personnes actives deux jours."
+      }
+    },
+    "widget_events": {
+      "visible": "à l'écran",
+      "copy": "copiée",
+      "choice": "répondu",
+      "satisfaction": "satisfaction",
+      "privacy_link": "lien données",
+      "render_error": "erreur d'affichage",
+      "cancelled": "annulé"
+    },
+    "expertise": {
+      "raise": "signaler un point",
+      "skip": "aucun point"
     }
   },
   "landing": {
@@ -321,7 +693,7 @@
       "old_label": "Aujourd'hui",
       "old": "Tu répètes « plus court » dans chaque conversation. Ça pollue son contexte, et demain elle a tout oublié.",
       "new_label": "Avec Claire",
-      "new": "Tu réagis d'un clic. Claire retient, et le rappelle à ton IA avant chaque réponse, dans toutes tes conversations."
+      "new": "Tu réagis simplement, comme d'habitude. Claire retient, et le rappelle à ton IA avant chaque réponse, dans toutes tes conversations."
     },
     "demo": {
       "title": "Même question.",
@@ -334,11 +706,6 @@
       "window": "Ton IA",
       "input": "Pose ta question…",
       "copy_reply": "Copier la réponse",
-      "buttons": [
-        "Montre-moi un exemple concret",
-        "Explique-le sans listes",
-        "Explique-le plus simplement"
-      ],
       "replies": {
         "before": "Un index en SQL est une structure de données à part que la base maintient à côté d'une table pour retrouver des lignes rapidement sans parcourir toute la table. Il fonctionne comme l'index à la fin d'un livre : au lieu de lire chaque page pour trouver un sujet, tu le cherches dans une liste triée qui t'envoie à la bonne page.\n\n### Fonctionnement\n\nSans index, une requête comme `WHERE email = 'a@b.com'` force un parcours complet de la table : la base lit chaque ligne. Avec un index sur `email`, la base cherche dans une structure triée (en général un B-tree) en temps logarithmique, puis va directement à la ou aux lignes correspondantes.\n\n### Créer un index\n\n```sql\nCREATE INDEX idx_users_email ON users (email);\n```\n\nIndex unique (interdit aussi les doublons) :\n\n```sql\nCREATE UNIQUE INDEX idx_users_email ON users (email);\n```\n\nIndex composite (plusieurs colonnes) :\n\n```sql\nCREATE INDEX idx_orders_user_date ON orders (user_id, created_at);\n```\n\nSupprimer un index :\n\n```sql\nDROP INDEX idx_users_email;\n```\n\n### Types courants\n\n- **B-tree :** le type par défaut dans la plupart des bases ; bon pour l'égalité, les intervalles et le tri.\n- **Hash :** rapide uniquement pour les recherches d'égalité exacte.\n- **Full-text :** pour chercher des mots dans du texte.\n- **GIN / GiST** (PostgreSQL) : pour les tableaux, le JSON, les données géographiques, etc.\n- **Clustered ou non** (SQL Server, MySQL/InnoDB) : un index clustered fixe l'ordre physique des lignes (un par table) ; les autres sont des structures à part qui pointent vers les lignes.\n\n### Quand les index aident\n\n- Les colonnes utilisées dans `WHERE`, `JOIN`, `ORDER BY` ou `GROUP BY`\n- Les colonnes de clés étrangères\n- Les colonnes très sélectives (beaucoup de valeurs distinctes)\n\n### Compromis\n\n- **Écritures plus lentes :** chaque `INSERT`, `UPDATE` et `DELETE` doit aussi mettre à jour les index.\n- **Stockage en plus :** chaque index prend de la place sur le disque.\n- **Pas toujours utilisés :** sur de petites tables ou des colonnes peu sélectives (un booléen, par exemple), le planificateur peut ignorer l'index.\n- **L'ordre des colonnes compte dans un index composite :** un index sur `(user_id, created_at)` aide les requêtes qui filtrent sur `user_id` ou sur les deux, mais en général pas sur `created_at` seul.\n\n### Vérifier l'utilisation\n\nUtilise `EXPLAIN` (ou `EXPLAIN ANALYZE`) pour voir si une requête utilise un index :\n\n```sql\nEXPLAIN SELECT * FROM users WHERE email = 'a@b.com';\n```\n\n**Règle d'or :** indexe les colonnes sur lesquelles tu cherches, joins ou tries souvent, mais n'indexe pas tout.",
         "after": "Un index est une structure de données à part qui permet à la base de retrouver des lignes rapidement sans parcourir toute la table, comme l'index à la fin d'un livre.\n\n- **Fonctionnement :** en général un B-tree qui garde les valeurs de la colonne triées, avec des pointeurs vers les lignes correspondantes.\n- **Avantage :** accélère `WHERE`, `JOIN`, `ORDER BY` et les recherches sur les colonnes indexées.\n- **Coût :** prend de la place et ralentit `INSERT`, `UPDATE` et `DELETE`, car l'index doit aussi être mis à jour.\n- **En créer un :** `CREATE INDEX idx_users_email ON users(email);`\n- **Types :** clé primaire et index uniques, composites (plusieurs colonnes), clustered ou non."
@@ -350,8 +717,8 @@
         "La bonne longueur, pour toi",
         "Ton format : listes ou texte suivi",
         "Ton niveau : simple ou technique",
-        "Des boutons en un clic sous chaque réponse",
-        "Une page pour voir et corriger ce qu'il sait de toi"
+        "Une question courte avec des réponses toutes prêtes quand ta demande est floue",
+        "Tes données chiffrées, supprimées sur demande"
       ],
       "guarantee": "Ça ne te plaît pas ? Supprime le connecteur : ton IA redevient comme avant."
     },
@@ -397,5 +764,39 @@
       "text": "La réponse fait la bonne longueur, dans ton format, du premier coup. Plus jamais « PLUS COURT. »",
       "ps": "P.S. Ça prend 2 minutes. Au pire, tu supprimes le connecteur."
     }
+  },
+  "privacy": {
+    "title": "Politique de confidentialité de Claire",
+    "updated": "Mise à jour le {date}",
+    "sections": [
+      {
+        "title": "Qui nous sommes",
+        "body": "Claire est un connecteur entre toi et ton assistant IA. Contact : {email}."
+      },
+      {
+        "title": "Ce que nous stockons",
+        "body": "Aucun nom, aucun email, aucune adresse. Un numéro interne pour ta connexion ; les informations courtes que ton assistant envoie avant chaque réponse (sujet, langue, ta réaction, ton objectif en quelques mots) ; des mesures (longueurs, durées, type d'appareil) ; les réponses de l'assistant et certains de tes messages (150 mots maximum chacun). Tous les textes sont chiffrés."
+      },
+      {
+        "title": "Pourquoi",
+        "body": "Pour adapter chaque réponse à toi, et améliorer et tester les modèles de Claire. Ton consentement, donné à la connexion, est la base légale ; les conversations peuvent contenir des données sensibles."
+      },
+      {
+        "title": "Combien de temps",
+        "body": "Les conversations stockées sont supprimées après 3 ans. Les statistiques qui n'identifient personne sont gardées."
+      },
+      {
+        "title": "Sécurité",
+        "body": "Tous les textes sont chiffrés dans la base. Les jetons d'accès ne sont stockés que sous forme d'empreinte. Les textes n'apparaissent jamais dans les journaux."
+      },
+      {
+        "title": "Tes droits",
+        "body": "Pour accéder à tes données ou les supprimer, clique sur « Mes données » sous une réponse : un email s'ouvre vers {email} avec ton code, qui nous dit quelles données sont les tiennes. Nous répondons sous un mois. Fais la demande avant de retirer le connecteur : sans lui, nous ne pouvons pas savoir quelles données sont les tiennes."
+      },
+      {
+        "title": "Réservé aux adultes",
+        "body": "Claire est réservé aux adultes."
+      }
+    ]
   }
 }

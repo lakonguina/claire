@@ -1,4 +1,4 @@
-"""OAuth 2.1 connectors without accounts (SPEC 4.7).
+"""OAuth 2.1 connectors without accounts.
 
 An app adds https://<host>/mcp, the same URL for everyone. The MCP SDK's
 handlers run the protocol (metadata, dynamic client registration, PKCE,
@@ -7,6 +7,8 @@ user: the grant is the person's only identity, and the app keeps its tokens.
 """
 
 import datetime
+import hashlib
+import json
 import urllib.parse
 
 import fastapi
@@ -24,6 +26,7 @@ from app.core import i18n
 from app.core import vocab
 from app import models
 from app.services import replies
+from app.services import visits
 
 LIFETIMES = {
     vocab.Credential.REQUEST: datetime.timedelta(minutes=10),
@@ -33,6 +36,7 @@ LIFETIMES = {
 }
 MCP_PATH = "/mcp"
 CONSENT_PATH = "/oauth/consent"
+PRIVACY_PATH = "/privacy"
 ALLOW = "allow"
 Session = sa_asyncio.AsyncSession
 
@@ -357,13 +361,27 @@ def _texts(request: fastapi.Request) -> tuple[str, dict]:
     return language, i18n.catalog(language)["consent"]
 
 
+def consent_version(language: str) -> str:
+    """Returns the version of the consent wording a person read."""
+    texts = i18n.catalog(language)
+    digest = hashlib.sha256(
+        json.dumps(
+            [texts["consent"], texts["privacy"]], sort_keys=True
+        ).encode()
+    )
+    return f"{language}:{digest.hexdigest()[:12]}"
+
+
 @router.get(CONSENT_PATH, response_class=responses.HTMLResponse)
 async def consent_page(
     request: fastapi.Request,
     pending: str = fastapi.Query(alias="request"),
 ) -> str:
-    """Asks the person to connect the app; nothing to fill in."""
+    """Asks the person to connect the app, saying what is stored."""
     language, texts = _texts(request)
+    await visits.record(
+        "consent", request.headers.get("referer"), dict(request.query_params)
+    )
     async with db.session() as session, session.begin():
         found = await _live(session, pending, vocab.Credential.REQUEST)
     if found is None:
@@ -379,6 +397,7 @@ async def consent_page(
         app=app_name,
         request=pending,
         allow=ALLOW,
+        policy=PRIVACY_PATH,
     )
 
 
@@ -405,10 +424,14 @@ async def consent(request: fastapi.Request) -> responses.RedirectResponse:
                 back, error="access_denied", state=params.state
             )
             return responses.RedirectResponse(location, status_code=303)
-        user = replies.new_user()
+        user = models.User()
         session.add(user)
         await session.flush()
-        grant = models.OAuthGrant(user_id=user.id, client_id=pending.client_id)
+        grant = models.OAuthGrant(
+            user_id=user.id,
+            client_id=pending.client_id,
+            consent_version=consent_version(_texts(request)[0]),
+        )
         session.add(grant)
         await session.flush()
         code = _issue(

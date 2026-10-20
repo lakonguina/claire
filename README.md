@@ -1,23 +1,28 @@
 # Claire
 
-MCP server that makes chat assistants give shorter, better-targeted replies and learns each user's preferences. See `SPEC.md`.
+MCP server that makes chat assistants give shorter, better-targeted replies and learns each user's preferences. See `DESIGN.md`.
 
 ## Run
 
 ```sh
-cp .env.example .env          # set PUBLIC_URL, ADMIN_TOKEN, POSTGRES_PASSWORD
+cp .env.example .env          # set PUBLIC_URL, ADMIN_TOKEN, POSTGRES_PASSWORD, DATA_KEY
 docker compose up -d --build
 ```
 
-The app listens on `127.0.0.1:8000`. Put a TLS reverse proxy in front of it. Anyone adds `$PUBLIC_URL/mcp` as a custom connector on claude.ai (or ChatGPT) and clicks **Continue**: no account, each connector gets its own anonymous profile (OAuth, `SPEC.md` section 4.7). Then paste the account instruction from `SPEC.md` section 10.
+The app listens on `127.0.0.1:8000`. Put a TLS reverse proxy in front of it. Anyone adds `$PUBLIC_URL/mcp` as a custom connector on claude.ai (or ChatGPT) and clicks **Continue**: no account, each connector gets its own anonymous profile. Then paste the account instruction the landing page shows.
 
 Admin endpoints take `Authorization: Bearer $ADMIN_TOKEN` (the dashboard asks for it):
 
 - `GET /admin`: the dashboard (live turns, users, learned model, metrics, gold labels)
 - `POST /gold_label`: `{"turn_id": "t_31", "outcome": "moved_on"}`
 - `GET /metrics`
+- `POST /admin/api/privacy/erase`: `{"code": "12-…"}`, the code from a person's data request email (the dashboard has a form)
 
-The `nightly` service runs `python -m app.jobs.nightly` once a day: it refits the noise models, the hyperparameters and the topic clusters, then rebuilds all derived state by replaying the events.
+The `nightly` service runs `python -m app.jobs.nightly` once a day: it deletes stored texts past `RETENTION_DAYS`, refits the noise models, the hyperparameters and the topic clusters, then rebuilds all derived state by replaying the events.
+
+Before launching new prompts, put them in `locales/candidate.json` (`{"prompts": {...}}`, the English keys they change), run `python -m app.evals.instruction` (scripted conversations through the assistants in `EVAL_MODELS`, with your API keys), then raise `CANDIDATE_SHARE`; `/metrics` compares the catalogs.
+
+`DATA_KEY` encrypts stored texts: back it up apart from the database, and never change it, or stored texts become unreadable.
 
 The layout is in `TREE.md`. Texts live in `locales/<language>.json` (English is complete and is the fallback); identifiers live in `app/core/vocab.py`; the schema lives in `app/models.py`, and the app applies the Alembic migrations at start.
 

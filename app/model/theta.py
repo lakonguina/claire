@@ -1,7 +1,7 @@
-"""The preferred length as a Bayesian regression on the request (SPEC 6.5).
+"""The preferred length as a Bayesian regression on the request.
 
 No request categories: a request is described by features learned from the
-data, its soft membership in the learned topic domains (section 7.1), plus
+data, its soft membership in the learned topic domains, plus
 whether it comes from a phone. A user's preferred log ratio of length to
 needed words is theta(x) = w . x, and w has a Gaussian posterior, starting
 from the population prior and updated after every turn by assumed-density
@@ -22,13 +22,6 @@ from app.model import stats
 SUFFICIENT = frozenset({vocab.Outcome.MOVED_ON, vocab.Outcome.TOO_LONG})
 INSUFFICIENT = frozenset({vocab.Outcome.TOO_SHORT, vocab.Outcome.MISSING_INFO})
 BIAS, MOBILE = "bias", "mobile"
-# Profile-page length choices: the ratio of needed words they mean.
-EDIT_RATIOS = {
-    vocab.LengthChoice.SHORT: 0.4,
-    vocab.LengthChoice.MEDIUM: 0.7,
-    vocab.LengthChoice.DETAILED: 1.0,
-}
-EDIT_SD = 0.15
 MIN_VAR = 1e-6
 INFORMED = 0.9  # Posterior / prior variance under which data has spoken.
 
@@ -103,14 +96,6 @@ class Belief:
         self.mean = self.mean + cz * g
         self.cov = self.cov + np.outer(cz, cz) * h
 
-    def observe(
-        self, x: dict[str, float], value: float, var: float, prior: Prior
-    ) -> None:
-        """Conditions on theta(x) ~ N(value, var): a profile-page edit."""
-        z = self.vector(x, prior)
-        mean, v = self.predict(x, prior)
-        self.absorb(z, (value - mean) / (v + var), -1 / (v + var))
-
 
 def informed(belief: Belief, prior: Prior) -> list[str]:
     """Returns the features beyond the bias that data has informed."""
@@ -169,24 +154,3 @@ def update(
     curve = (p_insuff - p_suff) * t * pdf / s**2  # d2Z / d mean2.
     g = slope / total
     belief.absorb(z, g, curve / total - g * g)
-
-
-def edit_features(scope: str, domain_prefix: str) -> dict[str, float]:
-    """Returns the features a profile-page length row stands for.
-
-    Args:
-        scope: "*" (in general), "mobile", or a domain scope. Rows of the
-            retired request types read as general, or mobile for "t@mobile".
-        domain_prefix: The prefix of domain scopes.
-
-    Returns:
-        The features.
-    """
-    if scope.startswith(domain_prefix):
-        return {BIAS: 1.0, scope: 1.0}
-    return features({}, scope == MOBILE or scope.endswith("@" + MOBILE))
-
-
-def edit(belief: Belief, x: dict[str, float], choice: str, prior: Prior):
-    """Applies a profile-page length correction, a sharp observation."""
-    belief.observe(x, math.log(EDIT_RATIOS[choice]), EDIT_SD**2, prior)

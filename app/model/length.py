@@ -1,4 +1,4 @@
-"""Reply length (SPEC 6.2): sensor fusion and the self-report noise."""
+"""Reply length: sensor fusion and the self-report noise."""
 
 import dataclasses
 import math
