@@ -5,7 +5,7 @@ from typing import Annotated
 import pydantic
 import pydantic_settings
 
-from app import vocab
+from app.core import vocab
 
 SCHEMA_VERSION = 2
 CommaList = Annotated[list[str], pydantic_settings.NoDecode]

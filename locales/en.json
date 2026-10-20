@@ -84,18 +84,7 @@
   "widget": {
     "copy": "Copy",
     "copied": "Copied ✓",
-    "copy_reply": "Copy reply",
-    "profile": "What I learned about you"
-  },
-  "profile": {
-    "title": "What I learned about you",
-    "intro": "What your AI assistants know about how you like answers. Change any line: it takes effect on the next reply.",
-    "save": "Save",
-    "in_general": "In general",
-    "topics_like": "Topics like “{topic}”",
-    "on_mobile": "on mobile",
-    "length": "Length",
-    "nothing": "Nothing learned yet: keep chatting."
+    "copy_reply": "Copy reply"
   },
   "consent": {
     "title": "Connect Claire to {app}?",

@@ -40,18 +40,7 @@
   "widget": {
     "copy": "Copier",
     "copied": "Copié ✓",
-    "copy_reply": "Copier la réponse",
-    "profile": "Ce que j'ai appris de toi"
-  },
-  "profile": {
-    "title": "Ce que j'ai appris de toi",
-    "intro": "Ce que tes assistants IA savent de tes réponses préférées. Modifie une ligne : c'est pris en compte dès la réponse suivante.",
-    "save": "Enregistrer",
-    "in_general": "En général",
-    "topics_like": "Sujets comme « {topic} »",
-    "on_mobile": "sur mobile",
-    "length": "Longueur",
-    "nothing": "Rien d'appris pour l'instant : continue à discuter."
+    "copy_reply": "Copier la réponse"
   },
   "consent": {
     "title": "Connecter Claire à {app} ?",

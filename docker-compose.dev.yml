@@ -20,6 +20,8 @@ services:
     volumes:
       - ./app:/srv/app
       - ./locales:/srv/locales
+      # Migrations run at start and import app/: they must match the mounted code.
+      - ./migrations:/srv/migrations
 
   # Recompiles the landing stylesheet whenever the template uses new classes.
   site:

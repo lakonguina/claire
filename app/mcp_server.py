@@ -14,10 +14,10 @@ from mcp.server.mcpserver import exceptions
 import mcp_types
 import pydantic
 
-from app import config
-from app import i18n
-from app import service
-from app import vocab
+from app.core import config
+from app.core import i18n
+from app.core import vocab
+from app.services import replies
 
 log = logging.getLogger(__name__)
 WIDGET = pathlib.Path(__file__).resolve().parent / "static" / "index.html"
@@ -76,12 +76,12 @@ class ClaireServer(mcpserver.MCPServer):
         except Exception as exc:  # pylint: disable=broad-exception-caught
             cause = exc.__cause__ or exc
             log.info("show_reply failed: %s", type(cause).__name__)
-            if isinstance(cause, service.ReplyShownError):
+            if isinstance(cause, replies.ReplyShownError):
                 raise exceptions.ToolError(TOOLS["errors"]["shown"]) from None
             raise exceptions.ToolError(TOOLS["errors"]["show_reply"]) from None
 
 
-def caller(ctx: mcpserver.Context) -> service.Caller:
+def caller(ctx: mcpserver.Context) -> replies.Caller:
     """Returns who calls: the user behind the token, the host and its mode."""
     headers = ctx.headers or {}
     client = ctx.session.client_params
@@ -101,7 +101,7 @@ def caller(ctx: mcpserver.Context) -> service.Caller:
             client.client_info.version if client and client.client_info else "",
             capabilities.extensions if capabilities else None,
         )
-    return service.Caller(
+    return replies.Caller(
         int(headers[TOKEN_HEADER]),
         host,
         ui,
@@ -119,7 +119,7 @@ def _handled(
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return await fn(*args, **kwargs)
-        except service.HandleError:
+        except replies.HandleError:
             raise exceptions.ToolError(TOOLS["errors"]["handle"]) from None
 
     return wrapper
@@ -146,7 +146,7 @@ async def show_reply(
         ),
     ] = None,
 ) -> mcp_types.CallToolResult:
-    data = await _handled(service.show_reply)(
+    data = await _handled(replies.show_reply)(
         caller(ctx), turn_id, text, suggestions
     )
     return mcp_types.CallToolResult(content=SHOWN, structured_content=data)
@@ -161,7 +161,7 @@ async def show_reply(
 async def record_click(
     ctx: mcpserver.Context, turn_id: str, button: str, position: int
 ) -> mcp_types.CallToolResult:
-    await _handled(service.record_click)(caller(ctx), turn_id, button, position)
+    await _handled(replies.record_click)(caller(ctx), turn_id, button, position)
     return mcp_types.CallToolResult(content=OK)
 
 
@@ -177,7 +177,7 @@ async def report_context(
     platform: str | None = None,
     locale: str | None = None,
 ) -> mcp_types.CallToolResult:
-    await _handled(service.report_context)(
+    await _handled(replies.report_context)(
         caller(ctx), turn_id, platform, locale
     )
     return mcp_types.CallToolResult(content=OK)
@@ -230,5 +230,5 @@ async def plan_reply(
     # The signature is the tool schema; the arguments sent are kept as the raw
     # payload (SPEC 5.4), so they are collected as received.
     args = {k: v for k, v in locals().items() if k != "ctx" and v is not None}
-    plan = await _handled(service.plan_reply)(caller(ctx), args)
-    return service.compact(plan)
+    plan = await _handled(replies.plan_reply)(caller(ctx), args)
+    return replies.compact(plan)

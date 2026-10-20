@@ -7,9 +7,9 @@ from alembic import command
 from alembic import config as alembic_config
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import config
+from app.core import config
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 DRIVER = "postgresql+psycopg"
 
 

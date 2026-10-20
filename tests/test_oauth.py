@@ -2,8 +2,8 @@
 
 from urllib import parse
 
-from app import i18n
-from app import oauth
+from app.core import i18n
+from app.routers import oauth
 from tests import conftest
 
 PLAN = {

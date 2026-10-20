@@ -15,7 +15,7 @@ import math
 
 import numpy as np
 
-from app import vocab
+from app.core import vocab
 from app.model import reaction
 from app.model import stats
 

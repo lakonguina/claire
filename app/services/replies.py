@@ -10,20 +10,20 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import config
-from app import db
-from app import engine
-from app import i18n
-from app import models
-from app import params as params_lib
-from app import questions
-from app import text
-from app import topics
-from app import vocab
+from app.core import config
+from app.core import db
+from app.core import i18n
+from app.core import text
+from app.core import vocab
 from app.model import bandits
 from app.model import policy
 from app.model import prefs
 from app.model import theta
+from app import models
+from app.services import engine
+from app.services import params as params_lib
+from app.services import questions
+from app.services import topics
 
 Session = sa_asyncio.AsyncSession
 CONVERSATION_PREFIX = "c_"
@@ -68,11 +68,6 @@ def token_hash(token: str) -> str:
 def new_user() -> models.User:
     """Returns a new anonymous user, with the secret key of their profile."""
     return models.User(profile_key=new_secret())
-
-
-def profile_url(key: str) -> str:
-    """Returns the profile page URL of a user's profile key (SPEC 4.6)."""
-    return f"{config.settings.public_url.rstrip("/")}/me/{key}"
 
 
 def compact(data: dict) -> str:
@@ -487,12 +482,10 @@ async def show_reply(
             raise ReplyShownError
         _log_call(session, caller, "show_reply")
         session.add(models.Reply(turn_id=turn.id, reply_words_exact=words))
-        user = await session.get(models.User, caller.user_id)
         return {
             "turn_id": turn_handle,
             "buttons": await _buttons(session, turn, labels),
             "labels": i18n.catalog(turn.language)["widget"],
-            "profile_url": profile_url(user.profile_key),
         }
 
 

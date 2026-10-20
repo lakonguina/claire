@@ -12,19 +12,19 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import db
-from app import engine
-from app import models
-from app import params as params_lib
-from app import questions
-from app import topics
-from app import vocab
+from app.core import db
+from app.core import vocab
 from app.model import family
 from app.model import length
 from app.model import reaction
 from app.model import reading
 from app.model import stats
 from app.model import theta
+from app import models
+from app.services import engine
+from app.services import params as params_lib
+from app.services import questions
+from app.services import topics
 
 Session = sa_asyncio.AsyncSession
 log = logging.getLogger(__name__)

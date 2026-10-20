@@ -13,11 +13,11 @@ import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import config
-from app import models
-from app import params as params_lib
-from app import vocab
+from app.core import config
+from app.core import vocab
 from app.model import stats
+from app import models
+from app.services import params as params_lib
 
 CHARS_PER_TOKEN = 4.0
 WORDS_PER_TOKEN = 0.75

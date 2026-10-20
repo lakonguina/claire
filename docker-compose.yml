@@ -35,7 +35,7 @@ services:
   nightly:
     build: .
     environment: *env
-    command: ["sh", "-c", "while true; do sleep 86400; python -m app.nightly; done"]
+    command: ["sh", "-c", "while true; do sleep 86400; python -m app.jobs.nightly; done"]
     depends_on:
       db:
         condition: service_healthy

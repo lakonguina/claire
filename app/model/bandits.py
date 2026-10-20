@@ -8,7 +8,7 @@ helped: clicked, and the reply that followed the click was fine.
 import dataclasses
 import random
 
-from app import vocab
+from app.core import vocab
 from app.model import prefs
 
 SHUFFLE_PROB = 0.2

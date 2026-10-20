@@ -18,12 +18,12 @@ from mcp.shared import auth as shared_auth
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import config
-from app import db
-from app import i18n
+from app.core import config
+from app.core import db
+from app.core import i18n
+from app.core import vocab
 from app import models
-from app import service
-from app import vocab
+from app.services import replies
 
 LIFETIMES = {
     vocab.Credential.REQUEST: datetime.timedelta(minutes=10),
@@ -66,10 +66,10 @@ def _issue(
     data: dict,
 ) -> str:
     """Stores a new credential's hash; returns the credential."""
-    token = service.new_secret()
+    token = replies.new_secret()
     session.add(
         models.OAuthCredential(
-            token_hash=service.token_hash(token),
+            token_hash=replies.token_hash(token),
             kind=kind,
             client_id=client_id,
             grant_id=grant_id,
@@ -107,7 +107,7 @@ async def _live(
         sa.select(c, g)
         .outerjoin(g)
         .where(
-            c.token_hash == service.token_hash(token),
+            c.token_hash == replies.token_hash(token),
             c.kind == kind,
             c.expires_at > _now(),
         )
@@ -307,7 +307,7 @@ class Provider(
         """Disconnects the app: every credential of the grant dies."""
         async with db.session() as session, session.begin():
             credential = await session.get(
-                models.OAuthCredential, service.token_hash(token.token)
+                models.OAuthCredential, replies.token_hash(token.token)
             )
             if credential and credential.grant_id:
                 grant = await session.get(
@@ -405,7 +405,7 @@ async def consent(request: fastapi.Request) -> responses.RedirectResponse:
                 back, error="access_denied", state=params.state
             )
             return responses.RedirectResponse(location, status_code=303)
-        user = service.new_user()
+        user = replies.new_user()
         session.add(user)
         await session.flush()
         grant = models.OAuthGrant(user_id=user.id, client_id=pending.client_id)

@@ -9,21 +9,21 @@ from alembic import migration
 import pandas as pd
 import sqlalchemy as sa
 
-from app import config
-from app import db
-from app import i18n
+from app.core import config
+from app.core import db
+from app.core import i18n
+from app.core import vocab
+from app.jobs import nightly
 from app import mcp_server
-from app import models
-from app import nightly
-from app import oauth
-from app import params as params_lib
-from app import questions
-from app import service
-from app import topics
-from app import vocab
 from app.model import bandits
 from app.model import prefs
 from app.model import theta
+from app import models
+from app.routers import oauth
+from app.services import params as params_lib
+from app.services import questions
+from app.services import replies
+from app.services import topics
 from tests import conftest
 
 MARKER = "SECRET_REPLY_MARKER_93f1"
@@ -33,12 +33,11 @@ PLAN = {
     "needed_words": 200,
 }
 AUTH = {"authorization": "Bearer admin-secret"}
-FORM = {"content-type": "application/x-www-form-urlencoded"}
 WIDGET_SENTENCE = i18n.prompts()["widget_mode"]
 
 
 def turn_number(plan: dict) -> int:
-    return int(plan["turn_id"].removeprefix(service.TURN_PREFIX))
+    return int(plan["turn_id"].removeprefix(replies.TURN_PREFIX))
 
 
 async def scalar(database, statement):
@@ -125,7 +124,6 @@ async def test_full_turn_sequence_and_no_trace_of_text(
         {"type": "text", "text": mcp_server.TOOLS["shown"]}
     ]
     content = shown["structuredContent"]
-    assert content["profile_url"].endswith(await client.profile_key())
     b = content["buttons"][0]
     await client.call(
         "record_click",
@@ -438,45 +436,7 @@ async def test_mobile_report_becomes_a_length_feature(make_client, database):
     assert style["mobile"]
 
 
-async def test_profile_page_lists_and_applies_corrections(
-    http, make_client, database
-):
-    client = await make_client()
-    await plan_and_close(client)
-    key = await client.profile_key()
-    page = await http.get(f"/me/{key}")
-    title = i18n.catalog(i18n.FALLBACK)["profile"]["title"]
-    assert page.status_code == 200 and title in page.text
-    corrected = await http.post(
-        f"/me/{key}",
-        content="scope=*&dimension=format&value=table",
-        headers=FORM,
-    )
-    assert corrected.status_code == 303
-    count = await pref_count(
-        database,
-        await client.user_id(),
-        prefs.USER_SCOPE,
-        vocab.Dimension.FORMAT,
-        vocab.PrefValue.TABLE,
-    )
-    assert count >= prefs.EDIT
-    length = await http.post(
-        f"/me/{key}",
-        content="scope=*&dimension=length&value=short",
-        headers=FORM,
-    )
-    assert length.status_code == 303
-    bad = await http.post(
-        f"/me/{key}",
-        content="scope=*&dimension=format&value=nonsense",
-        headers=FORM,
-    )
-    assert bad.status_code == 422
-    assert (await http.get("/me/not-a-key")).status_code == 404
-
-
-async def test_replay_rebuilds_the_online_state(http, make_client, database):
+async def test_replay_rebuilds_the_online_state(make_client, database):
     client = await make_client()
     for _ in range(3):
         plan = (await client.call("plan_reply", **PLAN))["data"]
@@ -493,11 +453,6 @@ async def test_replay_rebuilds_the_online_state(http, make_client, database):
                     user_quote="ok then",
                 )
             )["data"]
-    await http.post(
-        f"/me/{await client.profile_key()}",
-        content="scope=*&dimension=tone&value=direct",
-        headers=FORM,
-    )
     online = await snapshot(database)
     async with database() as session, session.begin():
         p = await params_lib.load_params(session)
@@ -553,7 +508,7 @@ async def test_dashboard(http, make_client):
     overview = (await http.get("/admin/api/overview", headers=AUTH)).json()
     assert overview["counts"]["turns"] == 2
     conversation = plan["conversation_id"].removeprefix(
-        service.CONVERSATION_PREFIX
+        replies.CONVERSATION_PREFIX
     )
     turns = (
         await http.get(

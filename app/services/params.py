@@ -7,11 +7,11 @@ import time
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import models
 from app.model import family as family_lib
 from app.model import reaction
 from app.model import reading as reading_lib
 from app.model import theta
+from app import models
 
 INITIAL_NOISE = {"self_report": 0.3, "writing_time": 0.5, "requested": 0.25}
 READING_PRIOR = (6.0, 3.0, 1.0)  # Dirichlet counts: read, skim, away.

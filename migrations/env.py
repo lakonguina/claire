@@ -7,7 +7,7 @@ from alembic import context
 import pgvector.sqlalchemy
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import db
+from app.core import db
 from app import models
 
 # The CLI configures logging; the app, which migrates at start, keeps its own.

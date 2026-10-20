@@ -15,9 +15,9 @@ from sklearn import metrics
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import config
-from app import models
+from app.core import config
 from app.model import matching
+from app import models
 
 MIN_TOPICS = 20  # Below this, every topic is in one domain.
 MAX_CLUSTERS = 30

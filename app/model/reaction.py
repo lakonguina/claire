@@ -2,7 +2,7 @@
 
 import dataclasses
 
-from app import vocab
+from app.core import vocab
 from app.model import bandits
 from app.model import stats
 

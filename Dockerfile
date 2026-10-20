@@ -11,7 +11,7 @@ COPY site/package.json site/package-lock.json ./
 RUN npm ci
 COPY site/ ./
 # Tailwind keeps only the classes the landing template uses.
-COPY app/landing.html ../app/landing.html
+COPY app/templates/landing.html ../app/templates/landing.html
 RUN npm run build
 
 FROM python:3.12-slim

@@ -6,12 +6,12 @@ import pathlib
 import fastapi
 from fastapi import responses
 
-from app import i18n
-from app import oauth
-from app import text
-from app import vocab
+from app.core import i18n
+from app.core import text
+from app.core import vocab
+from app.routers import oauth
 
-ASSETS = pathlib.Path(__file__).resolve().parent / "assets"
+ASSETS = pathlib.Path(__file__).resolve().parents[1] / "assets"
 SCREEN_SUFFIXES = (".webp", ".png", ".jpg")
 CONNECTOR_NAME = "Claire"
 # Brand names, never translated; the logos are logos/<key>.svg.

@@ -8,20 +8,15 @@ from urllib import parse
 import fastapi
 from fastapi import staticfiles
 from mcp.server import transport_security
-import pydantic
 import sqlalchemy as sa
 
-from app import config
-from app import dashboard
-from app import db
-from app import landing
+from app.core import config
+from app.core import db
 from app import mcp_server
-from app import metrics
-from app import models
-from app import oauth
-from app import profile
-from app import service
-from app import vocab
+from app.routers import admin
+from app.routers import dashboard
+from app.routers import landing
+from app.routers import oauth
 
 logging.basicConfig(
     level=logging.INFO,
@@ -135,9 +130,9 @@ api = fastapi.FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+api.include_router(admin.router)
 api.include_router(dashboard.page)
 api.include_router(dashboard.api)
-api.include_router(profile.router)
 api.include_router(oauth.router)
 api.include_router(landing.router)
 api.mount(
@@ -147,12 +142,6 @@ api.mount(
 api.mount("/assets", staticfiles.StaticFiles(directory=landing.ASSETS))
 api.router.routes.extend(oauth.routes())
 app = AccessLog(McpAuth(mcp_app, api))
-admin = [fastapi.Depends(dashboard.admin)]
-
-
-class GoldLabel(pydantic.BaseModel):
-    turn_id: str = pydantic.Field(pattern=rf"^{service.TURN_PREFIX}\d+$")
-    outcome: vocab.Outcome
 
 
 @api.get("/health")
@@ -160,21 +149,3 @@ async def health() -> dict:
     async with db.session() as session:
         await session.execute(sa.select(1))
     return {"ok": True}
-
-
-@api.post("/gold_label", dependencies=admin)
-async def gold_label(label: GoldLabel) -> dict:
-    async with db.session() as session, session.begin():
-        session.add(
-            models.GoldLabel(
-                turn_id=int(label.turn_id.removeprefix(service.TURN_PREFIX)),
-                outcome=label.outcome,
-            )
-        )
-    return {"ok": True}
-
-
-@api.get("/metrics", dependencies=admin)
-async def get_metrics() -> dict:
-    async with db.session() as session:
-        return await metrics.compute(session)

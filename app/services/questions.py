@@ -18,9 +18,9 @@ from sklearn import cluster
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import models
-from app import topics
 from app.model import matching
+from app import models
+from app.services import topics
 
 SAME_QUESTION = 0.3  # Cosine distance under which two topics ask the same.
 MIN_USERS = 5  # Distinct people who asked a question before it is shown.

@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects import postgresql
 
-from app import vocab
+from app.core import vocab
 
 EMBEDDING_DIMENSIONS = 384
 NAMING = {

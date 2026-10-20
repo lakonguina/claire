@@ -7,11 +7,9 @@ import random
 import numpy as np
 import pytest
 
-from app import i18n
-from app import service
-from app import text
-from app import topics
-from app import vocab
+from app.core import i18n
+from app.core import text
+from app.core import vocab
 from app.model import bandits
 from app.model import family
 from app.model import length
@@ -21,6 +19,8 @@ from app.model import prefs
 from app.model import reaction
 from app.model import reading
 from app.model import theta
+from app.services import replies
+from app.services import topics
 
 CONF = reaction.default_confusions()
 FAMILY_PROBS = {"class-1": 0.5, "class-2": 0.5}
@@ -293,10 +293,10 @@ def test_buttons_are_distinct_and_positioned():
 
 
 def test_assistant_labels_are_checked():
-    label = service._label  # pylint: disable=protected-access
+    label = replies._label  # pylint: disable=protected-access
     assert label("  Un   exemple de budget ") == "Un exemple de budget"
-    assert label("word " * (service.MAX_LABEL_WORDS + 1)) is None
-    assert label("x" * (service.MAX_LABEL_CHARS + 1)) is None
+    assert label("word " * (replies.MAX_LABEL_WORDS + 1)) is None
+    assert label("x" * (replies.MAX_LABEL_CHARS + 1)) is None
     assert label("") is None and label(3) is None
 
 

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "basecoat-css";
 
-@source "../app/landing.html";
+@source "../app/templates/landing.html";
 
 /* Claire palette on the shadcn tokens, as in the dashboard. */
 :root {

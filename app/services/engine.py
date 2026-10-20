@@ -17,10 +17,7 @@ from sqlalchemy import orm
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import models
-from app import params as params_lib
-from app import topics
-from app import vocab
+from app.core import vocab
 from app.model import bandits
 from app.model import length
 from app.model import prefs
@@ -28,6 +25,9 @@ from app.model import reaction
 from app.model import reading
 from app.model import stats
 from app.model import theta
+from app import models
+from app.services import params as params_lib
+from app.services import topics
 
 Session = sa_asyncio.AsyncSession
 KAPPA_PRIOR_VAR = 0.3**2

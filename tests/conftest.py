@@ -22,12 +22,12 @@ import pytest
 import pytest_asyncio
 import sqlalchemy as sa
 
-from app import db
+from app.core import db
 from app import main
 from app import mcp_server
 from app import models
-from app import oauth
-from app import params as params_lib
+from app.routers import oauth
+from app.services import params as params_lib
 
 # pylint: enable=wrong-import-position
 
@@ -68,11 +68,6 @@ class McpClient:
 
     async def user_id(self) -> int:
         return await oauth.user_for_access_token(self.access)
-
-    async def profile_key(self) -> str:
-        async with db.session() as session:
-            user = await session.get(models.User, await self.user_id())
-        return user.profile_key
 
     async def rpc(self, method: str, params: dict | None = None) -> dict:
         """Sends one request and returns its JSON-RPC response."""

@@ -8,21 +8,21 @@ from fastapi import responses
 import sqlalchemy as sa
 from sqlalchemy.ext import asyncio as sa_asyncio
 
-from app import config
-from app import db
-from app import engine
-from app import i18n
-from app import models
-from app import nightly
-from app import params as params_lib
-from app import questions
-from app import topics
-from app import vocab
+from app.core import config
+from app.core import db
+from app.core import i18n
+from app.core import vocab
+from app.jobs import nightly
 from app.model import prefs
 from app.model import reaction
 from app.model import reading as reading_lib
 from app.model import stats
 from app.model import theta
+from app import models
+from app.services import engine
+from app.services import params as params_lib
+from app.services import questions
+from app.services import topics
 
 PAGE = i18n.TEMPLATES.get_template("dashboard.html")
 # The catalog sections the page reads.

@@ -11,11 +11,12 @@ import re
 
 import jinja2
 
-LOCALES = pathlib.Path(__file__).resolve().parent.parent / "locales"
+APP = pathlib.Path(__file__).resolve().parents[1]
+LOCALES = APP.parent / "locales"
 FALLBACK = "en"
 LANGUAGE = re.compile(r"[a-z]{2}")
 TEMPLATES = jinja2.Environment(  # The localized HTML pages.
-    loader=jinja2.FileSystemLoader(pathlib.Path(__file__).resolve().parent),
+    loader=jinja2.FileSystemLoader(APP / "templates"),
     autoescape=True,
 )
 

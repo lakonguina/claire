@@ -16,13 +16,6 @@
   --sans: Inter, "ABC Diatype", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: dark;
 }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #fdfcf6; --panel: #f4f2e8; --panel-2: #ebe7dc; --line: #dfdad1; --line-strong: #c6c0b6;
-    --ink: #191711; --muted: #716d64; --faint: #a39d92; --accent: #bc0fbc; --accent-ink: #9a0e98;
-    --accent-soft: rgba(188, 15, 188, .1); --aqua: #007a55; color-scheme: light;
-  }
-}
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
@@ -39,7 +32,7 @@ header {
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
 .brand i { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
 .brand span { color: var(--muted); font-weight: 400; }
-nav { display: flex; gap: 2px; height: 100%; overflow-x: auto; }
+nav { display: flex; gap: 2px; height: 100%; overflow-x: auto; scrollbar-width: none; }
 nav button {
   border: 0; background: none; padding: 0 12px; height: 100%; cursor: pointer; color: var(--muted);
   border-bottom: 2px solid transparent; white-space: nowrap;
@@ -55,26 +48,33 @@ nav button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--
 main { padding: 20px; max-width: 1600px; margin: 0 auto; }
 h2 { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
 .grid { display: grid; gap: 12px; }
-.kpis { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); margin-bottom: 16px; }
+/* Grids without holes: the 8 figures fill whole rows; panels take half the width or all of it. */
+.kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 16px; }
+@media (min-width: 640px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1180px) { .kpis { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
 .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
 .kpi b { display: block; font: 500 22px/1.2 var(--mono); letter-spacing: -.02em; }
 .kpi small { color: var(--muted); font-size: 12px; }
-.panels { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-bottom: 16px; }
-.wide { grid-column: 1 / -1; }
+.panels { grid-template-columns: minmax(0, 1fr); margin-bottom: 16px; }
+@media (min-width: 900px) { .panels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.wide, .filled { grid-column: 1 / -1; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
 
+/* Tables fit their panel: cells wrap instead of widening it. */
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
-  padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.scroll { overflow-x: auto; }
-tr.mono td, .heat td { white-space: nowrap; }
+  padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: bottom; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: break-word; }
+/* Only for what still cannot fit (a phone): sideways, never a scrollbar inside the panel's height. */
+.scroll { overflow-x: auto; overflow-y: hidden; }
 .kv td:first-child { color: var(--muted); width: 45%; }
 .rows tr { cursor: pointer; }
 .rows tr:hover td { background: var(--accent-soft); }
 .rows tr.selected td { background: var(--accent-soft); }
 .rows td:first-child { border-left: 3px solid var(--bar, transparent); }
-.topic { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topic { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.quote { min-width: 180px; }
 
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .filters input, .filters select, .token input {
@@ -88,6 +88,8 @@ tr.mono td, .heat td { white-space: nowrap; }
 .chip { display: inline-block; padding: 1px 7px; border-radius: 999px; font: 500 11.5px/1.6 var(--mono);
   background: color-mix(in srgb, var(--c, var(--faint)) 18%, transparent); color: var(--c, var(--muted));
   border: 1px solid color-mix(in srgb, var(--c, var(--faint)) 40%, transparent); white-space: nowrap; }
+.chip.wrap { white-space: normal; border-radius: 8px; }  /* A follow-up question: a sentence, not a tag. */
+.buttons { min-width: 200px; }
 .chip.clicked { background: var(--c, var(--accent)); color: #12010d; }
 
 .drawer { position: fixed; top: 52px; right: 0; bottom: 0; width: min(620px, 100%); background: var(--panel);
@@ -107,6 +109,7 @@ tr.mono td, .heat td { white-space: nowrap; }
 pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto;
   font: 12px/1.5 var(--mono); margin: 0; }
 .heat td { text-align: center; font: 11.5px var(--mono); padding: 4px; }
+.heat th { text-transform: none; letter-spacing: 0; padding: 6px 4px; }
 .gold { display: flex; flex-wrap: wrap; gap: 6px; }
 .gold button { cursor: pointer; }
 .ratio { position: relative; height: 16px; background: var(--panel-2); border-radius: 3px; min-width: 160px; }
@@ -300,7 +303,7 @@ async function renderLive() {
       <div class="panel">${head("topic_domains", {}, `· ${c.topic_clusters}`)}${overview.topic_clusters.length
         ? kv(overview.topic_clusters.map((k) => [`${esc(ui("domain", { n: k.id }))} · ${k.size}`, `“${esc(k.medoid_topic)}”`]))
         : `<p class="faint">${esc(ui("domains_until"))}</p>`}</div>
-      <div class="panel scroll">${head("questions")}${overview.questions.length ? table(["question", "language", "asked_by", "follows"],
+      <div class="panel scroll wide">${head("questions")}${overview.questions.length ? table(["question", "language", "asked_by", "follows"],
         overview.questions.map((q) => `<tr><td>${esc(q.text)}${q.users < overview.min_users ? "" : ` ${chip("✓", "var(--aqua)")}`}</td><td class="mono">${esc(q.language)}</td><td class="mono">${q.users}</td><td class="mono">${q.follows}</td></tr>`).join(""))
         : `<p class="faint">${esc(ui("questions_until"))}</p>`}</div>
       <div class="panel">${head("tool_calls")}${kv(overview.tool_calls.map((t) => [esc(t.tool), t.calls_24h]))}</div>
@@ -337,19 +340,19 @@ async function renderLive() {
 }
 
 function turnRow(t) {
-  const buttons = t.buttons.map((b) => chip(b.label || buttonName(b.id), b.label ? "var(--violet)" : "var(--accent)", b.position === t.clicked ? "clicked" : "")).join(" ");
+  const buttons = t.buttons.map((b) => chip(b.label || buttonName(b.id), b.label ? "var(--violet)" : "var(--accent)", `${b.label ? "wrap" : ""} ${b.position === t.clicked ? "clicked" : ""}`)).join(" ");
   const flow = [t.needed_words, t.target_words, t.requested_words, t.reply_words_exact].map((w) => w ?? "—").join(" → ");
   return `<tr data-id="${t.id}" class="${state.selected === t.id ? "selected" : ""}" style="--bar:${OUTCOME_COLORS[t.inferred] || "transparent"}">
-    <td class="mono muted">${time(t.created_at)}</td>
+    <td class="mono muted nowrap">${time(t.created_at)}</td>
     <td class="mono">t_${t.id}<span class="faint"> #${t.turn_index}</span></td>
     <td class="mono">u${t.user_id} · c_${t.conversation_id}</td>
     <td class="mono">${esc(t.host)}</td>
     <td>${chip(named("modes", t.reply_mode), t.reply_mode === "widget" ? "var(--aqua)" : "var(--warn)")} ${t.grp !== "treatment" ? chip(named("groups", t.grp), "var(--faint)") : ""}</td>
     <td class="topic" title="${esc(t.topic)}">${esc(t.topic)} <span class="faint mono">${esc(t.language)}</span></td>
-    <td class="mono">${flow}</td>
-    <td>${outcomeChip(t.verdict)}${t.user_quote ? `<div class="faint">“${esc(t.user_quote)}”</div>` : ""}</td>
+    <td class="mono nowrap">${flow}</td>
+    <td>${outcomeChip(t.verdict)}${t.user_quote ? `<div class="faint quote">“${esc(t.user_quote)}”</div>` : ""}</td>
     <td>${outcomeChip(t.inferred)} <span class="mono faint">${t.inferred_p ? pct(t.inferred_p) : ""}</span></td>
-    <td>${buttons || '<span class="faint">—</span>'}</td>
+    <td class="buttons">${buttons || '<span class="faint">—</span>'}</td>
     <td class="mono">${secs(t.writing_seconds)}</td></tr>`;
 }
 
@@ -402,7 +405,7 @@ async function openTurn(id) {
     ])}</section>
     <section>${head("reaction")}${kv([
       [term("assistant_verdict"), `${outcomeChip(verdict?.observed)} ${verdict?.format_issue ? chip(named("format_issues", verdict.format_issue), "var(--violet)") : ""} ${verdict?.user_quote ? `“${esc(verdict.user_quote)}”` : ""}${click ? ` <span class="faint">${esc(ui("ignored_clicked"))}</span>` : ""}`],
-      [term("buttons_shown"), d.buttons_shown.map((b) => chip(`${b.position + 1} · ${b.label || buttonName(b.button)}`, b.label ? "var(--violet)" : "var(--accent)", d.clicks.some((c) => c.position === b.position) ? "clicked" : "")).join(" ") || "—"],
+      [term("buttons_shown"), d.buttons_shown.map((b) => chip(`${b.position + 1} · ${b.label || buttonName(b.button)}`, b.label ? "var(--violet)" : "var(--accent)", `${b.label ? "wrap" : ""} ${d.clicks.some((c) => c.position === b.position) ? "clicked" : ""}`)).join(" ") || "—"],
       [term("gold_label"), gold ? outcomeChip(gold.outcome) : "—"],
     ])}${inf ? caption("reaction_shares") : ""}${probBars(inf?.reaction_probs)}</section>
     <section>${head("gold")}<div class="gold">${OUTCOMES.map((o) => `<button class="chip" style="--c:${OUTCOME_COLORS[o]}" data-gold="${o}">${esc(named("outcomes", o))}</button>`).join("")}</div></section>
@@ -466,6 +469,7 @@ async function renderUser(id) {
       d.preferences.map((p) => `<tr><td>${esc(scopeName(p.scope))}</td><td>${esc(preference(p.dimension, "")[0])}</td>
         <td class="mono">${Object.entries(p.means).map(([v, m]) => `${esc(preference(p.dimension, v)[1])} ${pct(m)}`).join(" · ")}</td><td class="mono">${num(p.evidence, 1)}</td></tr>`).join("") || empty("none_yet", 4))}
     </div></div>`;
+  fillRows();
 }
 
 /* ---------- Model ---------- */
@@ -510,14 +514,14 @@ async function renderModel() {
           [term("mu_away"), secs(Math.exp(m.reading.mu_away))],
           [term("s_away"), factor(m.reading.s_away)],
         ])}</div>
-      <div class="panel scroll">${head("classes", {}, learned("family_params"))}${table(["class", "speed", "b", "w", "kappa"],
+      <div class="panel scroll wide">${head("classes", {}, learned("family_params"))}${table(["class", "speed", "b", "w", "kappa"],
         Object.entries(m.family).map(([f, v]) => `<tr class="mono"><td>${esc(f)}</td><td>${esc(ui("wps", { n: num(v.speed_wps) }))}</td><td>${factor(v.b)}</td><td>${factor(Math.sqrt(v.w))}</td><td>${pct(Math.exp(v.kappa))}</td></tr>`).join("") || empty("classes_until", 5))}
       </div>
     </div>
     <div class="panel" style="margin-bottom:16px">${head("assistant_confusion", {}, learned("annotator_confusion"))}
       <p><label class="muted">${term("class")} <select id="family" style="margin-left:6px">${families.map((f) => `<option>${esc(f)}</option>`).join("")}</select></label></p><div id="assistant-heat"></div></div>
     <div class="grid panels">
-      <div class="panel">${head("button_confusion")}${heatmap(m.confusions.button.all)}</div>
+      <div class="panel wide">${head("button_confusion")}${heatmap(m.confusions.button.all)}</div>
       <div class="panel">${head("reading_confusion")}${heatmap(m.confusions.reading.all)}</div>
       <div class="panel">${head("host_prior", {}, learned("host_family_prior"))}${Object.keys(m.host_prior).length ? heatmap(m.host_prior, "hosts") : `<p class="faint">${esc(ui("host_prior_until"))}</p>`}</div>
     </div>`;
@@ -571,12 +575,28 @@ async function renderMetrics() {
 
 /* ---------- Shell ---------- */
 
+// A half-width panel left alone on its row (the next one is wide, or there is none) takes the whole row.
+function fillRows() {
+  for (const grid of document.querySelectorAll(".panels")) {
+    const panels = [...grid.children];
+    let column = 0;
+    panels.forEach((panel, i) => {
+      panel.classList.remove("filled");
+      if (panel.classList.contains("wide")) return void (column = 0);
+      const next = panels[i + 1];
+      if (column === 0 && (!next || next.classList.contains("wide"))) panel.classList.add("filled");
+      else column = 1 - column;
+    });
+  }
+}
+
 const VIEWS = { live: renderLive, users: renderUsers, model: renderModel, metrics: renderMetrics };
 
 async function render() {
   if (!token) return askToken(false);
   try {
     await VIEWS[state.view]();
+    fillRows();
     $("#updated").textContent = ui("updated", { time: new Date().toLocaleTimeString(LANG, { hour12: false }) });
   } catch (e) {
     if (e.message !== "unauthorized") $("#view").innerHTML = `<div class="empty error">${esc(e.message)}</div>`;
@@ -595,6 +615,7 @@ $("#live").addEventListener("click", () => {
   $("#live").setAttribute("aria-pressed", String(state.live));
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTurn(); });
+
 setInterval(() => {
   const busy = document.activeElement?.closest?.("#filters, .tip") || !$("#tipbox").hidden;
   if (state.live && state.view === "live" && !busy && !document.hidden) render();

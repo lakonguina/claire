@@ -8,7 +8,7 @@ of the same model.
 
 import random
 
-from app import vocab
+from app.core import vocab
 
 POPULATION = 0
 USER_SCOPE = "*"

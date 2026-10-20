@@ -1,7 +1,7 @@
 /**
  * @fileoverview The reply widget (SPEC 4.2): renders the reply as it streams,
- * then the buttons (follow-up questions first), copy actions and profile
- * link sent by the server. Every label comes from the server.
+ * then the buttons (follow-up questions first) and copy actions sent by the
+ * server. Every label comes from the server.
  */
 import {
   App,
@@ -17,7 +17,6 @@ const COPIED_MS = 1500;
 const replyEl = document.getElementById('reply');
 const buttonsEl = document.getElementById('buttons');
 const copyReplyEl = document.getElementById('copy-reply');
-const profileEl = document.getElementById('profile');
 const app = new App({name: 'claire', version: '2.0.0'});
 
 let text = '';
@@ -78,11 +77,10 @@ function copyAction(button, getValue, labels) {
 }
 
 /**
- * Adds the copy actions and the profile link, in the user's language.
+ * Adds the copy actions, in the user's language.
  * @param {!Object<string, string>} labels
- * @param {?string} profileUrl
  */
-function decorate(labels, profileUrl) {
+function decorate(labels) {
   for (const pre of replyEl.querySelectorAll('pre')) {
     const button = Object.assign(document.createElement('button'), {
       className: 'copy ghost',
@@ -94,11 +92,6 @@ function decorate(labels, profileUrl) {
   copyReplyEl.textContent = labels.copy_reply;
   copyAction(copyReplyEl, () => text, labels);
   copyReplyEl.hidden = !text;
-  if (profileUrl) {
-    profileEl.textContent = labels.profile;
-    profileEl.href = profileUrl;
-    profileEl.hidden = false;
-  }
 }
 
 /**
@@ -193,7 +186,7 @@ app.ontoolresult = (result) => {
   // Only a turn the server accepted: the model may have invented the input's.
   reportContext();
   renderButtons(data.buttons ?? []);
-  if (data.labels) decorate(data.labels, data.profile_url ?? null);
+  if (data.labels) decorate(data.labels);
 };
 app.ontoolcancelled = () => {
   render();
@@ -201,15 +194,13 @@ app.ontoolcancelled = () => {
 };
 app.onhostcontextchanged = applyContext;
 
-for (const container of [replyEl, profileEl.parentElement]) {
-  container.addEventListener('click', (event) => {
-    const link = event.target.closest('a[href]');
-    if (link) {
-      event.preventDefault();
-      app.openLink({url: link.href});
-    }
-  });
-}
+replyEl.addEventListener('click', (event) => {
+  const link = event.target.closest('a[href]');
+  if (link) {
+    event.preventDefault();
+    app.openLink({url: link.href});
+  }
+});
 
 await app.connect();
 applyContext(app.getHostContext());

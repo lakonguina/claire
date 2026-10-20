@@ -17,11 +17,9 @@ Admin endpoints take `Authorization: Bearer $ADMIN_TOKEN` (the dashboard asks fo
 - `POST /gold_label`: `{"turn_id": "t_31", "outcome": "moved_on"}`
 - `GET /metrics`
 
-Each user also has a profile page, `GET /me/<profile key>`, linked from the widget: what was learned about them, which they can correct.
+The `nightly` service runs `python -m app.jobs.nightly` once a day: it refits the noise models, the hyperparameters and the topic clusters, then rebuilds all derived state by replaying the events.
 
-The `nightly` service runs `python -m app.nightly` once a day: it refits the noise models, the hyperparameters and the topic clusters, then rebuilds all derived state by replaying the events.
-
-Texts live in `locales/<language>.json` (English is complete and is the fallback); identifiers live in `app/vocab.py`; the schema lives in `app/models.py`, and the app applies the Alembic migrations at start.
+The layout is in `TREE.md`. Texts live in `locales/<language>.json` (English is complete and is the fallback); identifiers live in `app/core/vocab.py`; the schema lives in `app/models.py`, and the app applies the Alembic migrations at start.
 
 ## Develop
 
