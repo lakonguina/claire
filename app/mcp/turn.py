@@ -29,6 +29,8 @@ from app.mcp.schemas import (
 from app.model import decision
 from app.model import rewards
 
+INSTRUCTION = "Answer only what the user asked."
+
 
 def person_id_from_ctx(ctx: Context) -> int:
     """Return ``Person.id`` from the bearer access-token subject."""
@@ -229,6 +231,7 @@ async def run_plan(
         conversation_id=conversation_id,
         turn_id=turn_id,
         mode=mode,
+        instruction=None if holdout else INSTRUCTION,
         parts=parts,
     )
 
