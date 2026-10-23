@@ -8,3 +8,4 @@ wheels/
 node_modules/
 app/static/app.css
 .env
+geo/

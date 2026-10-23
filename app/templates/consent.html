@@ -70,6 +70,13 @@
   const sync = () => { allow.disabled = !box.checked; };
   box.addEventListener("change", sync);
   sync();
+
+  // A consent request works once; ignore a second click or a resubmit.
+  let sent = false;
+  document.getElementById("consent-form").addEventListener("submit", (event) => {
+    if (sent) event.preventDefault();
+    sent = true;
+  });
 </script>
 </body>
 </html>

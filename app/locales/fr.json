@@ -105,6 +105,7 @@
     "deny": "Annuler",
     "allow": "Continuer",
     "expired": "Ce lien a expiré. Relance la connexion depuis ton application d'IA.",
+    "used": "Ce lien a déjà été utilisé. Tu peux fermer cet onglet et revenir à ton application d'IA.",
     "need_accept": "Coche la case pour continuer."
   },
   "privacy": {

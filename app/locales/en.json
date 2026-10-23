@@ -105,6 +105,7 @@
     "deny": "Cancel",
     "allow": "Continue",
     "expired": "This link expired. Start the connection again from your AI app.",
+    "used": "This link was already used. You can close this tab and go back to your AI app.",
     "need_accept": "Tick the box to continue."
   },
   "privacy": {

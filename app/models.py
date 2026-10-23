@@ -50,6 +50,7 @@ class Person(Base):
         last_seen_at: Last successful connect / token refresh.
         last_user_agent: Last HTTP ``User-Agent`` (browser / host app).
         last_ip: Last client IP we observed.
+        country: ISO country code of the browser that gave consent.
         mcp_client_name: Last MCP ``clientInfo.name``.
         mcp_client_version: Last MCP ``clientInfo.version``.
         mcp_protocol_version: Last negotiated / declared protocol version.
@@ -72,6 +73,7 @@ class Person(Base):
     )
     last_user_agent: Mapped[str | None] = mapped_column(Text)
     last_ip: Mapped[str | None] = mapped_column(String(45))
+    country: Mapped[str | None] = mapped_column(String(2))
     mcp_client_name: Mapped[str | None] = mapped_column(String(128))
     mcp_client_version: Mapped[str | None] = mapped_column(String(64))
     mcp_protocol_version: Mapped[str | None] = mapped_column(String(32))

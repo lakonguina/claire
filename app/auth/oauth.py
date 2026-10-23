@@ -31,6 +31,7 @@ from app import models
 from app import store
 from app.core import config
 from app.core import db
+from app.core import geo
 from app.core import vocab
 from app.mcp.request_info import collect_http_request_info
 
@@ -152,6 +153,22 @@ async def _live(
     if spend:
         credential.used_at = _now()
     return credential, grant
+
+
+async def _gone(
+    session: AsyncSession, request: str, texts: dict
+) -> fastapi.HTTPException:
+    """Say why a consent request is unusable: already answered, or expired."""
+    answered = await session.scalar(
+        sa.select(models.OAuthCredential.token_hash).where(
+            models.OAuthCredential.token_hash == _token_hash(request),
+            models.OAuthCredential.kind == vocab.Credential.REQUEST,
+            models.OAuthCredential.used_at.is_not(None),
+        )
+    )
+    return fastapi.HTTPException(
+        status_code=400, detail=texts["used" if answered else "expired"]
+    )
 
 
 def _tokens(
@@ -422,8 +439,8 @@ async def consent_page(
     language, texts = _texts(request)
     async with db.Session() as session, session.begin():
         found = await _live(session, pending, vocab.Credential.REQUEST)
-    if found is None:
-        raise fastapi.HTTPException(status_code=400, detail=texts["expired"])
+        if found is None:
+            raise await _gone(session, pending, texts)
     client = await provider.get_client(found[0].client_id)
     app_name = (
         (client.client_name if client else None)
@@ -459,7 +476,7 @@ async def consent(request: fastapi.Request) -> responses.RedirectResponse:
             spend=True,
         )
         if found is None:
-            raise fastapi.HTTPException(status_code=400, detail=texts["expired"])
+            raise await _gone(session, form.get("request", ""), texts)
         pending = found[0]
         params = auth.AuthorizationParams.model_validate(pending.data)
         back = str(params.redirect_uri)
@@ -470,6 +487,7 @@ async def consent(request: fastapi.Request) -> responses.RedirectResponse:
             return responses.RedirectResponse(location, status_code=303)
         person = await store.create_person(session)
         store.touch_person(person, info)
+        person.country = geo.country(info.ip)
         grant = models.OAuthGrant(
             person_id=person.id,
             client_id=pending.client_id,

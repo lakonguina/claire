@@ -17,6 +17,9 @@ RUN uv sync --frozen --no-dev
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app
+# IP → country lookups at consent (DB-IP Lite, CC BY 4.0).
+RUN python -m app.core.geo
 COPY --from=css /build/app/static/app.css ./app/static/app.css
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Behind Northflank's proxy: trust X-Forwarded-* so redirects stay on https.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
