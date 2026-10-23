@@ -1,0 +1,153 @@
+@import "tailwindcss";
+@import "basecoat-css";
+
+@source "../templates/landing.html";
+@source "../templates/consent.html";
+@source "../templates/privacy.html";
+@source "../templates/404.html";
+@source "../templates/admin/**/*.html";
+
+:root {
+  --background: #fdfcf6;
+  --foreground: #191711;
+  --card: #f4f2e8;
+  --card-foreground: #191711;
+  --muted: #f4f2e8;
+  --muted-foreground: #5c584f;
+  --border: #dfdad1;
+  --input: #dfdad1;
+  --primary: #bc0fbc;
+  --primary-foreground: #ffffff;
+  --secondary: #ebe7dc;
+  --secondary-foreground: #191711;
+  --accent: rgba(188, 15, 188, 0.1);
+  --accent-foreground: #9a0e98;
+  --ring: #bc0fbc;
+  --chat: #faf9f5;
+  --chat-bubble: #f0eee6;
+  --chat-ink: #141413;
+  --chat-muted: #5f5e58;
+  --chat-line: #e8e6dc;
+}
+
+.dark {
+  /* Violet night, tuned for WCAG-ish body contrast on brand bg. */
+  --background: #12010d;
+  --foreground: #fbf8f6;
+  --card: #1c0614;
+  --card-foreground: #fbf8f6;
+  --muted: #1c0614;
+  --muted-foreground: #d9c6d4; /* meta only — not long copy */
+  --border: #3f1532;
+  --input: #3f1532;
+  --primary: #d084df; /* CTAs / accent moments only */
+  --primary-foreground: #1a0212;
+  --secondary: #2a0c22;
+  --secondary-foreground: #fbf8f6;
+  --accent: rgba(208, 132, 223, 0.16);
+  --accent-foreground: #f6e8fa;
+  --ring: #d084df;
+  --chat: #2c2b28;
+  --chat-bubble: #1c1b19;
+  --chat-ink: #f7f6f2;
+  --chat-muted: #c4c2ba;
+  --chat-line: #4a4842;
+}
+
+@theme inline {
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  font-size: 16px;
+}
+@media (min-width: 640px) {
+  html {
+    font-size: 18px;
+  }
+}
+body {
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Long copy: high contrast, never muted-pink. */
+.prose-ui {
+  color: var(--foreground);
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+.rant {
+  position: relative;
+  animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: calc(var(--i) * 0.2s);
+}
+.rant::after {
+  content: "";
+  position: absolute;
+  inset: 50% 0.6rem auto;
+  height: 2px;
+  background: var(--primary);
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: strike 0.3s ease-out forwards;
+  animation-delay: calc(var(--i) * 0.2s + 0.9s);
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.6) translateY(8px); }
+}
+@keyframes strike {
+  to { transform: scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rant, .rant::after { animation-duration: 0s; animation-delay: 0s; }
+}
+
+.reply {
+  font-size: 1.05rem;
+  line-height: 1.75;
+  color: var(--chat-ink);
+  > * + * { @apply mt-3.5; }
+  h3 { @apply font-semibold text-[1.08em] mt-5 mb-1; }
+  ul { @apply list-disc space-y-2 pl-5; }
+  strong { @apply font-semibold; }
+  code { @apply rounded bg-(--chat-bubble) px-1.5 py-0.5 font-mono text-[0.9em]; }
+  pre { @apply max-w-full overflow-x-auto rounded-lg bg-(--chat-bubble) p-3 text-[0.85em] sm:p-3.5 sm:text-[0.95em]; }
+  pre code { @apply bg-transparent p-0 whitespace-pre-wrap break-all sm:whitespace-pre sm:break-normal; }
+}
+
+.btn {
+  background-clip: border-box;
+  @apply text-base font-semibold;
+}
+
+/* Admin conversation thread */
+.admin-bubble {
+  @apply rounded-2xl px-4 py-3 text-[0.95rem];
+}
+.admin-bubble-user {
+  @apply rounded-br-md border border-border/80 bg-secondary/70;
+}
+.admin-bubble-ai {
+  @apply rounded-bl-md border border-primary/25 bg-accent/50;
+}
+.admin-tools {
+  @apply rounded-xl border border-dashed border-border/80 bg-card/30;
+}
+.admin-tools-summary {
+  @apply flex cursor-pointer list-none items-center justify-center gap-2 px-4 py-2 text-center text-sm text-muted-foreground transition hover:text-foreground;
+}
+.admin-tools-summary::-webkit-details-marker {
+  display: none;
+}
+.admin-tools-tag {
+  @apply rounded bg-secondary px-1.5 py-0.5 text-[0.7rem];
+}
+.admin-tools-body {
+  @apply border-t border-border/70 px-3 py-3 sm:px-4;
+}
+.admin-json {
+  @apply max-h-72 overflow-auto rounded-lg bg-background/90 p-3 font-mono text-[0.75rem] leading-relaxed text-foreground/90;
+}

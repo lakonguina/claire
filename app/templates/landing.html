@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="{{ language }}" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ texts.meta_title }}</title>
+<meta name="description" content="{{ texts.description }}">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-background text-foreground font-sans antialiased">
+
+<header class="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
+  <nav class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3.5 sm:px-6">
+    <a href="#" class="flex items-center gap-2 text-base font-semibold tracking-tight">
+      <span class="size-3 rounded-[4px] bg-primary"></span>{{ connector_name }}
+    </a>
+    <a href="#setup" class="btn capitalize" data-size="sm">{{ texts.nav_cta }}</a>
+  </nav>
+</header>
+
+{% macro window(side, demo, reply, screen, highlight) %}
+<div class="min-w-0">
+  <p class="mb-4 text-center text-base font-bold tracking-tight {{ 'text-primary' if highlight else 'text-foreground/70' }}">{{ demo[side] }}</p>
+  {% if screen %}
+  <img src="{{ screen }}" alt="{{ demo[side] }}" class="w-full rounded-xl border shadow-xl">
+  {% else %}
+  <figure class="overflow-hidden rounded-xl border border-(--chat-line) bg-(--chat) text-(--chat-ink) shadow-xl {{ 'ring-2 ring-primary/80 shadow-primary/25' if highlight else 'opacity-95' }}">
+    <div class="flex items-center gap-1.5 border-b border-(--chat-line) px-4 py-3">
+      <span class="size-3 rounded-full bg-[#ff5f57]"></span>
+      <span class="size-3 rounded-full bg-[#febc2e]"></span>
+      <span class="size-3 rounded-full bg-[#28c840]"></span>
+      <span class="flex-1 text-center text-sm font-medium text-(--chat-muted)">{{ demo.window }}</span>
+      <span class="badge shrink-0" {% if not highlight %}data-variant="secondary"{% endif %}>{{ demo.words.format(count=reply.words) }}</span>
+    </div>
+    <div class="min-w-0 space-y-5 p-4 sm:p-6">
+      <p class="ml-auto w-fit max-w-[85%] rounded-2xl bg-(--chat-bubble) px-4 py-2.5 text-[0.95rem] leading-snug">{{ demo.question }}</p>
+      {% if highlight %}
+      <div class="min-w-0 rounded-xl border border-(--chat-line) p-3.5 sm:p-5">
+        <div class="reply font-serif">{{ reply.html|safe }}</div>
+        <p class="mt-4 text-sm text-(--chat-muted)">⧉ {{ demo.copy_reply }}</p>
+      </div>
+      {% else %}
+      <div class="reply min-w-0 font-serif">{{ reply.html|safe }}</div>
+      {% endif %}
+    </div>
+    <div class="px-4 pb-4 sm:px-5 sm:pb-5">
+      <div class="flex items-center rounded-2xl border border-(--chat-line) py-2.5 pr-2 pl-4 text-[0.95rem] text-(--chat-muted)">
+        {{ demo.input }}
+        <span class="ml-auto flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">↑</span>
+      </div>
+    </div>
+  </figure>
+  {% endif %}
+</div>
+{% endmacro %}
+
+<main>
+  {# —— Hook / Big promise (Brunson) —— #}
+  <section class="mx-auto max-w-4xl px-5 pt-14 pb-16 text-center sm:px-8 sm:pt-32 sm:pb-36">
+    <span class="badge" data-variant="secondary">{{ texts.callout }}</span>
+    <ul class="mx-auto mt-8 flex max-w-2xl flex-wrap justify-center gap-2.5 sm:mt-10 sm:gap-3" aria-hidden="true">
+      {% for rant in texts.rants %}
+      <li class="rant rounded-2xl rounded-br-sm bg-secondary px-3 py-1.5 text-[0.9rem] text-foreground/75 sm:px-3.5 sm:py-2 sm:text-[0.95rem] {{ loop.cycle('-rotate-2', 'rotate-1', '-rotate-1', 'rotate-2') }}" style="--i: {{ loop.index0 }}">{{ rant }}</li>
+      {% endfor %}
+    </ul>
+    <h1 class="mx-auto mt-8 max-w-3xl text-balance sm:mt-12">
+      <span class="block text-4xl font-black tracking-tight text-foreground sm:text-6xl">{{ texts.title_a }}</span>
+      <span class="mt-3 block text-xl font-bold tracking-tight text-primary sm:mt-5 sm:text-3xl">{{ texts.title_b }}</span>
+    </h1>
+    <p class="prose-ui mx-auto mt-6 max-w-2xl text-pretty text-foreground/85 sm:mt-10">{{ texts.subtitle }}</p>
+    <a href="#setup" class="btn capitalize mt-8 shadow-lg shadow-primary/35 transition hover:scale-105 sm:mt-12" data-size="lg">{{ texts.cta }} →</a>
+    <p class="mt-4 text-[0.95rem] text-muted-foreground sm:mt-5">{{ texts.cta_note }}</p>
+    <p class="mt-12 text-[0.95rem] font-medium text-muted-foreground sm:mt-20">{{ texts.works_with }}</p>
+    <ul class="mt-5 flex justify-center gap-8 text-3xl sm:mt-6 sm:gap-12 sm:text-4xl">
+      {% for key, name in assistants.items() %}
+      <li><a href="#setup" data-pick="{{ key }}" title="{{ name }}" aria-label="{{ name }}" class="block opacity-90 transition hover:scale-110 hover:opacity-100"><img src="/static/logos/{{ key }}.svg" alt="" class="inline-block size-[1em]"></a></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {# —— Problem / agitation —— #}
+  {% set problem = texts.problem %}
+  <section class="mx-auto max-w-3xl px-5 pb-16 sm:px-8 sm:pb-32">
+    <h2 class="text-center text-[1.65rem] font-bold tracking-tight text-balance text-foreground sm:text-[2.1rem]">{{ problem.title }}</h2>
+    <div class="mt-8 grid gap-5 sm:mt-14 sm:gap-8 md:grid-cols-2">
+      <div class="rounded-2xl border bg-card p-5 sm:p-8">
+        <p class="text-[0.95rem] font-semibold tracking-wide text-foreground/55">✗ {{ problem.old_label }}</p>
+        <p class="prose-ui mt-4 text-foreground/90">{{ problem.old }}</p>
+      </div>
+      <div class="rounded-2xl border border-primary/70 bg-accent p-5 sm:p-8">
+        <p class="text-[0.95rem] font-semibold tracking-wide text-primary">✓ {{ problem.new_label }}</p>
+        <p class="prose-ui mt-4 text-accent-foreground">{{ problem.new }}</p>
+      </div>
+    </div>
+  </section>
+
+  {# —— Proof (same question) —— #}
+  {% set demo = texts.demo %}
+  <section class="border-y border-border/60 bg-card/30">
+    <div class="mx-auto max-w-5xl px-5 py-16 sm:px-8 sm:py-32">
+      <h2 class="text-center text-[1.65rem] font-bold tracking-tight text-foreground sm:text-[2.1rem]">{{ demo.title }}</h2>
+      <div class="mt-6 text-center sm:mt-8">
+        <p class="text-5xl font-black tracking-tight text-primary tabular-nums sm:text-7xl">−<span data-count="{{ (100 - 100 * replies.after.words / replies.before.words)|round|int }}">0</span>%</p>
+        <p class="mt-3 text-lg font-semibold text-foreground">{{ demo.saved }}</p>
+        <p class="mt-2 text-[0.95rem] text-muted-foreground">{{ demo.saved_note }}</p>
+      </div>
+      <div class="mt-10 grid min-w-0 items-start gap-10 sm:mt-20 md:grid-cols-2 md:gap-12">
+        {{ window(DemoSide.BEFORE, demo, replies.before, demo_screens.before, false) }}
+        {{ window(DemoSide.AFTER, demo, replies.after, demo_screens.after, true) }}
+      </div>
+    </div>
+  </section>
+
+  {# —— Stack / value —— #}
+  {% set offer = texts.offer %}
+  <section class="mx-auto max-w-xl px-5 py-16 sm:px-8 sm:py-32">
+    <div class="card ring-2 ring-primary/90">
+      <header><h2 class="text-2xl font-bold text-foreground sm:text-3xl">{{ offer.title }}</h2></header>
+      <section>
+        <ul class="space-y-5">
+          {% for item in offer["items"] %}
+          <li class="flex gap-3.5 text-[1.05rem] leading-snug text-foreground">
+            <span class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">✓</span>
+            {{ item }}
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      <footer class="flex-col items-stretch gap-4">
+        <a href="#setup" class="btn capitalize shadow-lg shadow-primary/35 transition hover:scale-105" data-size="lg">{{ texts.cta }} →</a>
+        <p class="text-center text-[0.95rem] leading-relaxed text-muted-foreground">{{ offer.guarantee }}</p>
+      </footer>
+    </div>
+  </section>
+
+  {# —— Easy button / how to —— #}
+  {% set setup = texts.setup %}
+  <section id="setup" class="scroll-mt-16 border-t border-border/60 bg-card/30">
+    <div class="mx-auto max-w-2xl px-5 py-16 sm:px-8 sm:py-32">
+      <h2 class="text-center text-[1.65rem] font-bold tracking-tight text-foreground sm:text-[2.1rem]">{{ setup.title }}</h2>
+      <p class="prose-ui mx-auto mt-5 max-w-md text-center text-foreground/80 sm:mt-6">{{ setup.subtitle }}</p>
+      <div class="tabs mt-10 items-center sm:mt-14">
+        <nav role="tablist" aria-orientation="horizontal" class="max-w-full flex-wrap justify-center gap-2">
+          {% for key, name in assistants.items() %}
+          <button type="button" role="tab" id="tab-{{ key }}" aria-controls="panel-{{ key }}" aria-selected="{{ loop.first|lower }}" data-pick="{{ key }}" class="gap-2 text-[0.95rem]"><img src="/static/logos/{{ key }}.svg" alt="" class="inline-block size-[1.15em]">{{ name }}</button>
+          {% endfor %}
+          {% for key, name in soon.items() %}
+          <button type="button" role="tab" aria-disabled="true" class="gap-2 text-[0.95rem] opacity-60"><img src="/static/logos/{{ key }}.svg" alt="" class="inline-block size-[1.15em] grayscale">{{ name }} · {{ texts.soon }}</button>
+          {% endfor %}
+        </nav>
+        {% for key in assistants %}
+        <div role="tabpanel" id="panel-{{ key }}" aria-labelledby="tab-{{ key }}" class="w-full min-w-0"{% if not loop.first %} hidden{% endif %}>
+          <ol class="mt-8 space-y-6 sm:mt-12 sm:space-y-10">
+            {% for step in steps[key] %}
+            {% set text = setup.steps[step.id] %}
+            <li class="card">
+              <header>
+                <h3 class="text-lg font-bold text-foreground">{{ text.title }}</h3>
+                <p class="mt-2 text-[1.02rem] leading-relaxed text-foreground/80">{{ text.text[key] }}</p>
+              </header>
+              <section class="mt-1 space-y-4">
+                {% if step.id == SetupStep.INSTRUCTION %}
+                <div class="flex flex-col gap-3 rounded-lg border bg-background p-3.5 sm:flex-row sm:items-start sm:gap-2 sm:p-4">
+                  <code class="min-w-0 flex-1 font-mono text-[0.85rem] leading-relaxed break-words text-foreground sm:text-[0.9rem]">{{ instruction }}</code>
+                  <button type="button" class="btn shrink-0 self-end sm:self-start" data-variant="secondary" data-size="sm" data-copy="{{ instruction }}">{{ setup.copy_label }}</button>
+                </div>
+                {% elif step.id == SetupStep.CONNECTOR %}
+                {% for label, value in ((text.name, connector_name), (text.url, mcp_url)) %}
+                <div class="grid gap-2">
+                  <span class="text-[0.95rem] font-medium text-foreground">{{ label }}</span>
+                  <div class="flex min-w-0 items-center gap-2 rounded-lg border bg-background p-3 pl-4">
+                    <code class="min-w-0 flex-1 truncate font-mono text-[0.85rem] text-foreground sm:text-[0.9rem]">{{ value }}</code>
+                    <button type="button" class="btn shrink-0" data-variant="secondary" data-size="sm" data-copy="{{ value }}">{{ setup.copy_label }}</button>
+                  </div>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% if step.screen %}
+                <img src="{{ step.screen }}" alt="{{ setup.screen_alt.format(title=text.title) }}" loading="lazy" class="w-full rounded-lg border">
+                {% endif %}
+              </section>
+              {% if step.link %}
+              <footer>
+                <a href="{{ step.link }}" target="_blank" rel="noopener" class="btn">{{ text.link }} ↗</a>
+              </footer>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ol>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  {# —— Close —— #}
+  <section class="mx-auto max-w-3xl px-5 py-16 text-center sm:px-8 sm:py-32">
+    <h2 class="text-[1.65rem] font-bold tracking-tight text-balance text-foreground sm:text-[2.1rem]">{{ texts.final.title }}</h2>
+    <p class="prose-ui mx-auto mt-5 max-w-lg text-pretty text-foreground/85 sm:mt-6">{{ texts.final.text }}</p>
+    <a href="#setup" class="btn capitalize mt-8 shadow-lg shadow-primary/35 transition hover:scale-105 sm:mt-12" data-size="lg">{{ texts.cta }} →</a>
+    <p class="mx-auto mt-10 max-w-md text-[0.95rem] leading-relaxed text-muted-foreground italic sm:mt-16">{{ texts.final.ps }}</p>
+  </section>
+</main>
+
+<footer class="border-t border-border/80">
+  <p class="mx-auto flex max-w-5xl items-center gap-2 px-4 py-7 text-[0.95rem] text-muted-foreground sm:px-6">
+    <span class="size-2.5 rounded-[3px] bg-primary"></span>{{ connector_name }}
+  </p>
+</footer>
+
+<script>
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const counters = new IntersectionObserver((entries) => {
+    for (const { isIntersecting, target } of entries) {
+      if (!isIntersecting) continue;
+      counters.unobserve(target);
+      const end = Number(target.dataset.count);
+      const start = performance.now();
+      const tick = (now) => {
+        const t = still ? 1 : Math.min((now - start) / 1200, 1);
+        target.textContent = Math.round(end * (1 - (1 - t) ** 3));
+        if (t < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  });
+  document.querySelectorAll("[data-count]").forEach((el) => counters.observe(el));
+
+  const tabs = document.querySelectorAll('[role="tab"][data-pick]');
+  for (const picker of document.querySelectorAll("[data-pick]")) {
+    picker.addEventListener("click", () => {
+      for (const tab of tabs) {
+        const picked = tab.dataset.pick === picker.dataset.pick;
+        tab.setAttribute("aria-selected", picked);
+        document.getElementById(tab.getAttribute("aria-controls")).hidden = !picked;
+      }
+    });
+  }
+
+  for (const button of document.querySelectorAll("[data-copy]")) {
+    const label = button.textContent;
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      button.textContent = {{ texts.setup.copied|tojson }};
+      setTimeout(() => (button.textContent = label), 1500);
+    });
+  }
+
+</script>
+</body>
+</html>

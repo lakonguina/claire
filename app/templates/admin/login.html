@@ -1,0 +1,23 @@
+{% extends "admin/base.html" %}
+{% block title %}Login{% endblock %}
+{% block body %}
+<div class="mx-auto max-w-sm">
+  <h1 class="text-2xl font-black tracking-tight">Admin</h1>
+  <p class="mt-2 text-sm text-muted-foreground">Enter the admin token.</p>
+  {% if error %}
+  <p class="mt-4 text-sm text-primary">{{ error }}</p>
+  {% endif %}
+  <form method="post" class="mt-8 space-y-4">
+    <input
+      type="password"
+      name="token"
+      required
+      autofocus
+      autocomplete="current-password"
+      placeholder="ADMIN_TOKEN"
+      class="w-full rounded-lg border border-input bg-card px-3 py-2 font-mono text-sm"
+    >
+    <button type="submit" class="btn w-full capitalize shadow-lg shadow-primary/30">Open</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "admin/base.html" %}
+{% block title %}Users{% endblock %}
+{% block body %}
+<div class="flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-black tracking-tight">Users</h1>
+    <p class="mt-1 text-sm text-muted-foreground">{{ people|length }} user{{ "s" if people|length != 1 else "" }}</p>
+  </div>
+  <form method="post" action="/admin/train">
+    <button type="submit" class="btn capitalize shadow-lg shadow-primary/30" data-size="sm">
+      Train model
+    </button>
+  </form>
+</div>
+
+{% if train_report %}
+<p class="mt-6 rounded-xl border border-primary/40 bg-accent px-4 py-3 text-sm">
+  Model updated — {{ train_report.people }} users,
+  {{ train_report.rewritten }} corrected,
+  {{ train_report.closed }} closed turns.
+</p>
+{% endif %}
+
+{% if not people %}
+<p class="mt-10 text-muted-foreground">No users yet.</p>
+{% else %}
+<div class="mt-8 space-y-2">
+  {% for row in people %}
+  <a
+    href="/admin/people/{{ row.person.id }}"
+    class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/40 px-4 py-4 transition hover:bg-card/70"
+  >
+    <div class="min-w-0">
+      <p class="font-semibold tracking-tight">
+        {% if row.person.mcp_client_name %}
+          {{ row.person.mcp_client_name }}
+        {% else %}
+          User #{{ row.person.id }}
+        {% endif %}
+      </p>
+      <p class="mt-0.5 text-sm text-muted-foreground">
+        {{ row.conversations }} conversation{{ "s" if row.conversations != 1 else "" }}
+      </p>
+    </div>
+    <p class="shrink-0 text-sm text-muted-foreground">
+      {{ (row.last_event_at or row.person.last_seen_at or row.person.created_at).strftime("%d %b %Y · %H:%M") }}
+    </p>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

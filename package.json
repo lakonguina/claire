@@ -1,0 +1,14 @@
+{
+  "name": "claire-pm",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tailwindcss -i app/static/styles.css -o app/static/app.css --minify",
+    "watch": "tailwindcss -i app/static/styles.css -o app/static/app.css --watch=always"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "basecoat-css": "1.0.2",
+    "tailwindcss": "4.3.3"
+  }
+}

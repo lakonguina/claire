@@ -1,0 +1,38 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ person.mcp_client_name or ("User #" ~ person.id) }}{% endblock %}
+{% block crumb %}
+<span class="text-muted-foreground">/</span>
+<span class="text-sm">{{ person.mcp_client_name or ("User #" ~ person.id) }}</span>
+{% endblock %}
+{% block body %}
+<div>
+  <h1 class="text-2xl font-black tracking-tight">
+    {{ person.mcp_client_name or ("User #" ~ person.id) }}
+  </h1>
+  <p class="mt-1 text-sm text-muted-foreground">
+    {{ conversations|length }} conversation{{ "s" if conversations|length != 1 else "" }}
+    {% if person.last_seen_at %} · last active {{ person.last_seen_at.strftime("%d %b %Y · %H:%M") }}{% endif %}
+  </p>
+</div>
+
+<section class="mt-10">
+  {% if not conversations %}
+  <p class="text-muted-foreground">No conversations yet.</p>
+  {% else %}
+  <div class="space-y-2">
+    {% for c in conversations %}
+    <a
+      href="/admin/people/{{ person.id }}/c/{{ c.id }}"
+      class="block rounded-xl border bg-card/40 px-4 py-4 transition hover:bg-card/70"
+    >
+      <p class="line-clamp-2 text-pretty font-medium leading-snug">{{ c.preview }}</p>
+      <p class="mt-2 text-sm text-muted-foreground">
+        {{ c.exchanges }} exchange{{ "s" if c.exchanges != 1 else "" }}
+        · {{ c.last_at.strftime("%d %b %Y · %H:%M") }}
+      </p>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

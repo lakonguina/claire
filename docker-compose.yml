@@ -1,0 +1,82 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: claire
+      POSTGRES_PASSWORD: claire
+      POSTGRES_DB: claire
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U claire -d claire"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  css:
+    image: node:22-slim
+    working_dir: /build
+    volumes:
+      - ./package.json:/build/package.json:ro
+      - ./package-lock.json:/build/package-lock.json:ro
+      - ./app/templates:/build/app/templates:ro
+      - ./app/static:/build/app/static
+      - css_node_modules:/build/node_modules
+    command: ["sh", "-c", "npm ci && npm run watch"]
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://claire:claire@db:5432/claire
+
+    volumes:
+      - ./app:/app/app
+      - ./migrations:/app/migrations
+      - ./alembic.ini:/app/alembic.ini:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      css:
+        condition: service_started
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "/app/app",
+      ]
+    restart: unless-stopped
+
+  inspector:
+    image: ghcr.io/modelcontextprotocol/inspector
+    depends_on:
+      - app
+    # Same network namespace as the host so it can use 127.0.0.1:8000 — the only
+    # HTTP issuer the MCP SDK allows locally (not http://app:…).
+    network_mode: host
+    environment:
+      MCP_AUTO_OPEN_ENABLED: "false"
+      MCP_INSPECTOR_API_TOKEN: "dev-local"
+    command:
+      - "--web"
+      - "--server-url"
+      - "http://127.0.0.1:8000/mcp/"
+      - "--transport"
+      - "http"
+    restart: unless-stopped
+
+volumes:
+  css_node_modules:
+  pgdata:

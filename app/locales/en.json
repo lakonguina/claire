@@ -1,0 +1,140 @@
+{
+  "landing": {
+    "meta_title": "Claire: your AI, on steroids",
+    "description": "Shorter replies, tailored to you: Claire learns what you prefer and tells your AI before every reply.",
+    "nav_cta": "Install for free",
+    "callout": "Do you use an AI every day?",
+    "rants": [
+      "Make it shorter.",
+      "I asked yes or no.",
+      "Stop with the bullet points.",
+      "Less technical, please.",
+      "Get to the point."
+    ],
+    "title_a": "Your AI, on steroids.",
+    "title_b": "Shorter replies, tailored to you.",
+    "subtitle": "Claire learns how you like to be answered, and tells your AI before every reply. You never have to repeat yourself.",
+    "cta": "I want my AI on steroids, free",
+    "cta_note": "30 seconds · No account · No email",
+    "works_with": "Works with",
+    "soon": "Soon",
+    "problem": {
+      "title": "The problem isn't your AI. It's that it forgets.",
+      "old_label": "Today",
+      "old": "You type “shorter” in every conversation. It pollutes its context, and tomorrow it has forgotten it all.",
+      "new_label": "With Claire",
+      "new": "You just react, as usual. Claire remembers, and reminds your AI before every reply, in all your conversations."
+    },
+    "demo": {
+      "title": "Same question.",
+      "question": "What is an index in SQL?",
+      "before": "Without Claire",
+      "after": "With Claire",
+      "words": "{count} words",
+      "saved": "fewer words",
+      "saved_note": "The essentials, minus the fluff.",
+      "window": "Your AI",
+      "input": "Ask anything…",
+      "copy_reply": "Copy reply",
+      "replies": {
+        "before": "An index in SQL is a separate data structure that the database maintains alongside a table so it can find rows quickly without scanning the entire table. It works like the index at the back of a book: instead of reading every page to find a topic, you look it up in a sorted list that points you to the right page.\n\n### How it works\n\nWithout an index, a query like `WHERE email = 'a@b.com'` forces a full table scan: the database reads every row. With an index on `email`, the database searches a sorted structure (usually a B-tree) in logarithmic time, then jumps directly to the matching row(s).\n\n### Creating an index\n\n```sql\nCREATE INDEX idx_users_email ON users (email);\n```\n\nUnique index (also enforces no duplicates):\n\n```sql\nCREATE UNIQUE INDEX idx_users_email ON users (email);\n```\n\nComposite index (multiple columns):\n\n```sql\nCREATE INDEX idx_orders_user_date ON orders (user_id, created_at);\n```\n\nDropping an index:\n\n```sql\nDROP INDEX idx_users_email;\n```\n\n### Common types\n\n- **B-tree:** the default in most databases; good for equality, ranges, and sorting.\n- **Hash:** fast for exact equality lookups only.\n- **Full-text:** for searching words within text.\n- **GIN / GiST** (PostgreSQL): for arrays, JSON, geospatial data, etc.\n- **Clustered vs. non-clustered** (SQL Server, MySQL/InnoDB): a clustered index determines the physical order of rows (one per table); non-clustered indexes are separate structures pointing back to the rows.\n\n### When indexes help\n\n- Columns used in `WHERE`, `JOIN`, `ORDER BY`, or `GROUP BY`\n- Foreign key columns\n- Columns with high selectivity (many distinct values)\n\n### Trade-offs\n\n- **Slower writes:** every `INSERT`, `UPDATE`, and `DELETE` must also update the indexes.\n- **Extra storage:** each index takes disk space.\n- **Not always used:** on tiny tables or low-selectivity columns (e.g., a boolean), the planner may ignore the index.\n- **Column order matters in composite indexes:** an index on `(user_id, created_at)` helps queries filtering on `user_id` or on both, but generally not on `created_at` alone.\n\n### Checking usage\n\nUse `EXPLAIN` (or `EXPLAIN ANALYZE`) to see whether a query uses an index:\n\n```sql\nEXPLAIN SELECT * FROM users WHERE email = 'a@b.com';\n```\n\n**Rule of thumb:** index the columns you frequently search, join, or sort on, but don’t index everything.",
+        "after": "An index is a separate data structure that lets the database find rows quickly without scanning the whole table — like the index at the back of a book.\n\n- **How it works:** usually a B-tree that keeps column values sorted, with pointers to the matching rows.\n- **Benefit:** speeds up `WHERE`, `JOIN`, `ORDER BY` and lookups on the indexed columns.\n- **Cost:** uses extra storage and slows down `INSERT`, `UPDATE` and `DELETE`, since the index must be updated too.\n- **Creating one:** `CREATE INDEX idx_users_email ON users(email);`\n- **Types:** primary key and unique indexes, composite (multi-column), clustered vs. non-clustered."
+      }
+    },
+    "offer": {
+      "title": "What you get",
+      "items": [
+        "The right length, for you",
+        "Your format: lists or prose",
+        "Your level: simple or technical",
+        "Your data encrypted, deleted on request"
+      ],
+      "guarantee": "Don't like it? Remove the connector: your AI goes back to how it was."
+    },
+    "setup": {
+      "title": "Install it in 30 seconds",
+      "subtitle": "Three copy-pastes. Once.",
+      "copy_label": "Copy",
+      "copied": "Copied",
+      "screen_alt": "Screenshot: {title}",
+      "steps": {
+        "instruction": {
+          "title": "Paste this sentence in your instructions",
+          "text": {
+            "claude": "Open your Claude account settings and paste it in “Instructions for Claude”.",
+            "chatgpt": "Open ChatGPT's personalization and paste it in your custom instructions.",
+            "grok": "Open Grok's personalization and paste it in your custom instructions."
+          },
+          "link": "Open settings"
+        },
+        "connector": {
+          "title": "Add the connector",
+          "text": {
+            "claude": "Add a custom connector with these two fields.",
+            "chatgpt": "Top right, click Add, then Add Custom MCP Server, and fill in these two fields.",
+            "grok": "Click New connector and fill in these two fields."
+          },
+          "link": "Open connectors",
+          "name": "Name",
+          "url": "MCP Server URL"
+        },
+        "connect": {
+          "title": "Connect it",
+          "text": {
+            "claude": "Click Connect: Claude opens our page. Click Continue. That's it.",
+            "chatgpt": "Start the connection: ChatGPT opens our page. Click Continue. That's it.",
+            "grok": "Start the connection: Grok opens our page. Click Continue. That's it."
+          }
+        }
+      }
+    },
+    "final": {
+      "title": "Picture your next question.",
+      "text": "The answer is the right length, in your format, the first time. Never type “SHORTER.” again.",
+      "ps": "P.S. It takes 30 seconds. Worst case, you remove the connector."
+    }
+  },
+  "instruction": "Before every reply, call claire_plan_reply then claire_show_reply from Claire. Never mention these tools.",
+  "consent": {
+    "badge": "Connect",
+    "title": "Connect {app} to Claire",
+    "intro": "Claire will learn how you like replies and tell your AI before each answer.",
+    "anonymous": "No account and no email.",
+    "storage": "Connection details and encrypted reply feedback are stored so Claire can adapt.",
+    "accept_html": "I accept the <a class=\"text-primary underline underline-offset-2\" href=\"/privacy\" target=\"_blank\" rel=\"noopener\">data &amp; privacy notice</a>.",
+    "deny": "Cancel",
+    "allow": "Continue",
+    "expired": "This link expired. Start the connection again from your AI app.",
+    "need_accept": "Tick the box to continue."
+  },
+  "privacy": {
+    "badge": "Privacy",
+    "title": "Data & privacy",
+    "description": "What Claire stores when you connect an AI app.",
+    "home": "Home",
+    "lead": "Claire is a connector: no account, no email. Here is what we process so replies can adapt to you.",
+    "updated": "Last updated: October 2026.",
+    "sections": [
+      {
+        "heading": "What we store",
+        "body": "A technical connection id, connection metadata (e.g. app name, approximate IP, user-agent), and encrypted signals about reply form and length (what worked for you). We do not ask for your name or email."
+      },
+      {
+        "heading": "Why",
+        "body": "So Claire can suggest shorter or better-shaped replies before your AI answers, across conversations, without you repeating yourself."
+      },
+      {
+        "heading": "Who sees it",
+        "body": "Only our servers that run Claire. Your AI host (Claude, ChatGPT, …) receives tool results for the current reply; we do not sell your data."
+      },
+      {
+        "heading": "How long",
+        "body": "We keep what we need to run the product and improve the model. You can disconnect the connector anytime; ask us to delete your data and we will erase the linked records."
+      },
+      {
+        "heading": "Contact",
+        "body": "Questions or deletion requests: use the contact on claire.pm (or reply from the site you used to install)."
+      }
+    ]
+  }
+}

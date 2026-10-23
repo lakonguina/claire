@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claire</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    padding: 12px 14px 16px;
+    font: 15px/1.55 ui-sans-serif, system-ui, sans-serif;
+    background: transparent;
+  }
+  #reply { white-space: pre-wrap; word-break: break-word; }
+  #reply:empty::before { content: "…"; opacity: 0.45; }
+  .err { color: tomato; font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <div id="reply"></div>
+  <div id="err" class="err" hidden></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

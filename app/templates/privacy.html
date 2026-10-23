@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="{{ language }}" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ texts.title }} — Claire</title>
+<meta name="description" content="{{ texts.description }}">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-background text-foreground font-sans antialiased">
+
+<header class="border-b bg-background/85 backdrop-blur">
+  <nav class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3.5 sm:px-6">
+    <a href="/" class="flex items-center gap-2 text-base font-semibold tracking-tight">
+      <span class="size-3 rounded-[4px] bg-primary"></span>Claire
+    </a>
+    <a href="/" class="btn capitalize" data-size="sm" data-variant="secondary">{{ texts.home }}</a>
+  </nav>
+</header>
+
+<main class="mx-auto max-w-2xl px-5 py-14 sm:px-6 sm:py-20">
+  <p class="badge mb-6 w-fit" data-variant="secondary">{{ texts.badge }}</p>
+  <h1 class="text-balance text-3xl font-black tracking-tight sm:text-4xl">{{ texts.title }}</h1>
+  <p class="prose-ui mt-5 text-pretty text-foreground/85">{{ texts.lead }}</p>
+
+  <section class="mt-12 space-y-8">
+    {% for block in texts.sections %}
+    <div>
+      <h2 class="text-xl font-bold tracking-tight">{{ block.heading }}</h2>
+      <p class="prose-ui mt-3 text-pretty text-foreground/85">{{ block.body }}</p>
+    </div>
+    {% endfor %}
+  </section>
+
+  <p class="mt-14 text-sm text-muted-foreground">{{ texts.updated }}</p>
+</main>
+</body>
+</html>

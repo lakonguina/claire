@@ -1,0 +1,140 @@
+{
+  "landing": {
+    "meta_title": "Claire : ton IA, sous stéroïdes",
+    "description": "Des réponses plus courtes, taillées pour toi : Claire apprend ce que tu préfères et le dicte à ton IA avant chaque réponse.",
+    "nav_cta": "Installer gratuitement",
+    "callout": "Tu utilises une IA tous les jours ?",
+    "rants": [
+      "Fais plus court.",
+      "J'ai demandé oui ou non.",
+      "Arrête les listes à puces.",
+      "Pas si technique.",
+      "Va droit au but."
+    ],
+    "title_a": "Ton IA, sous stéroïdes.",
+    "title_b": "Des réponses plus courtes, taillées pour toi.",
+    "subtitle": "Claire apprend comment tu aimes qu'on te réponde, et le dicte à ton IA avant chaque réponse. Tu n'as plus rien à lui répéter.",
+    "cta": "Je veux mon IA sous stéroïdes, gratuit",
+    "cta_note": "30 secondes · Sans compte · Sans email",
+    "works_with": "Marche avec",
+    "soon": "Bientôt",
+    "problem": {
+      "title": "Le problème n'est pas ton IA. C'est qu'elle oublie.",
+      "old_label": "Aujourd'hui",
+      "old": "Tu répètes « plus court » dans chaque conversation. Ça pollue son contexte, et demain elle a tout oublié.",
+      "new_label": "Avec Claire",
+      "new": "Tu réagis simplement, comme d'habitude. Claire retient, et le rappelle à ton IA avant chaque réponse, dans toutes tes conversations."
+    },
+    "demo": {
+      "title": "Même question.",
+      "question": "C'est quoi un index en SQL ?",
+      "before": "Sans Claire",
+      "after": "Avec Claire",
+      "words": "{count} mots",
+      "saved": "de mots en moins",
+      "saved_note": "L'essentiel, sans le blabla.",
+      "window": "Ton IA",
+      "input": "Pose ta question…",
+      "copy_reply": "Copier la réponse",
+      "replies": {
+        "before": "Un index en SQL est une structure de données à part que la base maintient à côté d'une table pour retrouver des lignes rapidement sans parcourir toute la table. Il fonctionne comme l'index à la fin d'un livre : au lieu de lire chaque page pour trouver un sujet, tu le cherches dans une liste triée qui t'envoie à la bonne page.\n\n### Fonctionnement\n\nSans index, une requête comme `WHERE email = 'a@b.com'` force un parcours complet de la table : la base lit chaque ligne. Avec un index sur `email`, la base cherche dans une structure triée (en général un B-tree) en temps logarithmique, puis va directement à la ou aux lignes correspondantes.\n\n### Créer un index\n\n```sql\nCREATE INDEX idx_users_email ON users (email);\n```\n\nIndex unique (interdit aussi les doublons) :\n\n```sql\nCREATE UNIQUE INDEX idx_users_email ON users (email);\n```\n\nIndex composite (plusieurs colonnes) :\n\n```sql\nCREATE INDEX idx_orders_user_date ON orders (user_id, created_at);\n```\n\nSupprimer un index :\n\n```sql\nDROP INDEX idx_users_email;\n```\n\n### Types courants\n\n- **B-tree :** le type par défaut dans la plupart des bases ; bon pour l'égalité, les intervalles et le tri.\n- **Hash :** rapide uniquement pour les recherches d'égalité exacte.\n- **Full-text :** pour chercher des mots dans du texte.\n- **GIN / GiST** (PostgreSQL) : pour les tableaux, le JSON, les données géographiques, etc.\n- **Clustered ou non** (SQL Server, MySQL/InnoDB) : un index clustered fixe l'ordre physique des lignes (un par table) ; les autres sont des structures à part qui pointent vers les lignes.\n\n### Quand les index aident\n\n- Les colonnes utilisées dans `WHERE`, `JOIN`, `ORDER BY` ou `GROUP BY`\n- Les colonnes de clés étrangères\n- Les colonnes très sélectives (beaucoup de valeurs distinctes)\n\n### Compromis\n\n- **Écritures plus lentes :** chaque `INSERT`, `UPDATE` et `DELETE` doit aussi mettre à jour les index.\n- **Stockage en plus :** chaque index prend de la place sur le disque.\n- **Pas toujours utilisés :** sur de petites tables ou des colonnes peu sélectives (un booléen, par exemple), le planificateur peut ignorer l'index.\n- **L'ordre des colonnes compte dans un index composite :** un index sur `(user_id, created_at)` aide les requêtes qui filtrent sur `user_id` ou sur les deux, mais en général pas sur `created_at` seul.\n\n### Vérifier l'utilisation\n\nUtilise `EXPLAIN` (ou `EXPLAIN ANALYZE`) pour voir si une requête utilise un index :\n\n```sql\nEXPLAIN SELECT * FROM users WHERE email = 'a@b.com';\n```\n\n**Règle d'or :** indexe les colonnes sur lesquelles tu cherches, joins ou tries souvent, mais n'indexe pas tout.",
+        "after": "Un index est une structure de données à part qui permet à la base de retrouver des lignes rapidement sans parcourir toute la table, comme l'index à la fin d'un livre.\n\n- **Fonctionnement :** en général un B-tree qui garde les valeurs de la colonne triées, avec des pointeurs vers les lignes correspondantes.\n- **Avantage :** accélère `WHERE`, `JOIN`, `ORDER BY` et les recherches sur les colonnes indexées.\n- **Coût :** prend de la place et ralentit `INSERT`, `UPDATE` et `DELETE`, car l'index doit aussi être mis à jour.\n- **En créer un :** `CREATE INDEX idx_users_email ON users(email);`\n- **Types :** clé primaire et index uniques, composites (plusieurs colonnes), clustered ou non."
+      }
+    },
+    "offer": {
+      "title": "Ce que tu obtiens",
+      "items": [
+        "La bonne longueur, pour toi",
+        "Ton format : listes ou texte suivi",
+        "Ton niveau : simple ou technique",
+        "Tes données chiffrées, supprimées sur demande"
+      ],
+      "guarantee": "Ça ne te plaît pas ? Supprime le connecteur : ton IA redevient comme avant."
+    },
+    "setup": {
+      "title": "Installe-le en 30 secondes",
+      "subtitle": "Trois copier-coller. Une seule fois.",
+      "copy_label": "Copier",
+      "copied": "Copié",
+      "screen_alt": "Capture : {title}",
+      "steps": {
+        "instruction": {
+          "title": "Colle cette phrase dans tes instructions",
+          "text": {
+            "claude": "Ouvre les réglages de ton compte Claude et colle-la dans « Instructions for Claude ».",
+            "chatgpt": "Ouvre la personnalisation de ChatGPT et colle-la dans tes instructions personnalisées.",
+            "grok": "Ouvre la personnalisation de Grok et colle-la dans tes instructions personnalisées."
+          },
+          "link": "Ouvrir les réglages"
+        },
+        "connector": {
+          "title": "Ajoute le connecteur",
+          "text": {
+            "claude": "Ajoute un connecteur personnalisé avec ces deux champs.",
+            "chatgpt": "En haut à droite, clique sur Add puis Add Custom MCP Server, et remplis ces deux champs.",
+            "grok": "Clique sur New connector et remplis ces deux champs."
+          },
+          "link": "Ouvrir les connecteurs",
+          "name": "Name",
+          "url": "MCP Server URL"
+        },
+        "connect": {
+          "title": "Connecte-le",
+          "text": {
+            "claude": "Clique sur Connect : Claude ouvre notre page. Clique sur Continuer. C'est tout.",
+            "chatgpt": "Lance la connexion : ChatGPT ouvre notre page. Clique sur Continuer. C'est tout.",
+            "grok": "Lance la connexion : Grok ouvre notre page. Clique sur Continuer. C'est tout."
+          }
+        }
+      }
+    },
+    "final": {
+      "title": "Imagine ta prochaine question.",
+      "text": "La réponse fait la bonne longueur, dans ton format, du premier coup. Plus jamais « PLUS COURT. »",
+      "ps": "P.S. Ça prend 30 secondes. Au pire, tu supprimes le connecteur."
+    }
+  },
+  "instruction": "Avant chaque réponse, appelle claire_plan_reply puis claire_show_reply depuis Claire. Ne mentionne jamais ces outils.",
+  "consent": {
+    "badge": "Connexion",
+    "title": "Connecter {app} à Claire",
+    "intro": "Claire apprendra comment tu aimes les réponses et le dira à ton IA avant chaque réponse.",
+    "anonymous": "Sans compte et sans email.",
+    "storage": "Les détails de connexion et le retour chiffré sur les réponses sont stockés pour que Claire s'adapte.",
+    "accept_html": "J'accepte la <a class=\"text-primary underline underline-offset-2\" href=\"/privacy\" target=\"_blank\" rel=\"noopener\">notice données &amp; confidentialité</a>.",
+    "deny": "Annuler",
+    "allow": "Continuer",
+    "expired": "Ce lien a expiré. Relance la connexion depuis ton application d'IA.",
+    "need_accept": "Coche la case pour continuer."
+  },
+  "privacy": {
+    "badge": "Confidentialité",
+    "title": "Données & confidentialité",
+    "description": "Ce que Claire enregistre quand tu connectes une IA.",
+    "home": "Accueil",
+    "lead": "Claire est un connecteur : pas de compte, pas d'email. Voici ce que nous traitons pour adapter les réponses.",
+    "updated": "Dernière mise à jour : octobre 2026.",
+    "sections": [
+      {
+        "heading": "Ce que nous stockons",
+        "body": "Un identifiant technique de connexion, des métadonnées (nom de l'app, IP approximative, user-agent), et des signaux chiffrés sur la forme et la longueur des réponses. Pas de nom ni d'email."
+      },
+      {
+        "heading": "Pourquoi",
+        "body": "Pour que Claire propose des réponses plus courtes ou mieux formées avant que ton IA réponde, sans que tu aies à te répéter."
+      },
+      {
+        "heading": "Qui y a accès",
+        "body": "Uniquement nos serveurs Claire. Ton IA (Claude, ChatGPT, …) reçoit le résultat des outils pour la réponse en cours ; nous ne vendons pas tes données."
+      },
+      {
+        "heading": "Durée",
+        "body": "Nous gardons ce qui est nécessaire au produit et à l'apprentissage. Tu peux déconnecter le connecteur à tout moment ; une demande de suppression efface les enregistrements liés."
+      },
+      {
+        "heading": "Contact",
+        "body": "Questions ou suppression : via le contact sur claire.pm (ou le canal du site d'install)."
+      }
+    ]
+  }
+}
