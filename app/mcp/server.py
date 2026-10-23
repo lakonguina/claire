@@ -39,7 +39,10 @@ _ANNOTATIONS = ToolAnnotations(
 _SHOWN = [
     TextContent(
         type="text",
-        text="The user now sees your reply in the widget. Write nothing else.",
+        text=(
+            "Done: the user sees your reply in the widget. End your turn now "
+            "with no text at all, not even a line saying the reply is shown."
+        ),
     )
 ]
 
@@ -50,7 +53,8 @@ apps = mcp_apps.Apps()
 async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
     """Write your entire reply here, in Markdown, and nothing in the chat.
 
-    Call exactly once per reply, after claire_plan_reply.
+    Call exactly once per reply, after claire_plan_reply. Your turn ends
+    with this call: write no text before or after it.
     """
     mode = "app" if mcp_apps.client_supports_apps(ctx) else "fallback"
     async with db.Session() as session, session.begin():
