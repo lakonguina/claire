@@ -118,7 +118,7 @@
     "sections": [
       {
         "heading": "Ce que nous stockons",
-        "body": "Un identifiant technique de connexion, des métadonnées (nom de l'app, IP approximative, user-agent), et des signaux chiffrés sur la forme et la longueur des réponses. Pas de nom ni d'email."
+        "body": "Un identifiant technique de connexion, des métadonnées (nom de l'app, IP approximative, pays, user-agent), et des signaux chiffrés sur la forme et la longueur des réponses. Un cookie sur claire.pm reconnaît ton navigateur quand tu te reconnectes, pour garder les mêmes réglages. Pas de nom ni d'email."
       },
       {
         "heading": "Pourquoi",

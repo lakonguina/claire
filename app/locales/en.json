@@ -118,7 +118,7 @@
     "sections": [
       {
         "heading": "What we store",
-        "body": "A technical connection id, connection metadata (e.g. app name, approximate IP, user-agent), and encrypted signals about reply form and length (what worked for you). We do not ask for your name or email."
+        "body": "A technical connection id, connection metadata (e.g. app name, approximate IP, country, user-agent), and encrypted signals about reply form and length (what worked for you). A cookie on claire.pm recognizes your browser when you connect again, so you keep the same settings. We do not ask for your name or email."
       },
       {
         "heading": "Why",

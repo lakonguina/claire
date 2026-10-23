@@ -1,13 +1,13 @@
 {% extends "admin/base.html" %}
-{% block title %}{{ person.mcp_client_name or ("User #" ~ person.id) }}{% endblock %}
+{% block title %}User #{{ person.id }}{% endblock %}
 {% block crumb %}
 <span class="text-muted-foreground">/</span>
-<span class="text-sm">{{ person.mcp_client_name or ("User #" ~ person.id) }}</span>
+<span class="text-sm">User #{{ person.id }}</span>
 {% endblock %}
 {% block body %}
 <div>
   <h1 class="text-2xl font-black tracking-tight">
-    {{ person.mcp_client_name or ("User #" ~ person.id) }}
+    User #{{ person.id }}
   </h1>
   <p class="mt-1 text-sm text-muted-foreground">
     {{ conversations|length }} conversation{{ "s" if conversations|length != 1 else "" }}

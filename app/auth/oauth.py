@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import hmac
 import json
 import secrets
 import urllib.parse
@@ -45,6 +46,9 @@ MCP_PATH = "/mcp"
 CONSENT_PATH = "/oauth/consent"
 PRIVACY_PATH = "/privacy"
 ALLOW = "allow"
+PERSON_COOKIE = "claire_person"
+# Browsers cap cookie lifetime at 400 days.
+PERSON_COOKIE_AGE = 60 * 60 * 24 * 400
 _SECRET_BYTES = 32
 
 _TEMPLATES = Jinja2Templates(
@@ -63,6 +67,26 @@ def _public() -> str:
 def _new_secret() -> str:
     """Return a random unguessable token."""
     return secrets.token_urlsafe(_SECRET_BYTES)
+
+
+def _person_cookie(person_id: int) -> str:
+    """Signed person id, so a browser that connects again keeps its person."""
+    signature = hmac.new(
+        config.settings.data_key.encode(),
+        str(person_id).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{person_id}.{signature}"
+
+
+def _cookie_person_id(value: str | None) -> int | None:
+    """Return the person id of a valid :func:`_person_cookie`, else ``None``."""
+    head = (value or "").partition(".")[0]
+    if not head.isdigit():
+        return None
+    if not hmac.compare_digest(value or "", _person_cookie(int(head))):
+        return None
+    return int(head)
 
 
 def _token_hash(token: str) -> str:
@@ -460,7 +484,10 @@ async def consent_page(
 
 @router.post(CONSENT_PATH)
 async def consent(request: fastapi.Request) -> responses.RedirectResponse:
-    """Create the anonymous person and send the host its code, or refuse."""
+    """Send the host its code for this browser's person, or refuse.
+
+    The person comes from the browser's cookie, or is created anonymous.
+    """
     form = dict(urllib.parse.parse_qsl((await request.body()).decode()))
     language, texts = _texts(request)
     info = collect_http_request_info(request)
@@ -485,7 +512,10 @@ async def consent(request: fastapi.Request) -> responses.RedirectResponse:
                 back, error="access_denied", state=params.state
             )
             return responses.RedirectResponse(location, status_code=303)
-        person = await store.create_person(session)
+        known = _cookie_person_id(request.cookies.get(PERSON_COOKIE))
+        person = await session.get(models.Person, known) if known else None
+        if person is None:
+            person = await store.create_person(session)
         store.touch_person(person, info)
         person.country = geo.country(info.ip)
         grant = models.OAuthGrant(
@@ -522,4 +552,13 @@ async def consent(request: fastapi.Request) -> responses.RedirectResponse:
             },
         )
     location = auth.construct_redirect_uri(back, code=code, state=params.state)
-    return responses.RedirectResponse(location, status_code=303)
+    response = responses.RedirectResponse(location, status_code=303)
+    response.set_cookie(
+        PERSON_COOKIE,
+        _person_cookie(person.id),
+        max_age=PERSON_COOKIE_AGE,
+        httponly=True,
+        secure=_public().startswith("https://"),
+        samesite="lax",
+    )
+    return response

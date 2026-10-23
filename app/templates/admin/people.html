@@ -32,11 +32,7 @@
   >
     <div class="min-w-0">
       <p class="font-semibold tracking-tight">
-        {% if row.person.mcp_client_name %}
-          {{ row.person.mcp_client_name }}
-        {% else %}
-          User #{{ row.person.id }}
-        {% endif %}
+        User #{{ row.person.id }}
       </p>
       <p class="mt-0.5 text-sm text-muted-foreground">
         {{ row.conversations }} conversation{{ "s" if row.conversations != 1 else "" }}
