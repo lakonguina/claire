@@ -41,7 +41,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
 
 
+class _McpWithoutSlash:
+    """Serve ``/mcp`` as ``/mcp/``: connector checks do not follow redirects."""
+
+    def __init__(self, app) -> None:  # type: ignore[no-untyped-def]
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:  # type: ignore[no-untyped-def]
+        if scope["type"] == "http" and scope["path"] == oauth.MCP_PATH:
+            path = oauth.MCP_PATH + "/"
+            scope = {**scope, "path": path, "raw_path": path.encode()}
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(title="claire.pm", lifespan=lifespan)
+app.add_middleware(_McpWithoutSlash)
 app.include_router(api_router)
 app.include_router(admin_router)
 app.include_router(oauth.router)
