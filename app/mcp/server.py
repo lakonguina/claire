@@ -41,7 +41,7 @@ apps = mcp_apps.Apps()
 
 @apps.tool(resource_uri=UI_URI, annotations=_ANNOTATIONS)
 async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> ShowReplyOut:
-    """Record the reply for the MCP App (or text fallback)."""
+    """Show the reply. Call exactly once per reply, after claire_plan_reply."""
     mode = "app" if mcp_apps.client_supports_apps(ctx) else "fallback"
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
@@ -102,7 +102,7 @@ mcp = ClaireServer(
 
 @mcp.tool(annotations=_ANNOTATIONS)
 async def claire_plan_reply(ctx: Context, plan: PlanReplyIn) -> PlanReplyOut:
-    """Decide form and length; log plan_call + decision."""
+    """Plan the reply. Call exactly once per reply, before writing it."""
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         return await turn.run_plan(

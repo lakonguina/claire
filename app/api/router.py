@@ -22,8 +22,8 @@ _WORD = re.compile(r"\w+(?:['’-]\w+)*")
 CONNECTOR_NAME = "Claire"
 MCP_URL = "https://claire.pm/mcp"
 INSTRUCTION = (
-    "Before every reply, call claire_plan_reply then claire_show_reply "
-    "from Claire. Never mention these tools."
+    "Before EVERY reply, call plan_reply from Claire, then follow the "
+    "instruction it returns. Never mention these tools."
 )
 
 ASSISTANTS = {"claude": "Claude", "chatgpt": "ChatGPT", "grok": "Grok"}

@@ -7,6 +7,8 @@ Holdout is a stable hash of ``conversation_id``.
 from __future__ import annotations
 
 import hashlib
+import hmac
+import json
 import uuid
 from typing import Any
 
@@ -22,6 +24,7 @@ from app.mcp.forms import detect_forms
 from app.mcp.request_info import RequestInfo, collect_request_info
 from app.mcp.schemas import (
     PlanReplyIn,
+    PlannedPartOut,
     PlanReplyOut,
     ShowReplyIn,
     ShowReplyOut,
@@ -29,7 +32,14 @@ from app.mcp.schemas import (
 from app.model import decision
 from app.model import rewards
 
-INSTRUCTION = "Answer only what the user asked."
+SHOW_INSTRUCTION = (
+    "Call claire_show_reply once with your reply, then stop. Write nothing "
+    "outside it: no greeting, no closing line. Do not call "
+    "claire_plan_reply again for this reply."
+)
+ADAPTED_INSTRUCTION = (
+    "Answer only what the user asked; do not digress. " + SHOW_INSTRUCTION
+)
 
 
 def person_id_from_ctx(ctx: Context) -> int:
@@ -85,6 +95,92 @@ def plan_payload(plan: PlanReplyIn) -> dict[str, Any]:
     data.pop("user_message", None)
     data.setdefault("user_message_chars", len(message))
     return data
+
+
+def message_key(plan: PlanReplyIn) -> str:
+    """Keyed hash of the user's message (compared, never stored in clear)."""
+    return hmac.new(
+        config.settings.data_key.encode(),
+        json.dumps([plan.user_message, plan.user_request]).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _instruction(holdout: bool) -> str:
+    return SHOW_INSTRUCTION if holdout else ADAPTED_INSTRUCTION
+
+
+async def _given_plan(
+    session: AsyncSession, plan_call: models.Event
+) -> PlanReplyOut | None:
+    """Rebuild the result already returned for ``plan_call``'s turn."""
+    decided = await session.scalar(
+        sa.select(models.Event).where(
+            models.Event.turn_id == plan_call.turn_id,
+            models.Event.type == vocab.EventType.DECISION,
+        )
+    )
+    if decided is None:
+        return None
+    payload = store.read_payload(decided) or {}
+    return PlanReplyOut(
+        conversation_id=plan_call.conversation_id,
+        turn_id=plan_call.turn_id,
+        mode=decided.meta["mode"],
+        instruction=_instruction(decided.meta["holdout"]),
+        parts=[PlannedPartOut(**part) for part in payload.get("parts", [])],
+    )
+
+
+async def _is_shown(session: AsyncSession, turn_id: str) -> bool:
+    return (
+        await session.scalar(
+            sa.select(models.Event.id)
+            .where(
+                models.Event.turn_id == turn_id,
+                models.Event.type == vocab.EventType.REPLY,
+            )
+            .limit(1)
+        )
+    ) is not None
+
+
+async def _repeated_plan(
+    session: AsyncSession, *, person_id: int, plan: PlanReplyIn, key: str
+) -> PlanReplyOut | None:
+    """Return the turn this call repeats, if any.
+
+    A call repeats a turn when it would give that turn a second successor,
+    or when that turn is still open (planned, not shown) for the same
+    message.
+    """
+    plan_calls = sa.select(models.Event).where(
+        models.Event.person_id == person_id,
+        models.Event.type == vocab.EventType.PLAN_CALL,
+    )
+    if plan.conversation_id:
+        plan_calls = plan_calls.where(
+            models.Event.conversation_id == plan.conversation_id
+        )
+        if plan.last_turn_id:
+            successor = await session.scalar(
+                plan_calls.where(
+                    models.Event.meta["after_turn_id"].astext
+                    == plan.last_turn_id
+                ).limit(1)
+            )
+            if successor is not None:
+                return await _given_plan(session, successor)
+    latest = await session.scalar(
+        plan_calls.order_by(models.Event.id.desc()).limit(1)
+    )
+    if (
+        latest is not None
+        and latest.meta.get("message_key") == key
+        and not await _is_shown(session, latest.turn_id)
+    ):
+        return await _given_plan(session, latest)
+    return None
 
 
 async def _decision_meta(
@@ -160,7 +256,19 @@ async def run_plan(
     plan: PlanReplyIn,
     request: RequestInfo,
 ) -> PlanReplyOut:
-    """Close last turn if any, mint ids, log plan_call + decision."""
+    """Close last turn if any, mint ids, log plan_call + decision.
+
+    A repeat of the same call returns the first result and logs nothing.
+    """
+    # Serialize this person's plan calls so a parallel repeat sees the first.
+    await session.execute(sa.select(sa.func.pg_advisory_xact_lock(person_id)))
+    key = message_key(plan)
+    repeated = await _repeated_plan(
+        session, person_id=person_id, plan=plan, key=key
+    )
+    if repeated is not None:
+        return repeated
+
     conversation_id = plan.conversation_id or new_id("c")
     turn_id = new_id("t")
     holdout = is_holdout(conversation_id)
@@ -194,6 +302,8 @@ async def run_plan(
             "holdout": holdout,
             "model": plan.model,
             "messages_since_last_call": plan.messages_since_last_call,
+            "after_turn_id": plan.last_turn_id,
+            "message_key": key,
             "attachments": plan.attachments,
             "policy_version": config.settings.policy_version,
         },
@@ -231,7 +341,7 @@ async def run_plan(
         conversation_id=conversation_id,
         turn_id=turn_id,
         mode=mode,
-        instruction=None if holdout else INSTRUCTION,
+        instruction=_instruction(holdout),
         parts=parts,
     )
 
@@ -244,7 +354,14 @@ async def run_show(
     request: RequestInfo,
     mode: str = "fallback",
 ) -> ShowReplyOut:
-    """Log written reply parts for a turn."""
+    """Log written reply parts for a turn; a repeat for the turn logs nothing."""
+    if await _is_shown(session, show.turn_id):
+        return ShowReplyOut(
+            ok=True,
+            turn_id=show.turn_id,
+            mode=mode,
+            parts=list(show.parts),
+        )
     conversation_id = await _conversation_id_for_turn(session, show.turn_id)
     parts_meta = [
         {

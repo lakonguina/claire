@@ -177,10 +177,7 @@ class PlanReplyOut(BaseModel):
     conversation_id: str
     turn_id: str
     mode: vocab.Mode
-    instruction: str | None = Field(
-        default=None,
-        description="Rule for this reply. None when mode is neutral.",
-    )
+    instruction: str = Field(description="What to do next for this reply.")
     parts: list[PlannedPartOut] = Field(
         default_factory=list,
         description="Empty when mode is neutral (holdout). Match by name.",
