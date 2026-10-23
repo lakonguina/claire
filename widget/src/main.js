@@ -2,6 +2,8 @@
  * MCP App for claire_show_reply: display parts and report view / errors.
  */
 import { App } from "@modelcontextprotocol/ext-apps";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 
 const replyEl = document.getElementById("reply");
 const errEl = document.getElementById("err");
@@ -24,7 +26,7 @@ async function record(kind, value = null) {
 
 function render(text) {
   try {
-    replyEl.textContent = text || "";
+    replyEl.innerHTML = DOMPurify.sanitize(marked.parse(text || ""));
   } catch (e) {
     errEl.hidden = false;
     errEl.textContent = "Could not render reply.";

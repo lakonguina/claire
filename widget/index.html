@@ -12,8 +12,19 @@
     font: 15px/1.55 ui-sans-serif, system-ui, sans-serif;
     background: transparent;
   }
-  #reply { white-space: pre-wrap; word-break: break-word; }
+  #reply { overflow-wrap: anywhere; }
   #reply:empty::before { content: "…"; opacity: 0.45; }
+  #reply > :first-child { margin-top: 0; }
+  #reply > :last-child { margin-bottom: 0; }
+  pre {
+    overflow-x: auto;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(127, 127, 127, 0.12);
+  }
+  code { font-family: ui-monospace, monospace; font-size: 14px; }
+  table { display: block; overflow-x: auto; border-collapse: collapse; }
+  th, td { padding: 4px 10px; border: 1px solid rgba(127, 127, 127, 0.3); }
   .err { color: tomato; font-size: 13px; margin-top: 8px; }
 </style>
 </head>

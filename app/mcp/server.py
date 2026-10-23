@@ -10,7 +10,7 @@ from mcp.server import apps as mcp_apps
 from mcp.server.auth.provider import ProviderTokenVerifier
 from mcp.server.mcpserver.context import Context
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from app.auth import SETTINGS, provider
 from app.core import db
@@ -20,7 +20,6 @@ from app.mcp.schemas import (
     PlanReplyOut,
     RecordEventIn,
     ShowReplyIn,
-    ShowReplyOut,
 )
 
 _WIDGET = Path(__file__).resolve().parents[1] / "static" / "reply.html"
@@ -36,22 +35,36 @@ _ANNOTATIONS = ToolAnnotations(
     open_world_hint=False,
 )
 
+# What the model reads back: never the reply itself, or it writes it again.
+_SHOWN = [
+    TextContent(
+        type="text",
+        text="The user now sees your reply in the widget. Write nothing else.",
+    )
+]
+
 apps = mcp_apps.Apps()
 
 
 @apps.tool(resource_uri=UI_URI, annotations=_ANNOTATIONS)
-async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> ShowReplyOut:
-    """Show the reply. Call exactly once per reply, after claire_plan_reply."""
+async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
+    """Write your entire reply here, in Markdown, and nothing in the chat.
+
+    Call exactly once per reply, after claire_plan_reply.
+    """
     mode = "app" if mcp_apps.client_supports_apps(ctx) else "fallback"
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
-        return await turn.run_show(
+        shown = await turn.run_show(
             session,
             person_id=person_id,
             show=show,
             request=info,
             mode=mode,
         )
+    return CallToolResult(
+        content=_SHOWN, structured_content=shown.model_dump(mode="json")
+    )
 
 
 @apps.tool(
