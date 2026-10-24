@@ -33,10 +33,9 @@ from app.model import decision
 from app.model import rewards
 
 SHOW_INSTRUCTION = (
-    "Call claire_show_reply once with your whole reply, then end your turn. "
-    "Write no text in the chat, before or after it: no greeting, no "
-    "closing line, no note that the reply is shown. Do not call "
-    "claire_plan_reply again for this reply."
+    "Call `claire_show_reply` once with your whole reply."
+    "Your reply is only in claire_show_reply. Output zero characters outisde of `claire_show_reply`."
+    "Do not call `claire_plan_reply` again for this reply."
 )
 ADAPTED_INSTRUCTION = (
     "Answer only what the user asked; do not digress. " + SHOW_INSTRUCTION

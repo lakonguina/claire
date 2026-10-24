@@ -66,8 +66,15 @@ async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
             request=info,
             mode=mode,
         )
+    # Do not echo reply text back to the model (doubles in chat). The widget
+    # reads parts from tool *arguments* via ontoolinput.
     return CallToolResult(
-        content=_SHOWN, structured_content=shown.model_dump(mode="json")
+        content=_SHOWN,
+        structured_content={
+            "ok": shown.ok,
+            "turn_id": shown.turn_id,
+            "mode": shown.mode,
+        },
     )
 
 

@@ -206,7 +206,11 @@ class ShowReplyIn(BaseModel):
 
 
 class ShowReplyOut(BaseModel):
-    """Result of ``claire_show_reply``."""
+    """Result of ``claire_show_reply`` (ack only — no reply text).
+
+    Parts stay on the tool *input* for the widget (``ontoolinput``). Echoing
+    them here makes hosts rewrite the same answer in the chat.
+    """
 
     ok: bool = True
     turn_id: str | None = Field(
@@ -219,7 +223,7 @@ class ShowReplyOut(BaseModel):
     )
     parts: list[ShownPart] = Field(
         default_factory=list,
-        description="Echo of written parts for the widget to display.",
+        description="Internal only; not returned to the host model.",
     )
 
 
