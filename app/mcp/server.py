@@ -1,4 +1,16 @@
-"""MCP server: tools + App UI resource. Logic lives in :mod:`app.mcp.turn`."""
+"""MCP server: tools + App UI resource. Logic lives in :mod:`app.mcp.turn`.
+
+Widget refresh for connected hosts
+----------------------------------
+1. ``reply.html`` is content-addressed: ``ui://claire/reply-<sha12>.html``.
+   A new build changes the URI stamped on every App tool.
+2. ``cache_hints`` tell hosts how long ``tools/list`` / ``resources/*`` stay
+   fresh (``CACHE_TTL_MS``). After expiry they re-list and fetch the new URI.
+3. ``read_resource`` remaps any ``ui://claire/*`` fingerprint to the current
+   HTML, so a host that still holds an old URI still gets the new bundle.
+4. The image builds the widget at deploy time (see Dockerfile) so the hash
+   always matches the JS that shipped.
+"""
 
 from __future__ import annotations
 
@@ -7,13 +19,14 @@ from pathlib import Path
 
 from mcp.server import MCPServer
 from mcp.server import apps as mcp_apps
+from mcp.server import caching
 from mcp.server.auth.provider import ProviderTokenVerifier
 from mcp.server.mcpserver.context import Context
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from app.auth import SETTINGS, provider
-from app.core import db
+from app.core import config, db
 from app.mcp import turn
 from app.mcp.schemas import (
     PlanReplyIn,
@@ -26,19 +39,19 @@ from app.mcp.schemas import (
 _WIDGET = Path(__file__).resolve().parents[1] / "static" / "reply.html"
 _WIDGET_HTML = _WIDGET.read_text(encoding="utf-8") if _WIDGET.exists() else ""
 _UI_PREFIX = "ui://claire/"
+# Fingerprint in the URI: new HTML → new address → hosts must re-fetch.
 UI_URI = (
     f"{_UI_PREFIX}reply-"
     f"{hashlib.sha256(_WIDGET_HTML.encode()).hexdigest()[:12]}.html"
 )
+_CACHEABLE = ("tools/list", "resources/list", "resources/read")
 _ANNOTATIONS = ToolAnnotations(
     read_only_hint=True,
     destructive_hint=False,
     open_world_hint=False,
 )
 
-
-# Same stop line as the previous Claire that never doubled in Claude:
-# without a clear "already shown" content, the model rewrites the reply.
+# Without a clear "already shown" line, the model may rewrite the reply.
 _SHOWN = (
     "The user now sees your reply. Do not call claire_show_reply again "
     "and write nothing else."
@@ -48,8 +61,7 @@ _SHOWN = (
 def _show_ack(shown: ShowReplyOut) -> CallToolResult:
     """Ack only — never put reply text in content, structuredContent, or meta.
 
-    The essay lives only in tool *arguments* (widget ``ontoolinput``). Putting
-    it in the result (even ``_meta``) can make Claude paste it into the chat.
+    The essay lives only in tool *arguments* (widget ``ontoolinput``).
     """
     return CallToolResult(
         content=[TextContent(type="text", text=_SHOWN)],
@@ -66,11 +78,7 @@ apps = mcp_apps.Apps()
 
 @apps.tool(resource_uri=UI_URI, annotations=_ANNOTATIONS)
 async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
-    """Write your entire reply here in Markdown, and nothing in the chat.
-
-    Hosts may still call with nested ``{show: {turn_id, parts}}`` (cached
-    schema). The widget unwraps that; keep this signature so validation passes.
-    """
+    """Write your entire reply here in Markdown, and nothing in the chat."""
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         shown = await turn.run_show(
@@ -131,6 +139,10 @@ mcp = ClaireServer(
     auth=SETTINGS,
     token_verifier=ProviderTokenVerifier(provider),
     extensions=[apps],
+    cache_hints={
+        method: caching.CacheHint(config.settings.cache_ttl_ms, "private")
+        for method in _CACHEABLE
+    },
 )
 
 

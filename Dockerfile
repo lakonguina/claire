@@ -1,3 +1,12 @@
+# MCP App widget (content-hashed ui:// URI at runtime).
+FROM node:22-slim AS widget
+WORKDIR /widget
+COPY widget/package.json widget/package-lock.json ./
+RUN npm ci
+COPY widget/ ./
+RUN mkdir -p /app/static && npm run build
+
+# Landing / admin CSS.
 FROM node:22-slim AS css
 WORKDIR /build
 COPY package.json package-lock.json* ./
@@ -20,6 +29,8 @@ COPY app ./app
 # IP → country lookups at consent (DB-IP Lite, CC BY 4.0).
 RUN python -m app.core.geo
 COPY --from=css /build/app/static/app.css ./app/static/app.css
+# Overwrite any committed reply.html with the build from this image.
+COPY --from=widget /app/static/reply.html ./app/static/reply.html
 EXPOSE 8000
 # Behind Northflank's proxy: trust X-Forwarded-* so redirects stay on https.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

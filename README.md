@@ -9,12 +9,22 @@ app/
 ├── store.py           # append_event (payload AES-GCM)
 ├── core/              # config, db, crypto, vocab
 ├── api/               # landing + health
-├── mcp/               # Streamable HTTP (stub → tools next)
+├── mcp/               # Streamable HTTP + MCP Apps widget
 ├── locales/
 ├── templates/
-└── static/            # styles.css → app.css
+└── static/            # app.css + reply.html (widget bundle)
+widget/                # MCP App source → built into app/static/reply.html
 migrations/            # Alembic
 ```
+
+## Widget updates
+
+Deploy rebuilds `widget/` into `reply.html`. The MCP resource URI is
+`ui://claire/reply-<sha12>.html`, so a new bundle gets a new address on
+`tools/list`. Hosts refresh after `CACHE_TTL_MS` (default 1h) or on
+reconnect; any old `ui://claire/*` URI still serves the current HTML.
+
+Local widget rebuild: `cd widget && npm ci && npm run build`.
 
 ## Run
 

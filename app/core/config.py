@@ -30,6 +30,10 @@ class Settings(pydantic_settings.BaseSettings):
         cell_prior_strength: How strongly a new person inherits the global
             average before we have their own feedback.
         admin_token: Shared secret for ``/admin``. Empty disables the UI.
+        cache_ttl_ms: How long MCP hosts may cache ``tools/list`` /
+            ``resources/*``. After a widget deploy the tool's
+            ``_meta.ui.resourceUri`` fingerprint changes; hosts pick it up
+            once this TTL expires (or on reconnect). ``0`` = always stale.
     """
 
     model_config = pydantic_settings.SettingsConfigDict(
@@ -47,6 +51,7 @@ class Settings(pydantic_settings.BaseSettings):
     user_message_words: int = 150
     cell_prior_strength: float = 5.0
     admin_token: str = ""
+    cache_ttl_ms: int = 3_600_000
 
 
 settings = Settings()
