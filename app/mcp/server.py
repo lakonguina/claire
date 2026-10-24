@@ -21,7 +21,6 @@ from app.mcp.schemas import (
     RecordEventIn,
     ShowReplyIn,
     ShowReplyOut,
-    ShownPart,
 )
 
 _WIDGET = Path(__file__).resolve().parents[1] / "static" / "reply.html"
@@ -66,13 +65,12 @@ apps = mcp_apps.Apps()
 
 
 @apps.tool(resource_uri=UI_URI, annotations=_ANNOTATIONS)
-async def claire_show_reply(
-    ctx: Context,
-    turn_id: str,
-    parts: list[ShownPart],
-) -> CallToolResult:
-    """Write your entire reply here in Markdown, and nothing in the chat."""
-    show = ShowReplyIn(turn_id=turn_id, parts=parts)
+async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
+    """Write your entire reply here in Markdown, and nothing in the chat.
+
+    Hosts may still call with nested ``{show: {turn_id, parts}}`` (cached
+    schema). The widget unwraps that; keep this signature so validation passes.
+    """
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         shown = await turn.run_show(
