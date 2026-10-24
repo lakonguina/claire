@@ -1,9 +1,9 @@
 /**
  * MCP App for claire_show_reply.
  *
- * Contract: args = human reply (ontoolinput / partial); result = model stop
- * signal; optional _meta.claire.parts = widget-only mirror if input was skipped.
- * Never read the essay from structuredContent (model-visible; hosts may echo).
+ * Contract (same as the Claire build that did not double in Claude):
+ * args = human reply (ontoolinput / partial); result = stop signal only.
+ * Never put the essay in the tool result — Claude may paste it into chat.
  */
 import { App } from "@modelcontextprotocol/ext-apps";
 import DOMPurify from "dompurify";
@@ -50,26 +50,34 @@ function showParts(parts) {
   }
 }
 
+/** Flat args (turn_id, parts) preferred; unwrap legacy ``{ show: … }``. */
+function toolArgs(params) {
+  const args = params?.arguments || params || {};
+  return args.show || args;
+}
+
 /** Host streams / delivers the tool call arguments (the written reply). */
 app.ontoolinput = (params) => {
-  const args = params?.arguments || params || {};
+  const args = toolArgs(params);
   turnId = args.turn_id || turnId;
   showParts(args.parts);
 };
 
 app.ontoolinputpartial = (params) => {
-  const args = params?.arguments || params || {};
+  const args = toolArgs(params);
   turnId = args.turn_id || turnId;
   if (args.parts) showParts(args.parts);
 };
 
-/** Ack only in structuredContent; parts may arrive under _meta.claire. */
+/** Result is ack-only (no parts). Keep turn_id if the host omitted input. */
 app.ontoolresult = (result) => {
+  if (result?.isError) {
+    render("");
+    turnId = null;
+    return;
+  }
   const sc = result?.structuredContent || {};
-  const meta = result?._meta || result?.meta || {};
   turnId = sc.turn_id || turnId;
-  const parts = meta?.claire?.parts;
-  if (parts?.length) showParts(parts);
 };
 
 app.onerror = (err) => {

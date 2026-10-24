@@ -209,17 +209,17 @@ class ShowReplyIn(BaseModel):
 
 
 class ShowReplyOut(BaseModel):
-    """Ack for the model — no reply text in content/structuredContent.
+    """Ack for the model — no reply text anywhere in the tool result.
 
     Contract: tool args = human-facing reply (widget via ``ontoolinput``);
-    result = stop signal for the model; optional ``_meta.claire.parts``
-    mirrors args for hosts that skip input notifications (widget-only).
+    result = short stop signal only (never echo parts in content,
+    structuredContent, or ``_meta`` — hosts may feed that back to the model).
     """
 
     ok: bool = True
     turn_id: str | None = Field(
         default=None,
-        description="Echo of the turn handle (for the MCP App widget).",
+        description="Echo of the turn handle.",
     )
     display: vocab.Display = Field(
         default=vocab.Display.WIDGET,
@@ -230,7 +230,7 @@ class ShowReplyOut(BaseModel):
     )
     parts: list[ShownPart] = Field(
         default_factory=list,
-        description="Internal; wire as _meta.claire.parts only, never content.",
+        description="Internal only; never returned on the wire.",
     )
 
 

@@ -21,6 +21,7 @@ from app.mcp.schemas import (
     RecordEventIn,
     ShowReplyIn,
     ShowReplyOut,
+    ShownPart,
 )
 
 _WIDGET = Path(__file__).resolve().parents[1] / "static" / "reply.html"
@@ -37,36 +38,41 @@ _ANNOTATIONS = ToolAnnotations(
 )
 
 
-def _show_ack(shown: ShowReplyOut) -> CallToolResult:
-    """Model stop signal only — never put reply text in content/structuredContent.
+# Same stop line as the previous Claire that never doubled in Claude:
+# without a clear "already shown" content, the model rewrites the reply.
+_SHOWN = (
+    "The user now sees your reply. Do not call claire_show_reply again "
+    "and write nothing else."
+)
 
-    Contract: args = human reply (``ontoolinput``); result = ack; optional
-    ``_meta.claire.parts`` = widget-only mirror if the host skips input events.
+
+def _show_ack(shown: ShowReplyOut) -> CallToolResult:
+    """Ack only — never put reply text in content, structuredContent, or meta.
+
+    The essay lives only in tool *arguments* (widget ``ontoolinput``). Putting
+    it in the result (even ``_meta``) can make Claude paste it into the chat.
     """
-    result = CallToolResult(
-        content=[TextContent(type="text", text=shown.note)],
+    return CallToolResult(
+        content=[TextContent(type="text", text=_SHOWN)],
         structured_content={
             "ok": shown.ok,
             "turn_id": shown.turn_id,
             "display": shown.display,
-            "note": shown.note,
         },
     )
-    if shown.parts:
-        result.meta = {
-            "claire": {
-                "parts": [part.model_dump(mode="json") for part in shown.parts],
-            },
-        }
-    return result
 
 
 apps = mcp_apps.Apps()
 
 
 @apps.tool(resource_uri=UI_URI, annotations=_ANNOTATIONS)
-async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
-    """Submit the full reply into the widget. Follow plan.instruction."""
+async def claire_show_reply(
+    ctx: Context,
+    turn_id: str,
+    parts: list[ShownPart],
+) -> CallToolResult:
+    """Write your entire reply here in Markdown, and nothing in the chat."""
+    show = ShowReplyIn(turn_id=turn_id, parts=parts)
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         shown = await turn.run_show(
@@ -118,6 +124,12 @@ class ClaireServer(MCPServer):
 
 mcp = ClaireServer(
     "Claire",
+    instructions=(
+        "Before EVERY reply, you MUST call claire_plan_reply from Claire, "
+        "then follow the instruction it returns EXACTLY. "
+        "Write the reply only via claire_show_reply; write nothing in the chat. "
+        "Never mention these tools."
+    ),
     auth=SETTINGS,
     token_verifier=ProviderTokenVerifier(provider),
     extensions=[apps],
@@ -126,7 +138,7 @@ mcp = ClaireServer(
 
 @mcp.tool(annotations=_ANNOTATIONS)
 async def claire_plan_reply(ctx: Context, plan: PlanReplyIn) -> PlanReplyOut:
-    """Plan once per reply, then follow result.instruction."""
+    """Call once before every reply, then follow the returned instruction."""
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         return await turn.run_plan(

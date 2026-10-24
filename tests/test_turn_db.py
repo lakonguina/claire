@@ -51,7 +51,7 @@ async def test_run_plan_and_show(db_session) -> None:
     )
     assert shown.ok is True
     assert shown.display == vocab.Display.WIDGET
-    assert "write nothing" in shown.note.lower()
+    assert "write nothing else" in shown.note.lower()
 
     plan2 = PlanReplyIn(
         conversation_id=out.conversation_id,

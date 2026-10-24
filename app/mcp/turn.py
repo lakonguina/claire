@@ -33,11 +33,15 @@ from app.model import decision
 from app.model import rewards
 
 SHOW_INSTRUCTION = (
-    "call claire_show_reply once with the full answer; "
-    "write nothing in chat; do not call claire_plan_reply again."
+    "call claire_show_reply once with the full answer in Markdown; "
+    "write nothing else in the chat; do not call claire_plan_reply again."
 )
 ADAPTED_PREFIX = "Answer only what was asked. "
-SHOW_NOTE = "Shown in the widget. Write nothing."
+# Kept for ShowReplyOut / admin; the wire ack text lives in server._SHOWN.
+SHOW_NOTE = (
+    "The user now sees your reply. Do not call claire_show_reply again "
+    "and write nothing else."
+)
 
 
 def person_id_from_ctx(ctx: Context) -> int:
