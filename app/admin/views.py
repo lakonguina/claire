@@ -100,6 +100,8 @@ def build_turns(events: list[models.Event]) -> list[dict[str, Any]]:
         reply_parts: list[dict[str, str]] = []
         model = None
         mode = None
+        replay = False
+        replay_attempt = None
         when = group[0].created_at
         decision_body: dict[str, Any] | None = None
         tool_events: list[models.Event] = []
@@ -111,6 +113,9 @@ def build_turns(events: list[models.Event]) -> list[dict[str, Any]]:
                 user_text = _user_text(payload) or user_text
                 model = meta.get("model") or model
                 mode = meta.get("mode") or mode
+                if meta.get("replay"):
+                    replay = True
+                    replay_attempt = meta.get("replay_attempt")
                 tool_events.append(event)
             elif event.type == vocab.EventType.REPLY:
                 reply_parts = _reply_parts(payload) or reply_parts
@@ -146,6 +151,8 @@ def build_turns(events: list[models.Event]) -> list[dict[str, Any]]:
                 "when": when,
                 "model": model,
                 "mode": mode,
+                "replay": replay,
+                "replay_attempt": replay_attempt,
                 "user_text": user_text,
                 "reply_parts": reply_parts,
                 "reply_text": "\n\n".join(part["text"] for part in reply_parts),

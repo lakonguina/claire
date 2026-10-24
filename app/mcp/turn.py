@@ -145,32 +145,69 @@ async def _is_shown(session: AsyncSession, turn_id: str) -> bool:
     ) is not None
 
 
+def _plan_calls_q(*, person_id: int, conversation_id: str | None):
+    """Base query for this person's plan_call events (optionally one chat)."""
+    statement = sa.select(models.Event).where(
+        models.Event.person_id == person_id,
+        models.Event.type == vocab.EventType.PLAN_CALL,
+    )
+    if conversation_id:
+        statement = statement.where(
+            models.Event.conversation_id == conversation_id
+        )
+    return statement
+
+
+async def _abandoned_attempts(
+    session: AsyncSession,
+    *,
+    person_id: int,
+    conversation_id: str | None,
+    last_turn_id: str | None,
+    key: str,
+) -> list[models.Event]:
+    """Prior plan_calls after ``last_turn_id`` for a *different* user message.
+
+    Those are abandoned when the person edits and retries (chat replay).
+    """
+    if not conversation_id or not last_turn_id:
+        return []
+    rows = (
+        await session.scalars(
+            _plan_calls_q(
+                person_id=person_id, conversation_id=conversation_id
+            )
+            .where(
+                models.Event.meta["after_turn_id"].astext == last_turn_id
+            )
+            .order_by(models.Event.id.asc())
+        )
+    ).all()
+    return [row for row in rows if row.meta.get("message_key") != key]
+
+
 async def _repeated_plan(
     session: AsyncSession, *, person_id: int, plan: PlanReplyIn, key: str
 ) -> PlanReplyOut | None:
     """Return the turn this call repeats, if any.
 
-    A call repeats a turn when it would give that turn a second successor,
-    or when that turn is still open (planned, not shown) for the same
-    message.
+    A call repeats a turn when it would give that turn a second successor
+    for the *same* message, or when that turn is still open (planned, not
+    shown) for the same message.
     """
-    plan_calls = sa.select(models.Event).where(
-        models.Event.person_id == person_id,
-        models.Event.type == vocab.EventType.PLAN_CALL,
+    plan_calls = _plan_calls_q(
+        person_id=person_id, conversation_id=plan.conversation_id
     )
-    if plan.conversation_id:
-        plan_calls = plan_calls.where(
-            models.Event.conversation_id == plan.conversation_id
+    if plan.conversation_id and plan.last_turn_id:
+        same = await session.scalar(
+            plan_calls.where(
+                models.Event.meta["after_turn_id"].astext
+                == plan.last_turn_id,
+                models.Event.meta["message_key"].astext == key,
+            ).limit(1)
         )
-        if plan.last_turn_id:
-            successor = await session.scalar(
-                plan_calls.where(
-                    models.Event.meta["after_turn_id"].astext
-                    == plan.last_turn_id
-                ).limit(1)
-            )
-            if successor is not None:
-                return await _given_plan(session, successor)
+        if same is not None:
+            return await _given_plan(session, same)
     latest = await session.scalar(
         plan_calls.order_by(models.Event.id.desc()).limit(1)
     )
@@ -181,6 +218,19 @@ async def _repeated_plan(
     ):
         return await _given_plan(session, latest)
     return None
+
+
+async def _is_closed(session: AsyncSession, turn_id: str) -> bool:
+    return (
+        await session.scalar(
+            sa.select(models.Event.id)
+            .where(
+                models.Event.turn_id == turn_id,
+                models.Event.type == vocab.EventType.TURN_CLOSED,
+            )
+            .limit(1)
+        )
+    ) is not None
 
 
 async def _decision_meta(
@@ -274,7 +324,23 @@ async def run_plan(
     holdout = is_holdout(conversation_id)
     mode = vocab.Mode.NEUTRAL if holdout else vocab.Mode.ADAPTED
 
-    if plan.last_turn_id:
+    abandoned = await _abandoned_attempts(
+        session,
+        person_id=person_id,
+        conversation_id=plan.conversation_id,
+        last_turn_id=plan.last_turn_id,
+        key=key,
+    )
+    replay_meta: dict[str, Any] = {}
+    if abandoned:
+        replay_meta = {
+            "replay": True,
+            "replay_attempt": len(abandoned) + 1,
+            "replay_of_turn_id": abandoned[-1].turn_id,
+            "replay_of_turn_ids": [event.turn_id for event in abandoned],
+        }
+
+    if plan.last_turn_id and not await _is_closed(session, plan.last_turn_id):
         signal = rewards.forced_signal(plan.parts)
         await close_turn(
             session,
@@ -306,6 +372,7 @@ async def run_plan(
             "message_key": key,
             "attachments": plan.attachments,
             "policy_version": config.settings.policy_version,
+            **replay_meta,
         },
         payload=plan_payload(plan),
     )

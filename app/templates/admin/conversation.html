@@ -26,7 +26,7 @@
       <div class="admin-bubble admin-bubble-user max-w-[92%] sm:max-w-[85%]">
         <p class="whitespace-pre-wrap text-pretty leading-relaxed">{{ turn.user_text }}</p>
         <p class="mt-2 text-[0.7rem] text-muted-foreground">
-          {{ turn.when.strftime("%H:%M") }}{% if turn.model %} · {{ turn.model }}{% endif %}
+          {{ turn.when.strftime("%H:%M") }}{% if turn.model %} · {{ turn.model }}{% endif %}{% if turn.replay %} · replay{% if turn.replay_attempt %} #{{ turn.replay_attempt }}{% endif %}{% endif %}
         </p>
       </div>
     </div>
@@ -42,6 +42,7 @@
             {{ turn.tool_count }} tools used
           {% endif %}
           {% if turn.mode == "neutral" %}<span class="admin-tools-tag">holdout</span>{% endif %}
+          {% if turn.replay %}<span class="admin-tools-tag">replay{% if turn.replay_attempt %} #{{ turn.replay_attempt }}{% endif %}</span>{% endif %}
         </summary>
         <div class="admin-tools-body space-y-4">
           {% for tool in turn.tools %}

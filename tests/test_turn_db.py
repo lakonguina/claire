@@ -119,3 +119,63 @@ async def test_repeated_calls_reuse_the_turn(db_session) -> None:
     third = await plan("question three", after=second)
     fourth = await plan("question four", after=third)
     assert fourth.turn_id != third.turn_id
+
+
+@pytest.mark.asyncio
+async def test_edited_retry_is_logged_as_replay(db_session) -> None:
+    info = RequestInfo(ip="127.0.0.1", user_agent="pytest")
+    person = await store.create_person(db_session)
+
+    first = await turn.run_plan(
+        db_session,
+        person_id=person.id,
+        plan=PlanReplyIn(
+            parts=[PlannedPartIn(name="main", words=80)],
+            user_message="original question",
+        ),
+        request=info,
+    )
+    await turn.run_show(
+        db_session,
+        person_id=person.id,
+        show=ShowReplyIn(
+            turn_id=first.turn_id,
+            parts=[ShownPart(name="main", text="first answer")],
+        ),
+        request=info,
+    )
+
+    attempt_a = await turn.run_plan(
+        db_session,
+        person_id=person.id,
+        plan=PlanReplyIn(
+            conversation_id=first.conversation_id,
+            last_turn_id=first.turn_id,
+            parts=[PlannedPartIn(name="main", words=80)],
+            user_message="draft one",
+        ),
+        request=info,
+    )
+    attempt_b = await turn.run_plan(
+        db_session,
+        person_id=person.id,
+        plan=PlanReplyIn(
+            conversation_id=first.conversation_id,
+            last_turn_id=first.turn_id,
+            parts=[PlannedPartIn(name="main", words=80)],
+            user_message="draft two edited",
+        ),
+        request=info,
+    )
+    assert attempt_b.turn_id != attempt_a.turn_id
+
+    plan_call = await db_session.scalar(
+        sa.select(models.Event).where(
+            models.Event.turn_id == attempt_b.turn_id,
+            models.Event.type == vocab.EventType.PLAN_CALL,
+        )
+    )
+    assert plan_call is not None
+    assert plan_call.meta.get("replay") is True
+    assert plan_call.meta.get("replay_of_turn_id") == attempt_a.turn_id
+    assert plan_call.meta.get("replay_attempt") == 2

@@ -35,16 +35,51 @@ _ANNOTATIONS = ToolAnnotations(
     open_world_hint=False,
 )
 
-# What the model reads back: never the reply itself, or it writes it again.
-_SHOWN = [
-    TextContent(
-        type="text",
-        text=(
-            "Done: the user sees your reply in the widget. End your turn now "
-            "with no text at all, not even a line saying the reply is shown."
-        ),
+
+def _show_result(
+    show: ShowReplyIn, *, mode: str, turn_id: str | None
+) -> CallToolResult:
+    """Build the tool result for the host.
+
+    * ``app`` — widget shows the reply from tool arguments; ack only so the
+      model does not rewrite it in chat.
+    * ``fallback`` — no widget (e.g. ChatGPT today). Return the Markdown so
+      the host can surface it; ask the model to show it once, not twice.
+    """
+    structured: dict = {"ok": True, "turn_id": turn_id, "mode": mode}
+    if mode == "app":
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        "Done: the user sees your reply in the widget. "
+                        "End your turn now with no text at all, not even a "
+                        "line saying the reply is shown."
+                    ),
+                )
+            ],
+            structured_content=structured,
+        )
+    body = "\n\n".join(part.text for part in show.parts if part.text)
+    structured["parts"] = [
+        part.model_dump(mode="json") for part in show.parts
+    ]
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    "No widget on this host. The reply below is what the "
+                    "user should see — post it once as your message, do not "
+                    "paraphrase or add a second version.\n\n"
+                    f"{body}"
+                ),
+            )
+        ],
+        structured_content=structured,
     )
-]
+
 
 apps = mcp_apps.Apps()
 
@@ -66,16 +101,7 @@ async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
             request=info,
             mode=mode,
         )
-    # Do not echo reply text back to the model (doubles in chat). The widget
-    # reads parts from tool *arguments* via ontoolinput.
-    return CallToolResult(
-        content=_SHOWN,
-        structured_content={
-            "ok": shown.ok,
-            "turn_id": shown.turn_id,
-            "mode": shown.mode,
-        },
-    )
+    return _show_result(show, mode=shown.mode, turn_id=shown.turn_id)
 
 
 @apps.tool(
