@@ -32,14 +32,19 @@ from app.mcp.schemas import (
 from app.model import decision
 from app.model import rewards
 
-SHOW_INSTRUCTION = (
-    "Call `claire_show_reply` once with your whole reply."
-    "Your reply is only in claire_show_reply. Output zero characters outisde of `claire_show_reply`."
-    "Do not call `claire_plan_reply` again for this reply."
+WIDGET_INSTRUCTION = (
+    "display=widget: call claire_show_reply once with your whole answer. "
+    "Do not write that answer (or a summary) in the chat — the widget is "
+    "the reply. End your turn after show_reply. "
+    "Do not call claire_plan_reply again for this reply."
 )
-ADAPTED_INSTRUCTION = (
-    "Answer only what the user asked; do not digress. " + SHOW_INSTRUCTION
+FALLBACK_INSTRUCTION = (
+    "display=fallback: this host has no Claire widget. Write your whole "
+    "answer once in the chat as your normal message. "
+    "Do not call claire_show_reply. "
+    "Do not call claire_plan_reply again for this reply."
 )
+ADAPTED_PREFIX = "Answer only what the user asked; do not digress. "
 
 
 def person_id_from_ctx(ctx: Context) -> int:
@@ -106,12 +111,33 @@ def message_key(plan: PlanReplyIn) -> str:
     ).hexdigest()
 
 
-def _instruction(holdout: bool) -> str:
-    return SHOW_INSTRUCTION if holdout else ADAPTED_INSTRUCTION
+def _instruction(*, holdout: bool, display: vocab.Display) -> str:
+    base = (
+        FALLBACK_INSTRUCTION
+        if display == vocab.Display.FALLBACK
+        else WIDGET_INSTRUCTION
+    )
+    return base if holdout else ADAPTED_PREFIX + base
+
+
+def show_note(display: vocab.Display) -> str:
+    """Unambiguous closing line for ``claire_show_reply``."""
+    if display == vocab.Display.WIDGET:
+        return (
+            "The reply is displayed to the person in the widget. "
+            "Your turn is over: write nothing."
+        )
+    return (
+        "No widget on this host. You should already have written the answer "
+        "in the chat. Write nothing more."
+    )
 
 
 async def _given_plan(
-    session: AsyncSession, plan_call: models.Event
+    session: AsyncSession,
+    plan_call: models.Event,
+    *,
+    display: vocab.Display,
 ) -> PlanReplyOut | None:
     """Rebuild the result already returned for ``plan_call``'s turn."""
     decided = await session.scalar(
@@ -123,11 +149,13 @@ async def _given_plan(
     if decided is None:
         return None
     payload = store.read_payload(decided) or {}
+    holdout = bool(decided.meta.get("holdout"))
     return PlanReplyOut(
         conversation_id=plan_call.conversation_id,
         turn_id=plan_call.turn_id,
         mode=decided.meta["mode"],
-        instruction=_instruction(decided.meta["holdout"]),
+        display=display,
+        instruction=_instruction(holdout=holdout, display=display),
         parts=[PlannedPartOut(**part) for part in payload.get("parts", [])],
     )
 
@@ -187,13 +215,19 @@ async def _abandoned_attempts(
 
 
 async def _repeated_plan(
-    session: AsyncSession, *, person_id: int, plan: PlanReplyIn, key: str
+    session: AsyncSession,
+    *,
+    person_id: int,
+    plan: PlanReplyIn,
+    key: str,
+    display: vocab.Display,
 ) -> PlanReplyOut | None:
     """Return the turn this call repeats, if any.
 
     A call repeats a turn when it would give that turn a second successor
     for the *same* message, or when that turn is still open (planned, not
-    shown) for the same message.
+    shown) for the same message. ``display`` / ``instruction`` follow the
+    current host capabilities (not the first attempt's).
     """
     plan_calls = _plan_calls_q(
         person_id=person_id, conversation_id=plan.conversation_id
@@ -207,7 +241,7 @@ async def _repeated_plan(
             ).limit(1)
         )
         if same is not None:
-            return await _given_plan(session, same)
+            return await _given_plan(session, same, display=display)
     latest = await session.scalar(
         plan_calls.order_by(models.Event.id.desc()).limit(1)
     )
@@ -216,7 +250,7 @@ async def _repeated_plan(
         and latest.meta.get("message_key") == key
         and not await _is_shown(session, latest.turn_id)
     ):
-        return await _given_plan(session, latest)
+        return await _given_plan(session, latest, display=display)
     return None
 
 
@@ -305,16 +339,23 @@ async def run_plan(
     person_id: int,
     plan: PlanReplyIn,
     request: RequestInfo,
+    display: vocab.Display,
 ) -> PlanReplyOut:
     """Close last turn if any, mint ids, log plan_call + decision.
 
-    A repeat of the same call returns the first result and logs nothing.
+    ``display`` comes from the host's MCP Apps capabilities (known at
+    connect). A repeat of the same call returns the first result and logs
+    nothing (instruction / display refreshed for this host).
     """
     # Serialize this person's plan calls so a parallel repeat sees the first.
     await session.execute(sa.select(sa.func.pg_advisory_xact_lock(person_id)))
     key = message_key(plan)
     repeated = await _repeated_plan(
-        session, person_id=person_id, plan=plan, key=key
+        session,
+        person_id=person_id,
+        plan=plan,
+        key=key,
+        display=display,
     )
     if repeated is not None:
         return repeated
@@ -365,6 +406,7 @@ async def run_plan(
         request=request,
         meta={
             "mode": mode,
+            "display": display,
             "holdout": holdout,
             "model": plan.model,
             "messages_since_last_call": plan.messages_since_last_call,
@@ -396,6 +438,7 @@ async def run_plan(
         request=request,
         meta={
             "mode": mode,
+            "display": display,
             "holdout": holdout,
             "policy_version": config.settings.policy_version,
             "parts": parts_meta,
@@ -408,7 +451,8 @@ async def run_plan(
         conversation_id=conversation_id,
         turn_id=turn_id,
         mode=mode,
-        instruction=_instruction(holdout),
+        display=display,
+        instruction=_instruction(holdout=holdout, display=display),
         parts=parts,
     )
 
@@ -419,14 +463,16 @@ async def run_show(
     person_id: int,
     show: ShowReplyIn,
     request: RequestInfo,
-    mode: str = "fallback",
+    display: vocab.Display,
 ) -> ShowReplyOut:
     """Log written reply parts for a turn; a repeat for the turn logs nothing."""
+    note = show_note(display)
     if await _is_shown(session, show.turn_id):
         return ShowReplyOut(
             ok=True,
             turn_id=show.turn_id,
-            mode=mode,
+            display=display,
+            note=note,
             parts=list(show.parts),
         )
     conversation_id = await _conversation_id_for_turn(session, show.turn_id)
@@ -445,7 +491,7 @@ async def run_show(
         conversation_id=conversation_id,
         turn_id=show.turn_id,
         request=request,
-        meta={"mode": mode, "parts": parts_meta},
+        meta={"display": display, "parts": parts_meta},
         payload={
             "parts": [part.model_dump(mode="json") for part in show.parts],
         },
@@ -453,7 +499,8 @@ async def run_show(
     return ShowReplyOut(
         ok=True,
         turn_id=show.turn_id,
-        mode=mode,
+        display=display,
+        note=note,
         parts=list(show.parts),
     )
 

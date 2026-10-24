@@ -28,11 +28,17 @@ async def test_run_plan_and_show(db_session) -> None:
         model="test-model",
     )
     out = await turn.run_plan(
-        db_session, person_id=person.id, plan=plan, request=info
+        db_session,
+        person_id=person.id,
+        plan=plan,
+        request=info,
+        display=vocab.Display.WIDGET,
     )
     assert out.conversation_id.startswith("c_")
     assert out.turn_id.startswith("t_")
     assert out.mode in (vocab.Mode.ADAPTED, vocab.Mode.NEUTRAL)
+    assert out.display == vocab.Display.WIDGET
+    assert "claire_show_reply" in out.instruction
 
     shown = await turn.run_show(
         db_session,
@@ -42,9 +48,10 @@ async def test_run_plan_and_show(db_session) -> None:
             parts=[ShownPart(name="main", text="hi")],
         ),
         request=info,
-        mode="fallback",
+        display=vocab.Display.WIDGET,
     )
     assert shown.ok is True
+    assert "write nothing" in shown.note.lower()
 
     plan2 = PlanReplyIn(
         conversation_id=out.conversation_id,
@@ -53,8 +60,14 @@ async def test_run_plan_and_show(db_session) -> None:
         model="test-model",
     )
     out2 = await turn.run_plan(
-        db_session, person_id=person.id, plan=plan2, request=info
+        db_session,
+        person_id=person.id,
+        plan=plan2,
+        request=info,
+        display=vocab.Display.FALLBACK,
     )
+    assert out2.display == vocab.Display.FALLBACK
+    assert "Do not call claire_show_reply" in out2.instruction
     assert out2.conversation_id == out.conversation_id
     assert out2.turn_id != out.turn_id
 
@@ -82,6 +95,7 @@ async def test_repeated_calls_reuse_the_turn(db_session) -> None:
                 user_message=message,
             ),
             request=info,
+            display=vocab.Display.WIDGET,
         )
 
     async def show(planned) -> None:
@@ -93,6 +107,7 @@ async def test_repeated_calls_reuse_the_turn(db_session) -> None:
                 parts=[ShownPart(name="main", text="answer")],
             ),
             request=info,
+            display=vocab.Display.WIDGET,
         )
 
     first = await plan("question one")
@@ -134,7 +149,11 @@ async def test_edited_retry_is_logged_as_replay(db_session) -> None:
             user_message="original question",
         ),
         request=info,
+        display=vocab.Display.FALLBACK,
     )
+    assert first.display == vocab.Display.FALLBACK
+    assert "Do not call claire_show_reply" in first.instruction
+
     await turn.run_show(
         db_session,
         person_id=person.id,
@@ -143,6 +162,7 @@ async def test_edited_retry_is_logged_as_replay(db_session) -> None:
             parts=[ShownPart(name="main", text="first answer")],
         ),
         request=info,
+        display=vocab.Display.FALLBACK,
     )
 
     attempt_a = await turn.run_plan(
@@ -155,6 +175,7 @@ async def test_edited_retry_is_logged_as_replay(db_session) -> None:
             user_message="draft one",
         ),
         request=info,
+        display=vocab.Display.FALLBACK,
     )
     attempt_b = await turn.run_plan(
         db_session,
@@ -166,6 +187,7 @@ async def test_edited_retry_is_logged_as_replay(db_session) -> None:
             user_message="draft two edited",
         ),
         request=info,
+        display=vocab.Display.FALLBACK,
     )
     assert attempt_b.turn_id != attempt_a.turn_id
 

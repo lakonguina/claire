@@ -50,6 +50,13 @@ class Mode(StrEnum):
     NEUTRAL = "neutral"  # Holdout: answer like a normal assistant.
 
 
+class Display(StrEnum):
+    """How the host must deliver the reply (from MCP Apps capabilities)."""
+
+    WIDGET = "widget"  # MCP App UI is available.
+    FALLBACK = "fallback"  # No widget — answer goes in the chat.
+
+
 class EventType(StrEnum):
     """Kinds of rows in the append-only ``events`` table."""
 

@@ -13,13 +13,14 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from app.auth import SETTINGS, provider
-from app.core import db
+from app.core import db, vocab
 from app.mcp import turn
 from app.mcp.schemas import (
     PlanReplyIn,
     PlanReplyOut,
     RecordEventIn,
     ShowReplyIn,
+    ShowReplyOut,
 )
 
 _WIDGET = Path(__file__).resolve().parents[1] / "static" / "reply.html"
@@ -36,48 +37,26 @@ _ANNOTATIONS = ToolAnnotations(
 )
 
 
-def _show_result(
-    show: ShowReplyIn, *, mode: str, turn_id: str | None
-) -> CallToolResult:
-    """Build the tool result for the host.
+def _display_for(ctx: Context) -> vocab.Display:
+    """Widget vs chat — fixed from host capabilities (known at connect)."""
+    if mcp_apps.client_supports_apps(ctx):
+        return vocab.Display.WIDGET
+    return vocab.Display.FALLBACK
 
-    * ``app`` — widget shows the reply from tool arguments; ack only so the
-      model does not rewrite it in chat.
-    * ``fallback`` — no widget (e.g. ChatGPT today). Return the Markdown so
-      the host can surface it; ask the model to show it once, not twice.
+
+def _show_ack(shown: ShowReplyOut) -> CallToolResult:
+    """Ack only: never echo reply text (hosts would rewrite it in chat).
+
+    The widget reads parts from tool *arguments* via ``ontoolinput``.
     """
-    structured: dict = {"ok": True, "turn_id": turn_id, "mode": mode}
-    if mode == "app":
-        return CallToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        "Done: the user sees your reply in the widget. "
-                        "End your turn now with no text at all, not even a "
-                        "line saying the reply is shown."
-                    ),
-                )
-            ],
-            structured_content=structured,
-        )
-    body = "\n\n".join(part.text for part in show.parts if part.text)
-    structured["parts"] = [
-        part.model_dump(mode="json") for part in show.parts
-    ]
     return CallToolResult(
-        content=[
-            TextContent(
-                type="text",
-                text=(
-                    "No widget on this host. The reply below is what the "
-                    "user should see — post it once as your message, do not "
-                    "paraphrase or add a second version.\n\n"
-                    f"{body}"
-                ),
-            )
-        ],
-        structured_content=structured,
+        content=[TextContent(type="text", text=shown.note)],
+        structured_content={
+            "ok": shown.ok,
+            "turn_id": shown.turn_id,
+            "display": shown.display,
+            "note": shown.note,
+        },
     )
 
 
@@ -86,12 +65,12 @@ apps = mcp_apps.Apps()
 
 @apps.tool(resource_uri=UI_URI, annotations=_ANNOTATIONS)
 async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
-    """Write your entire reply here, in Markdown, and nothing in the chat.
+    """Write your entire reply here when plan.display is widget.
 
-    Call exactly once per reply, after claire_plan_reply. Your turn ends
-    with this call: write no text before or after it.
+    Call only if claire_plan_reply said display=widget. Do not call this in
+    fallback mode (write in the chat instead).
     """
-    mode = "app" if mcp_apps.client_supports_apps(ctx) else "fallback"
+    display = _display_for(ctx)
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         shown = await turn.run_show(
@@ -99,9 +78,9 @@ async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
             person_id=person_id,
             show=show,
             request=info,
-            mode=mode,
+            display=display,
         )
-    return _show_result(show, mode=shown.mode, turn_id=shown.turn_id)
+    return _show_ack(shown)
 
 
 @apps.tool(
@@ -152,11 +131,20 @@ mcp = ClaireServer(
 
 @mcp.tool(annotations=_ANNOTATIONS)
 async def claire_plan_reply(ctx: Context, plan: PlanReplyIn) -> PlanReplyOut:
-    """Plan the reply. Call exactly once per reply, before writing it."""
+    """Plan the reply. Call exactly once per reply, before writing it.
+
+    Follow ``display`` and ``instruction`` in the result: widget →
+    claire_show_reply only; fallback → write once in the chat.
+    """
+    display = _display_for(ctx)
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         return await turn.run_plan(
-            session, person_id=person_id, plan=plan, request=info
+            session,
+            person_id=person_id,
+            plan=plan,
+            request=info,
+            display=display,
         )
 
 

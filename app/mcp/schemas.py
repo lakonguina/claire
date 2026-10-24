@@ -177,6 +177,12 @@ class PlanReplyOut(BaseModel):
     conversation_id: str
     turn_id: str
     mode: vocab.Mode
+    display: vocab.Display = Field(
+        description=(
+            "widget: call claire_show_reply and write nothing in chat. "
+            "fallback: write the answer in chat; do not call claire_show_reply."
+        ),
+    )
     instruction: str = Field(description="What to do next for this reply.")
     parts: list[PlannedPartOut] = Field(
         default_factory=list,
@@ -208,8 +214,8 @@ class ShowReplyIn(BaseModel):
 class ShowReplyOut(BaseModel):
     """Result of ``claire_show_reply`` (ack only — no reply text).
 
-    Parts stay on the tool *input* for the widget (``ontoolinput``). Echoing
-    them here makes hosts rewrite the same answer in the chat.
+    The widget reads parts from tool arguments (``ontoolinput``). Never echo
+    the answer text here: hosts rewrite it in the chat.
     """
 
     ok: bool = True
@@ -217,9 +223,12 @@ class ShowReplyOut(BaseModel):
         default=None,
         description="Echo of the turn handle (for the MCP App widget).",
     )
-    mode: str = Field(
-        default="fallback",
-        description="``app`` when the host renders the MCP App; else ``fallback``.",
+    display: vocab.Display = Field(
+        default=vocab.Display.FALLBACK,
+        description="Echo of the display mode from the plan.",
+    )
+    note: str = Field(
+        description="What the person already sees; what the model must do next.",
     )
     parts: list[ShownPart] = Field(
         default_factory=list,
