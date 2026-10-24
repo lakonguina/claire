@@ -178,10 +178,7 @@ class PlanReplyOut(BaseModel):
     turn_id: str
     mode: vocab.Mode
     display: vocab.Display = Field(
-        description=(
-            "widget: call claire_show_reply and write nothing in chat. "
-            "fallback: write the answer in chat; do not call claire_show_reply."
-        ),
+        description="Always widget: call claire_show_reply; write nothing in chat.",
     )
     instruction: str = Field(description="What to do next for this reply.")
     parts: list[PlannedPartOut] = Field(
@@ -212,10 +209,11 @@ class ShowReplyIn(BaseModel):
 
 
 class ShowReplyOut(BaseModel):
-    """Result of ``claire_show_reply`` (ack only — no reply text).
+    """Ack for the model — no reply text in content/structuredContent.
 
-    The widget reads parts from tool arguments (``ontoolinput``). Never echo
-    the answer text here: hosts rewrite it in the chat.
+    Contract: tool args = human-facing reply (widget via ``ontoolinput``);
+    result = stop signal for the model; optional ``_meta.claire.parts``
+    mirrors args for hosts that skip input notifications (widget-only).
     """
 
     ok: bool = True
@@ -224,15 +222,15 @@ class ShowReplyOut(BaseModel):
         description="Echo of the turn handle (for the MCP App widget).",
     )
     display: vocab.Display = Field(
-        default=vocab.Display.FALLBACK,
-        description="Echo of the display mode from the plan.",
+        default=vocab.Display.WIDGET,
+        description="Always widget.",
     )
     note: str = Field(
-        description="What the person already sees; what the model must do next.",
+        description="Stop signal for the model after show_reply.",
     )
     parts: list[ShownPart] = Field(
         default_factory=list,
-        description="Internal only; not returned to the host model.",
+        description="Internal; wire as _meta.claire.parts only, never content.",
     )
 
 

@@ -32,19 +32,12 @@ from app.mcp.schemas import (
 from app.model import decision
 from app.model import rewards
 
-WIDGET_INSTRUCTION = (
-    "display=widget: call claire_show_reply once with your whole answer. "
-    "Do not write that answer (or a summary) in the chat — the widget is "
-    "the reply. End your turn after show_reply. "
-    "Do not call claire_plan_reply again for this reply."
+SHOW_INSTRUCTION = (
+    "call claire_show_reply once with the full answer; "
+    "write nothing in chat; do not call claire_plan_reply again."
 )
-FALLBACK_INSTRUCTION = (
-    "display=fallback: this host has no Claire widget. Write your whole "
-    "answer once in the chat as your normal message. "
-    "Do not call claire_show_reply. "
-    "Do not call claire_plan_reply again for this reply."
-)
-ADAPTED_PREFIX = "Answer only what the user asked; do not digress. "
+ADAPTED_PREFIX = "Answer only what was asked. "
+SHOW_NOTE = "Shown in the widget. Write nothing."
 
 
 def person_id_from_ctx(ctx: Context) -> int:
@@ -111,33 +104,13 @@ def message_key(plan: PlanReplyIn) -> str:
     ).hexdigest()
 
 
-def _instruction(*, holdout: bool, display: vocab.Display) -> str:
-    base = (
-        FALLBACK_INSTRUCTION
-        if display == vocab.Display.FALLBACK
-        else WIDGET_INSTRUCTION
-    )
-    return base if holdout else ADAPTED_PREFIX + base
-
-
-def show_note(display: vocab.Display) -> str:
-    """Unambiguous closing line for ``claire_show_reply``."""
-    if display == vocab.Display.WIDGET:
-        return (
-            "The reply is displayed to the person in the widget. "
-            "Your turn is over: write nothing."
-        )
-    return (
-        "No widget on this host. You should already have written the answer "
-        "in the chat. Write nothing more."
-    )
+def _instruction(*, holdout: bool) -> str:
+    return SHOW_INSTRUCTION if holdout else ADAPTED_PREFIX + SHOW_INSTRUCTION
 
 
 async def _given_plan(
     session: AsyncSession,
     plan_call: models.Event,
-    *,
-    display: vocab.Display,
 ) -> PlanReplyOut | None:
     """Rebuild the result already returned for ``plan_call``'s turn."""
     decided = await session.scalar(
@@ -154,8 +127,8 @@ async def _given_plan(
         conversation_id=plan_call.conversation_id,
         turn_id=plan_call.turn_id,
         mode=decided.meta["mode"],
-        display=display,
-        instruction=_instruction(holdout=holdout, display=display),
+        display=vocab.Display.WIDGET,
+        instruction=_instruction(holdout=holdout),
         parts=[PlannedPartOut(**part) for part in payload.get("parts", [])],
     )
 
@@ -220,14 +193,12 @@ async def _repeated_plan(
     person_id: int,
     plan: PlanReplyIn,
     key: str,
-    display: vocab.Display,
 ) -> PlanReplyOut | None:
     """Return the turn this call repeats, if any.
 
     A call repeats a turn when it would give that turn a second successor
     for the *same* message, or when that turn is still open (planned, not
-    shown) for the same message. ``display`` / ``instruction`` follow the
-    current host capabilities (not the first attempt's).
+    shown) for the same message.
     """
     plan_calls = _plan_calls_q(
         person_id=person_id, conversation_id=plan.conversation_id
@@ -241,7 +212,7 @@ async def _repeated_plan(
             ).limit(1)
         )
         if same is not None:
-            return await _given_plan(session, same, display=display)
+            return await _given_plan(session, same)
     latest = await session.scalar(
         plan_calls.order_by(models.Event.id.desc()).limit(1)
     )
@@ -250,7 +221,7 @@ async def _repeated_plan(
         and latest.meta.get("message_key") == key
         and not await _is_shown(session, latest.turn_id)
     ):
-        return await _given_plan(session, latest, display=display)
+        return await _given_plan(session, latest)
     return None
 
 
@@ -339,13 +310,11 @@ async def run_plan(
     person_id: int,
     plan: PlanReplyIn,
     request: RequestInfo,
-    display: vocab.Display,
 ) -> PlanReplyOut:
     """Close last turn if any, mint ids, log plan_call + decision.
 
-    ``display`` comes from the host's MCP Apps capabilities (known at
-    connect). A repeat of the same call returns the first result and logs
-    nothing (instruction / display refreshed for this host).
+    Reply delivery is always the MCP App widget. A repeat of the same call
+    returns the first result and logs nothing.
     """
     # Serialize this person's plan calls so a parallel repeat sees the first.
     await session.execute(sa.select(sa.func.pg_advisory_xact_lock(person_id)))
@@ -355,7 +324,6 @@ async def run_plan(
         person_id=person_id,
         plan=plan,
         key=key,
-        display=display,
     )
     if repeated is not None:
         return repeated
@@ -364,6 +332,7 @@ async def run_plan(
     turn_id = new_id("t")
     holdout = is_holdout(conversation_id)
     mode = vocab.Mode.NEUTRAL if holdout else vocab.Mode.ADAPTED
+    display = vocab.Display.WIDGET
 
     abandoned = await _abandoned_attempts(
         session,
@@ -452,7 +421,7 @@ async def run_plan(
         turn_id=turn_id,
         mode=mode,
         display=display,
-        instruction=_instruction(holdout=holdout, display=display),
+        instruction=_instruction(holdout=holdout),
         parts=parts,
     )
 
@@ -463,16 +432,15 @@ async def run_show(
     person_id: int,
     show: ShowReplyIn,
     request: RequestInfo,
-    display: vocab.Display,
 ) -> ShowReplyOut:
     """Log written reply parts for a turn; a repeat for the turn logs nothing."""
-    note = show_note(display)
+    display = vocab.Display.WIDGET
     if await _is_shown(session, show.turn_id):
         return ShowReplyOut(
             ok=True,
             turn_id=show.turn_id,
             display=display,
-            note=note,
+            note=SHOW_NOTE,
             parts=list(show.parts),
         )
     conversation_id = await _conversation_id_for_turn(session, show.turn_id)
@@ -500,7 +468,7 @@ async def run_show(
         ok=True,
         turn_id=show.turn_id,
         display=display,
-        note=note,
+        note=SHOW_NOTE,
         parts=list(show.parts),
     )
 

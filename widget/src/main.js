@@ -1,9 +1,9 @@
 /**
- * MCP App for claire_show_reply: display parts and report view / errors.
+ * MCP App for claire_show_reply.
  *
- * Render from tool *arguments* (ontoolinput), not the tool *result*.
- * The server result intentionally omits the reply text so the host model
- * has nothing to copy into the chat.
+ * Contract: args = human reply (ontoolinput / partial); result = model stop
+ * signal; optional _meta.claire.parts = widget-only mirror if input was skipped.
+ * Never read the essay from structuredContent (model-visible; hosts may echo).
  */
 import { App } from "@modelcontextprotocol/ext-apps";
 import DOMPurify from "dompurify";
@@ -63,11 +63,13 @@ app.ontoolinputpartial = (params) => {
   if (args.parts) showParts(args.parts);
 };
 
-/** Result is ack-only (no parts) — keep turn_id if missing from input. */
+/** Ack only in structuredContent; parts may arrive under _meta.claire. */
 app.ontoolresult = (result) => {
   const sc = result?.structuredContent || {};
+  const meta = result?._meta || result?.meta || {};
   turnId = sc.turn_id || turnId;
-  if (sc.parts?.length) showParts(sc.parts);
+  const parts = meta?.claire?.parts;
+  if (parts?.length) showParts(parts);
 };
 
 app.onerror = (err) => {

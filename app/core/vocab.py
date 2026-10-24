@@ -51,10 +51,10 @@ class Mode(StrEnum):
 
 
 class Display(StrEnum):
-    """How the host must deliver the reply (from MCP Apps capabilities)."""
+    """How the reply is delivered. Claire always uses the MCP App widget."""
 
-    WIDGET = "widget"  # MCP App UI is available.
-    FALLBACK = "fallback"  # No widget — answer goes in the chat.
+    WIDGET = "widget"
+    FALLBACK = "fallback"  # Legacy only — never emitted.
 
 
 class EventType(StrEnum):
