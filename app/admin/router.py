@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app import models
-from app.admin import views
+from app.admin import kpis, views
 from app.core import config, db
 from app.jobs import nightly
 
@@ -194,11 +194,16 @@ async def people_list(request: Request) -> Response:
             }
             for person, conversations, last_event_at in rows
         ]
+        snapshot = await kpis.compute(session)
 
     return _TEMPLATES.TemplateResponse(
         request=request,
         name="admin/people.html",
-        context={"people": people, "train_report": train_report},
+        context={
+            "people": people,
+            "train_report": train_report,
+            "kpis": kpis.as_template(snapshot),
+        },
     )
 
 

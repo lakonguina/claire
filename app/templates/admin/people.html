@@ -21,6 +21,46 @@
 </p>
 {% endif %}
 
+<section class="mt-8 rounded-xl border bg-card/40 px-4 py-5 sm:px-5">
+  <h2 class="text-sm font-semibold tracking-tight text-foreground">Product KPIs</h2>
+  <p class="mt-1 max-w-2xl text-sm text-muted-foreground">
+    Lean check: adapted replies should be shorter than holdout, without more corrections.
+  </p>
+  <div class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">OMTM · median words</p>
+      <p class="mt-1 text-2xl font-black tracking-tight tabular-nums">
+        {{ kpis.adapted_words }}
+        <span class="text-base font-semibold text-muted-foreground">vs {{ kpis.holdout_words }}</span>
+      </p>
+      <p class="mt-1 text-xs text-muted-foreground">adapted vs holdout · {{ kpis.adapted_shown }} / {{ kpis.holdout_shown }} replies</p>
+    </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">OMTM · correction rate</p>
+      <p class="mt-1 text-2xl font-black tracking-tight tabular-nums">
+        {{ kpis.adapted_correction }}
+        <span class="text-base font-semibold text-muted-foreground">vs {{ kpis.holdout_correction }}</span>
+      </p>
+      <p class="mt-1 text-xs text-muted-foreground">person forced form/length · {{ kpis.adapted_closed }} / {{ kpis.holdout_closed }} closed</p>
+    </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Active people · 7d</p>
+      <p class="mt-1 text-2xl font-black tracking-tight tabular-nums">{{ kpis.active_people_7d }}</p>
+      <p class="mt-1 text-xs text-muted-foreground">of {{ kpis.people_total }} total</p>
+    </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Loop rate</p>
+      <p class="mt-1 text-2xl font-black tracking-tight tabular-nums">{{ kpis.loop_rate }}</p>
+      <p class="mt-1 text-xs text-muted-foreground">show after plan · {{ kpis.replies }} / {{ kpis.plans }}</p>
+    </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Widget seen</p>
+      <p class="mt-1 text-2xl font-black tracking-tight tabular-nums">{{ kpis.view_rate }}</p>
+      <p class="mt-1 text-xs text-muted-foreground">reply_view / replies shown</p>
+    </div>
+  </div>
+</section>
+
 {% if not people %}
 <p class="mt-10 text-muted-foreground">No users yet.</p>
 {% else %}
