@@ -32,11 +32,9 @@ from app.mcp.schemas import (
 from app.model import decision
 from app.model import rewards
 
-SHOW_INSTRUCTION = (
-    "call claire_show_reply once with the full answer in Markdown; "
-    "write nothing else in the chat; do not call claire_plan_reply again."
-)
-ADAPTED_PREFIX = "Answer only what was asked. "
+# Same line as claire og ``prompts.widget_mode`` (that build did not double).
+SHOW_INSTRUCTION = "Write the reply only in claire_show_reply."
+ADAPTED_PREFIX = "Answer only what was asked. No preamble, no recap. "
 # Kept for ShowReplyOut / admin; the wire ack text lives in server._SHOWN.
 SHOW_NOTE = (
     "The user now sees your reply. Do not call claire_show_reply again "

@@ -37,8 +37,7 @@ async def test_run_plan_and_show(db_session) -> None:
     assert out.turn_id.startswith("t_")
     assert out.mode in (vocab.Mode.ADAPTED, vocab.Mode.NEUTRAL)
     assert out.display == vocab.Display.WIDGET
-    assert "claire_show_reply" in out.instruction
-    assert "Do not call claire_show_reply" not in out.instruction
+    assert out.instruction.endswith("Write the reply only in claire_show_reply.")
 
     shown = await turn.run_show(
         db_session,
@@ -66,7 +65,7 @@ async def test_run_plan_and_show(db_session) -> None:
         request=info,
     )
     assert out2.display == vocab.Display.WIDGET
-    assert "claire_show_reply" in out2.instruction
+    assert out2.instruction.endswith("Write the reply only in claire_show_reply.")
     assert out2.conversation_id == out.conversation_id
     assert out2.turn_id != out.turn_id
 
@@ -148,7 +147,7 @@ async def test_edited_retry_is_logged_as_replay(db_session) -> None:
         request=info,
     )
     assert first.display == vocab.Display.WIDGET
-    assert "claire_show_reply" in first.instruction
+    assert first.instruction.endswith("Write the reply only in claire_show_reply.")
 
     await turn.run_show(
         db_session,

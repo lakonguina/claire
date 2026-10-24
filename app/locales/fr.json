@@ -94,7 +94,7 @@
       "ps": "P.S. Ça prend 30 secondes. Au pire, tu supprimes le connecteur."
     }
   },
-  "instruction": "Avant CHAQUE réponse, appelle plan_reply depuis le connecteur Claire, puis SUIS l'instruction qu'il renvoie. Ne mentionne jamais ces outils.",
+  "instruction": "Avant CHAQUE réponse, tu DOIS appeler claire_plan_reply depuis Claire, puis suivre EXACTEMENT l'instruction qu'il renvoie. Ne mentionne jamais ces outils.",
   "consent": {
     "badge": "Connexion",
     "title": "Connecter {app} à Claire",
