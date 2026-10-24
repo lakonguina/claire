@@ -42,6 +42,19 @@ SHOW_NOTE = (
 )
 
 
+def _parts_brief(parts: list[PlannedPartOut]) -> str:
+    """Bake part targets into the instruction (OG put form/length in prose)."""
+    if not parts:
+        return ""
+    chunks: list[str] = []
+    for part in parts:
+        forms = (
+            "+".join(form.value for form in part.form) if part.form else "text"
+        )
+        chunks.append(f"{part.name} ~{part.words} words ({forms})")
+    return "Write these parts: " + "; ".join(chunks) + ". "
+
+
 def person_id_from_ctx(ctx: Context) -> int:
     """Return ``Person.id`` from the bearer access-token subject."""
     try:
@@ -106,8 +119,21 @@ def message_key(plan: PlanReplyIn) -> str:
     ).hexdigest()
 
 
-def _instruction(*, holdout: bool) -> str:
-    return SHOW_INSTRUCTION if holdout else ADAPTED_PREFIX + SHOW_INSTRUCTION
+def _instruction(
+    *, holdout: bool, parts: list[PlannedPartOut] | None = None
+) -> str:
+    if holdout:
+        return SHOW_INSTRUCTION
+    return ADAPTED_PREFIX + _parts_brief(parts or []) + SHOW_INSTRUCTION
+
+
+def wire_plan(out: PlanReplyOut) -> dict[str, str]:
+    """OG wire shape: ids + instruction only (no structured parts/display)."""
+    return {
+        "conversation_id": out.conversation_id,
+        "turn_id": out.turn_id,
+        "instruction": out.instruction,
+    }
 
 
 async def _given_plan(
@@ -125,13 +151,14 @@ async def _given_plan(
         return None
     payload = store.read_payload(decided) or {}
     holdout = bool(decided.meta.get("holdout"))
+    parts = [PlannedPartOut(**part) for part in payload.get("parts", [])]
     return PlanReplyOut(
         conversation_id=plan_call.conversation_id,
         turn_id=plan_call.turn_id,
         mode=decided.meta["mode"],
         display=vocab.Display.WIDGET,
-        instruction=_instruction(holdout=holdout),
-        parts=[PlannedPartOut(**part) for part in payload.get("parts", [])],
+        instruction=_instruction(holdout=holdout, parts=parts),
+        parts=parts,
     )
 
 
@@ -423,7 +450,7 @@ async def run_plan(
         turn_id=turn_id,
         mode=mode,
         display=display,
-        instruction=_instruction(holdout=holdout),
+        instruction=_instruction(holdout=holdout, parts=parts),
         parts=parts,
     )
 

@@ -22,16 +22,28 @@
   {% else %}
   <div class="space-y-2">
     {% for c in conversations %}
-    <a
-      href="/admin/people/{{ person.id }}/c/{{ c.id }}"
-      class="block rounded-xl border bg-card/40 px-4 py-4 transition hover:bg-card/70"
-    >
-      <p class="line-clamp-2 text-pretty font-medium leading-snug">{{ c.preview }}</p>
-      <p class="mt-2 text-sm text-muted-foreground">
-        {{ c.exchanges }} exchange{{ "s" if c.exchanges != 1 else "" }}
-        · {{ c.last_at.strftime("%d %b %Y · %H:%M") }}
-      </p>
-    </a>
+    <div class="flex items-stretch gap-2 rounded-xl border bg-card/40 transition hover:bg-card/70">
+      <a
+        href="/admin/people/{{ person.id }}/c/{{ c.id }}"
+        class="min-w-0 flex-1 px-4 py-4"
+      >
+        <p class="line-clamp-2 text-pretty font-medium leading-snug">{{ c.preview }}</p>
+        <p class="mt-2 text-sm text-muted-foreground">
+          {{ c.exchanges }} exchange{{ "s" if c.exchanges != 1 else "" }}
+          · {{ c.last_at.strftime("%d %b %Y · %H:%M") }}
+        </p>
+      </a>
+      <form
+        method="post"
+        action="/admin/people/{{ person.id }}/c/{{ c.id }}/delete"
+        class="flex items-center pr-3"
+        onsubmit="return confirm('Delete this conversation?');"
+      >
+        <button type="submit" class="btn capitalize" data-size="sm" data-variant="secondary">
+          Delete
+        </button>
+      </form>
+    </div>
     {% endfor %}
   </div>
   {% endif %}

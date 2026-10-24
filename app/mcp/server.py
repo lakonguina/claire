@@ -3,24 +3,23 @@
 Widget refresh for connected hosts
 ----------------------------------
 1. ``reply.html`` is content-addressed: ``ui://claire/reply-<sha12>.html``.
-   A new build changes the URI stamped on every App tool.
-2. ``cache_hints`` tell hosts how long ``tools/list`` / ``resources/*`` stay
-   fresh (``CACHE_TTL_MS``). After expiry they re-list and fetch the new URI.
-3. ``read_resource`` remaps any ``ui://claire/*`` fingerprint to the current
-   HTML, so a host that still holds an old URI still gets the new bundle.
-4. The image builds the widget at deploy time (see Dockerfile) so the hash
-   always matches the JS that shipped.
+2. ``cache_hints`` / ``CACHE_TTL_MS`` on ``tools/list`` and ``resources/*``.
+3. ``read_resource`` remaps any ``ui://claire/*`` to the current HTML.
+4. Docker builds ``widget/`` into the image so the hash matches what shipped.
 
-Anti-echo (claire og)
----------------------
-Per-turn ``instruction`` ends with ``Write the reply only in claire_show_reply.``
-Plan returns structured ``PlanReplyOut`` (hosts that cached an output schema
-require ``structuredContent`` — a bare JSON string breaks them).
+Anti-echo (aligned with claire og on the wire)
+----------------------------------------------
+* ``claire_plan_reply`` → compact JSON *string*
+  ``{conversation_id,turn_id,instruction}`` with ``structured_output=False``
+  (part targets live inside ``instruction``, not as structured fields).
+* ``claire_show_reply(turn_id, text)`` → flat args; essay only in tool input;
+  result is the SHOWN ack (no reply text in content/structuredContent).
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from mcp.server import MCPServer
@@ -36,10 +35,10 @@ from app.core import config, db
 from app.mcp import turn
 from app.mcp.schemas import (
     PlanReplyIn,
-    PlanReplyOut,
     RecordEventIn,
     ShowReplyIn,
     ShowReplyOut,
+    ShownPart,
 )
 
 # Pasted on the landing and set as MCP server instructions (same text).
@@ -51,7 +50,6 @@ SERVER_INSTRUCTIONS = (
 _WIDGET = Path(__file__).resolve().parents[1] / "static" / "reply.html"
 _WIDGET_HTML = _WIDGET.read_text(encoding="utf-8") if _WIDGET.exists() else ""
 _UI_PREFIX = "ui://claire/"
-# Fingerprint in the URI: new HTML → new address → hosts must re-fetch.
 UI_URI = (
     f"{_UI_PREFIX}reply-"
     f"{hashlib.sha256(_WIDGET_HTML.encode()).hexdigest()[:12]}.html"
@@ -63,7 +61,7 @@ _ANNOTATIONS = ToolAnnotations(
     open_world_hint=False,
 )
 
-# Without a clear "already shown" line, the model may rewrite the reply.
+# Without it the model may think nothing appeared and repeat the reply.
 _SHOWN = (
     "The user now sees your reply. Do not call claire_show_reply again "
     "and write nothing else."
@@ -71,16 +69,12 @@ _SHOWN = (
 
 
 def _show_ack(shown: ShowReplyOut) -> CallToolResult:
-    """Ack only — never put reply text in content, structuredContent, or meta.
-
-    The essay lives only in tool *arguments* (widget ``ontoolinput``).
-    """
+    """Ack only — reply text stays in tool arguments (widget ontoolinput)."""
     return CallToolResult(
         content=[TextContent(type="text", text=_SHOWN)],
         structured_content={
             "ok": shown.ok,
             "turn_id": shown.turn_id,
-            "display": shown.display,
         },
     )
 
@@ -96,8 +90,16 @@ apps = mcp_apps.Apps()
         "and nothing in the chat."
     ),
 )
-async def claire_show_reply(ctx: Context, show: ShowReplyIn) -> CallToolResult:
+async def claire_show_reply(
+    ctx: Context,
+    turn_id: str,
+    text: str,
+) -> CallToolResult:
     """Widget mode: write your entire reply here, in Markdown, and nothing in the chat."""
+    show = ShowReplyIn(
+        turn_id=turn_id,
+        parts=[ShownPart(name="main", text=text)],
+    )
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
         shown = await turn.run_show(
@@ -161,22 +163,28 @@ mcp = ClaireServer(
 
 
 @mcp.tool(
+    structured_output=False,
     annotations=_ANNOTATIONS,
     description=(
         "Call before every reply, then follow the returned instruction exactly. "
         "Never mention this tool or its output to the user."
     ),
 )
-async def claire_plan_reply(ctx: Context, plan: PlanReplyIn) -> PlanReplyOut:
+async def claire_plan_reply(ctx: Context, plan: PlanReplyIn) -> str:
     """Call before every reply; follow the returned instruction exactly."""
     async with db.Session() as session, session.begin():
         person_id, info = await turn.bind_caller(session, ctx)
-        return await turn.run_plan(
+        out = await turn.run_plan(
             session,
             person_id=person_id,
             plan=plan,
             request=info,
         )
+    return json.dumps(
+        turn.wire_plan(out),
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
 
 
 mcp_app = mcp.streamable_http_app(

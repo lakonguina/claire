@@ -7,12 +7,23 @@
 <span class="text-sm">Conversation</span>
 {% endblock %}
 {% block body %}
-<div>
-  <h1 class="text-2xl font-black tracking-tight">Conversation</h1>
-  <p class="mt-1 text-sm text-muted-foreground">
-    {{ turns|length }} exchange{{ "s" if turns|length != 1 else "" }}
-    with user #{{ person.id }}
-  </p>
+<div class="flex flex-wrap items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-black tracking-tight">Conversation</h1>
+    <p class="mt-1 text-sm text-muted-foreground">
+      {{ turns|length }} exchange{{ "s" if turns|length != 1 else "" }}
+      with user #{{ person.id }}
+    </p>
+  </div>
+  <form
+    method="post"
+    action="/admin/people/{{ person.id }}/c/{{ conversation_id }}/delete"
+    onsubmit="return confirm('Delete this whole conversation?');"
+  >
+    <button type="submit" class="btn capitalize" data-size="sm" data-variant="secondary">
+      Delete conversation
+    </button>
+  </form>
 </div>
 
 {% if not turns %}
@@ -73,6 +84,20 @@
     </div>
     {% elif turn.user_text %}
     <p class="text-center text-sm text-muted-foreground">No AI reply recorded.</p>
+    {% endif %}
+
+    {% if turn.turn_id %}
+    <div class="flex justify-center">
+      <form
+        method="post"
+        action="/admin/people/{{ person.id }}/c/{{ conversation_id }}/turns/{{ turn.turn_id }}/delete"
+        onsubmit="return confirm('Delete this exchange?');"
+      >
+        <button type="submit" class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+          Delete exchange
+        </button>
+      </form>
+    </div>
     {% endif %}
   </div>
   {% endfor %}

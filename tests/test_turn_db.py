@@ -37,7 +37,10 @@ async def test_run_plan_and_show(db_session) -> None:
     assert out.turn_id.startswith("t_")
     assert out.mode in (vocab.Mode.ADAPTED, vocab.Mode.NEUTRAL)
     assert out.display == vocab.Display.WIDGET
-    assert out.instruction.endswith("Write the reply only in claire_show_reply.")
+    assert "Write the reply only in claire_show_reply." in out.instruction
+    assert "main ~" in out.instruction or out.mode == vocab.Mode.NEUTRAL
+    wire = turn.wire_plan(out)
+    assert set(wire) == {"conversation_id", "turn_id", "instruction"}
 
     shown = await turn.run_show(
         db_session,

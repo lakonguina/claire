@@ -286,3 +286,77 @@ async def conversation_detail(
             "turns": turns,
         },
     )
+
+
+async def _delete_events(
+    session,
+    *,
+    person_id: int,
+    conversation_id: str | None = None,
+    turn_id: str | None = None,
+) -> int:
+    """Hard-delete matching events; returns how many rows were removed."""
+    if turn_id:
+        result = await session.execute(
+            sa.delete(models.Event).where(
+                models.Event.person_id == person_id,
+                models.Event.turn_id == turn_id,
+            )
+        )
+        return int(result.rowcount or 0)
+    if not conversation_id:
+        return 0
+    events = await _conversation_events(
+        session, person_id=person_id, conversation_id=conversation_id
+    )
+    ids = [event.id for event in events]
+    if not ids:
+        return 0
+    result = await session.execute(
+        sa.delete(models.Event).where(models.Event.id.in_(ids))
+    )
+    return int(result.rowcount or 0)
+
+
+@router.post("/people/{person_id}/c/{conversation_id}/delete")
+async def delete_conversation(
+    request: Request, person_id: int, conversation_id: str
+) -> Response:
+    """Remove every event in this conversation."""
+    blocked = _gate(request)
+    if blocked is not None:
+        return blocked
+    async with db.Session() as session, session.begin():
+        person = await session.get(models.Person, person_id)
+        if person is None:
+            raise HTTPException(status_code=404, detail="person not found")
+        await _delete_events(
+            session, person_id=person_id, conversation_id=conversation_id
+        )
+    return RedirectResponse(
+        url=f"/admin/people/{person_id}", status_code=303
+    )
+
+
+@router.post(
+    "/people/{person_id}/c/{conversation_id}/turns/{turn_id}/delete"
+)
+async def delete_turn(
+    request: Request,
+    person_id: int,
+    conversation_id: str,
+    turn_id: str,
+) -> Response:
+    """Remove one exchange (all events for ``turn_id``)."""
+    blocked = _gate(request)
+    if blocked is not None:
+        return blocked
+    async with db.Session() as session, session.begin():
+        person = await session.get(models.Person, person_id)
+        if person is None:
+            raise HTTPException(status_code=404, detail="person not found")
+        await _delete_events(session, person_id=person_id, turn_id=turn_id)
+    return RedirectResponse(
+        url=f"/admin/people/{person_id}/c/{conversation_id}",
+        status_code=303,
+    )

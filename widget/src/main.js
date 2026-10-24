@@ -1,9 +1,8 @@
 /**
- * MCP App for claire_show_reply.
+ * MCP App for claire_show_reply (claire og wire shape).
  *
- * Contract (same as the Claire build that did not double in Claude):
- * args = human reply (ontoolinput / partial); result = stop signal only.
- * Never put the essay in the tool result — Claude may paste it into chat.
+ * Args: flat {turn_id, text} — the written reply.
+ * Result: stop signal only (no essay in structuredContent).
  */
 import { App } from "@modelcontextprotocol/ext-apps";
 import DOMPurify from "dompurify";
@@ -15,6 +14,7 @@ const app = new App({ name: "claire", version: "0.1.0" });
 
 let turnId = null;
 let viewed = false;
+let text = "";
 
 async function record(kind, value = null) {
   if (!turnId) return;
@@ -28,7 +28,7 @@ async function record(kind, value = null) {
   }
 }
 
-function render(text) {
+function render() {
   try {
     replyEl.innerHTML = DOMPurify.sanitize(marked.parse(text || ""));
   } catch (e) {
@@ -36,44 +36,39 @@ function render(text) {
     errEl.textContent = "Could not render reply.";
     record("render_error", String(e?.message || e));
   }
-}
-
-function showParts(parts) {
-  const text = (parts || [])
-    .map((p) => p?.text || "")
-    .filter(Boolean)
-    .join("\n\n");
-  render(text);
   if (turnId && !viewed && text) {
     viewed = true;
     record("reply_view", 1);
   }
 }
 
-/** Flat args (turn_id, parts) preferred; unwrap legacy ``{ show: … }``. */
-function toolArgs(params) {
-  const args = params?.arguments || params || {};
-  return args.show || args;
+/** Flat args preferred; unwrap legacy ``{ show: {…} }`` / ``parts``. */
+function applyArgs(raw) {
+  const args = raw?.arguments || raw || {};
+  const body = args.show || args;
+  turnId = body.turn_id || turnId;
+  if (typeof body.text === "string") {
+    text = body.text;
+    render();
+    return;
+  }
+  if (Array.isArray(body.parts)) {
+    text = body.parts
+      .map((p) => p?.text || "")
+      .filter(Boolean)
+      .join("\n\n");
+    render();
+  }
 }
 
-/** Host streams / delivers the tool call arguments (the written reply). */
-app.ontoolinput = (params) => {
-  const args = toolArgs(params);
-  turnId = args.turn_id || turnId;
-  showParts(args.parts);
-};
+app.ontoolinput = (params) => applyArgs(params);
+app.ontoolinputpartial = (params) => applyArgs(params);
 
-app.ontoolinputpartial = (params) => {
-  const args = toolArgs(params);
-  turnId = args.turn_id || turnId;
-  if (args.parts) showParts(args.parts);
-};
-
-/** Result is ack-only (no parts). Keep turn_id if the host omitted input. */
 app.ontoolresult = (result) => {
   if (result?.isError) {
-    render("");
+    text = "";
     turnId = null;
+    render();
     return;
   }
   const sc = result?.structuredContent || {};
